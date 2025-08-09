@@ -1,0 +1,72 @@
+/* SIMPLE THEME - NO EFFECTS, NO TRANSPARENCY, JUST BASIC COLORS */
+
+QMainWindow {
+    background-color: #FFFFFF;
+}
+
+QWidget {
+    background-color: #FFFFFF;
+    color: #000000;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+}
+
+QTabWidget::pane {
+    background-color: #FFFFFF;
+    border: 1px solid #CCCCCC;
+}
+
+QTabBar::tab {
+    background-color: #F0F0F0;
+    color: #000000;
+    padding: 8px 16px;
+    border: 1px solid #CCCCCC;
+}
+
+QTabBar::tab:selected {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #FFFFFF;
+}
+
+QPushButton {
+    background-color: #E0E0E0;
+    color: #000000;
+    border: 1px solid #CCCCCC;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #D0D0D0;
+}
+
+QPushButton:pressed {
+    background-color: #C0C0C0;
+}
+
+QTableWidget, QTableView {
+    background-color: #FFFFFF;
+    border: 1px solid #CCCCCC;
+    gridline-color: #E0E0E0;
+}
+
+QHeaderView::section {
+    background-color: #F0F0F0;
+    border: 1px solid #CCCCCC;
+    padding: 4px;
+}
+
+QSpinBox, QDoubleSpinBox {
+    background-color: #FFFFFF;
+    border: 1px solid #CCCCCC;
+    padding: 4px;
+}
+
+QLabel {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QFrame {
+    background-color: #FFFFFF;
+    border: 1px solid #CCCCCC;
+}

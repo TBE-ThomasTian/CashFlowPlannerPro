@@ -1,0 +1,247 @@
+/* Modern Card Design with Silver-Gray Background */
+
+QMainWindow {
+    background-color: #dde1e6;  /* User specified silver gray */
+}
+
+QWidget {
+    background-color: #dde1e6;
+    color: #2C3E50;
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    font-size: 14px;
+}
+
+/* Tab Widget */
+QTabWidget::pane {
+    background-color: #dde1e6;
+    border: none;
+}
+
+QTabBar::tab {
+    background-color: #FFFFFF;
+    color: #7F8C8D;
+    padding: 10px 20px;
+    margin: 2px;
+    border: 1px solid #D5D8DC;
+    border-radius: 8px;
+}
+
+QTabBar::tab:selected {
+    background-color: #64849a;
+    color: #FFFFFF;
+    border: none;
+}
+
+/* KPI Cards - White with shadow effect */
+QFrame#Card {
+    background-color: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+}
+
+/* Dark Card for primary metric */
+QFrame#CardDark {
+    background-color: #64849a;
+    border: none;
+    border-radius: 12px;
+}
+
+/* Card Title */
+QLabel#CardTitle {
+    color: #95A5A6;
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+}
+
+/* Card Value - Normal */
+QLabel#CardValue {
+    color: #2C3E50;
+    font-size: 36px;
+    font-weight: 700;
+    background: transparent;
+}
+
+/* Card Value - Dark Card */
+QLabel#CardValueDark {
+    color: #FFFFFF;
+    font-size: 36px;
+    font-weight: 700;
+    background: transparent;
+}
+
+/* Card Icons */
+QLabel#CardIcon {
+    font-size: 24px;
+    background: transparent;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #64849a;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: 500;
+}
+
+QPushButton:hover {
+    background-color: #4a6278;
+}
+
+QPushButton#SecondaryButton {
+    background-color: #95A5A6;
+}
+
+QPushButton#SecondaryButton:hover {
+    background-color: #7F8C8D;
+}
+
+QPushButton[text="Löschen"] {
+    background-color: #E74C3C;
+}
+
+QPushButton[text="Speichern"] {
+    background-color: #27AE60;
+}
+
+/* Input Fields - Modern style */
+QSpinBox, QDoubleSpinBox {
+    background-color: #FFFFFF;
+    border: 1px solid #D5D8DC;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #2C3E50;
+    min-height: 26px;
+    font-size: 14px;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 2px solid #64849a;
+}
+
+/* Stepper buttons styling */
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border: none;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #FAFBFC, stop: 1 #F0F2F4);
+    border-left: 1px solid #D5D8DC;
+    border-bottom: 1px solid #E8ECEF;
+    border-top-right-radius: 5px;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #E8ECEF, stop: 1 #DDE1E6);
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border: none;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #FAFBFC, stop: 1 #F0F2F4);
+    border-left: 1px solid #D5D8DC;
+    border-bottom-right-radius: 5px;
+}
+
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0 #E8ECEF, stop: 1 #DDE1E6);
+}
+
+/* Custom arrow images */
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(resources/arrow_up.svg);
+    width: 8px;
+    height: 5px;
+}
+
+QSpinBox::up-button:hover::up-arrow, QDoubleSpinBox::up-button:hover::up-arrow {
+    image: url(resources/arrow_up_hover.svg);
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(resources/arrow_down.svg);
+    width: 8px;
+    height: 5px;
+}
+
+QSpinBox::down-button:hover::down-arrow, QDoubleSpinBox::down-button:hover::down-arrow {
+    image: url(resources/arrow_down_hover.svg);
+}
+
+QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off {
+    image: none;
+}
+
+QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off {
+    image: none;
+}
+
+/* Labels */
+QLabel {
+    background-color: transparent;
+    color: #2C3E50;
+}
+
+/* Info Box */
+QLabel[class="info"] {
+    background-color: #F8F9FA;
+    border: 1px solid #D5D8DC;
+    border-radius: 8px;
+    padding: 12px;
+    color: #2C3E50;
+}
+
+/* Tables */
+QTableWidget, QTableView {
+    background-color: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+    gridline-color: #ECF0F1;
+}
+
+QTableWidget::item {
+    padding: 10px;
+    border-bottom: 1px solid #ECF0F1;
+}
+
+QHeaderView::section {
+    background-color: #F8F9FA;
+    color: #7F8C8D;
+    padding: 10px;
+    border: none;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+/* Chart */
+QChartView {
+    background-color: #FFFFFF;
+    border-radius: 12px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    background-color: #F8F9FA;
+    width: 8px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #BDC3C7;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
