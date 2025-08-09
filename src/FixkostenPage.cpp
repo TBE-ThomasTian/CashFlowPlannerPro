@@ -1,4 +1,4 @@
-#include "TaxesPage.h"
+#include "FixkostenPage.h"
 #include "Database.h"
 #include <QSqlTableModel>
 #include <QTableView>
@@ -12,9 +12,9 @@
 #include <QComboBox>
 #include <QStyledItemDelegate>
 
-class TaxIntervalDelegate : public QStyledItemDelegate {
+class FixkostenIntervalDelegate : public QStyledItemDelegate {
 public:
-    TaxIntervalDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    FixkostenIntervalDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
     
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                          const QModelIndex &index) const override {
@@ -47,67 +47,27 @@ public:
     }
 };
 
-class TaxTypeDelegate : public QStyledItemDelegate {
-public:
-    TaxTypeDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
-    
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
-                         const QModelIndex &index) const override {
-        if (index.column() == 7) {  // notes column used for tax type
-            auto *editor = new QComboBox(parent);
-            editor->addItems({"Umsatzsteuer", "Gewerbesteuer", "Kapitalertragsteuer"});
-            return editor;
-        }
-        return QStyledItemDelegate::createEditor(parent, option, index);
-    }
-    
-    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
-        if (index.column() == 7) {
-            auto *comboBox = static_cast<QComboBox*>(editor);
-            QString value = index.model()->data(index, Qt::EditRole).toString();
-            // Extract type from "STEUER:Type" format
-            if (value.startsWith("STEUER:")) {
-                value = value.mid(7);
-            }
-            comboBox->setCurrentText(value);
-        } else {
-            QStyledItemDelegate::setEditorData(editor, index);
-        }
-    }
-    
-    void setModelData(QWidget *editor, QAbstractItemModel *model,
-                     const QModelIndex &index) const override {
-        if (index.column() == 7) {
-            auto *comboBox = static_cast<QComboBox*>(editor);
-            model->setData(index, "STEUER:" + comboBox->currentText(), Qt::EditRole);
-        } else {
-            QStyledItemDelegate::setModelData(editor, model, index);
-        }
-    }
-};
-
-TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
+FixkostenPage::FixkostenPage(QWidget*parent):QWidget(parent){
     m_model=new QSqlTableModel(this,Database::instance().db()); 
     m_model->setTable("transactions"); 
     m_model->setEditStrategy(QSqlTableModel::OnFieldChange);
-    m_model->setFilter("notes LIKE 'STEUER:%'");
+    m_model->setFilter("notes LIKE 'FIXKOSTEN:%'");
     m_model->select();
     
     // Set German column headers - exactly like TransactionsPage
-    m_model->setHeaderData(1, Qt::Horizontal, "Fälligkeitsdatum");
+    m_model->setHeaderData(1, Qt::Horizontal, "Datum");
     m_model->setHeaderData(2, Qt::Horizontal, "Beschreibung");
     m_model->setHeaderData(3, Qt::Horizontal, "Betrag (€)");
     m_model->setHeaderData(6, Qt::Horizontal, "Intervall");
-    m_model->setHeaderData(7, Qt::Horizontal, "Steuerart");
+    m_model->setHeaderData(7, Qt::Horizontal, "Notizen");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
     
-    // Set delegates
-    m_view->setItemDelegateForColumn(6, new TaxIntervalDelegate(this));
-    m_view->setItemDelegateForColumn(7, new TaxTypeDelegate(this));
+    // Set delegate for interval dropdown
+    m_view->setItemDelegateForColumn(6, new FixkostenIntervalDelegate(this));
     
     // Hide unnecessary columns - exactly like TransactionsPage
     m_view->hideColumn(0);  // id
@@ -118,9 +78,9 @@ TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
     
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_view->horizontalHeader()->setSectionResizeMode(7, QHeaderView::Interactive); // Tax type column can be resized
+    m_view->horizontalHeader()->setSectionResizeMode(7, QHeaderView::Interactive); // Notes column can be resized
     
-    m_add=new QPushButton("➕ Neue Steuerzahlung"); 
+    m_add=new QPushButton("➕ Neue Fixkosten"); 
     m_del=new QPushButton("🗑️ Löschen");
     
     
@@ -133,22 +93,22 @@ TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
     lay->addLayout(btns); 
     lay->addWidget(m_view,1);
     
-    connect(m_add,&QPushButton::clicked,this,&TaxesPage::addRow);
-    connect(m_del,&QPushButton::clicked,this,&TaxesPage::removeRow);
+    connect(m_add,&QPushButton::clicked,this,&FixkostenPage::addRow);
+    connect(m_del,&QPushButton::clicked,this,&FixkostenPage::removeRow);
 }
 
-void TaxesPage::addRow(){ 
+void FixkostenPage::addRow(){ 
     int row=m_model->rowCount(); 
     m_model->insertRow(row); 
     m_model->setData(m_model->index(row,m_model->fieldIndex("date")), QDate::currentDate().toString(Qt::ISODate)); 
-    m_model->setData(m_model->index(row,m_model->fieldIndex("description")), "Steuervorauszahlung");
-    m_model->setData(m_model->index(row,m_model->fieldIndex("notes")), "STEUER:Umsatzsteuer");
+    m_model->setData(m_model->index(row,m_model->fieldIndex("description")), "Neue Fixkosten");
+    m_model->setData(m_model->index(row,m_model->fieldIndex("notes")), "FIXKOSTEN:");
     m_model->setData(m_model->index(row,m_model->fieldIndex("interval")), "Monatlich");
-    m_model->setData(m_model->index(row,m_model->fieldIndex("amount")), -1000.00);
+    m_model->setData(m_model->index(row,m_model->fieldIndex("amount")), -100.00);
     m_view->selectRow(row); 
 }
 
-void TaxesPage::removeRow(){ 
+void FixkostenPage::removeRow(){ 
     auto idx=m_view->currentIndex(); 
     if(!idx.isValid()) {
         QMessageBox::warning(this, "Keine Auswahl", "Bitte wählen Sie eine Zeile zum Löschen aus.");
@@ -156,7 +116,7 @@ void TaxesPage::removeRow(){
     }
     
     int ret = QMessageBox::question(this, "Löschen bestätigen", 
-                                   "Möchten Sie diese Steuerzahlung wirklich löschen?",
+                                   "Möchten Sie diese Fixkosten wirklich löschen?",
                                    QMessageBox::Yes | QMessageBox::No);
     if(ret == QMessageBox::Yes) {
         m_model->removeRow(idx.row());

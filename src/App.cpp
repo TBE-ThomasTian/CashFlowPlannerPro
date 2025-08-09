@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QPixmap>
 #include <QDialog>
+#include <QDateTime>
 static void applyStyle(){
     // Use modern theme with cards
     qApp->setStyle("fusion");
@@ -43,42 +44,67 @@ App::App(QWidget*parent):QMainWindow(parent){
     setAttribute(Qt::WA_StaticContents, false);
     setAutoFillBackground(false);
     
-    // Create menu bar
+    // Create menu bar with modern styling
     auto *menuBar = this->menuBar();
+    menuBar->setStyleSheet(
+        "QMenuBar {"
+        "    background-color: #f8f9fa;"
+        "    border-bottom: 1px solid #dee2e6;"
+        "    padding: 4px;"
+        "    font-size: 13px;"
+        "}"
+        "QMenuBar::item {"
+        "    padding: 6px 12px;"
+        "    background-color: transparent;"
+        "    border-radius: 4px;"
+        "    margin: 0 2px;"
+        "}"
+        "QMenuBar::item:selected {"
+        "    background-color: #e9ecef;"
+        "}"
+        "QMenuBar::item:pressed {"
+        "    background-color: #dee2e6;"
+        "}"
+        "QMenu {"
+        "    background-color: #ffffff;"
+        "    border: 1px solid #dee2e6;"
+        "    border-radius: 4px;"
+        "    padding: 4px 0;"
+        "}"
+        "QMenu::item {"
+        "    padding: 8px 24px;"
+        "    font-size: 13px;"
+        "}"
+        "QMenu::item:selected {"
+        "    background-color: #f8f9fa;"
+        "}"
+        "QMenu::separator {"
+        "    height: 1px;"
+        "    background-color: #e9ecef;"
+        "    margin: 4px 0;"
+        "}"
+    );
     
-    // File menu
+    // File menu - only essential items
     auto *fileMenu = menuBar->addMenu("Datei");
     
-    auto *newAction = fileMenu->addAction("Neue Datenbank...");
-    newAction->setShortcut(QKeySequence::New);
-    connect(newAction, &QAction::triggered, this, &App::newDatabase);
-    
-    auto *openAction = fileMenu->addAction("Datenbank öffnen...");
+    auto *openAction = fileMenu->addAction("🗂️  Datenbank wechseln...");
     openAction->setShortcut(QKeySequence::Open);
     connect(openAction, &QAction::triggered, this, &App::openDatabase);
     
-    auto *saveAsAction = fileMenu->addAction("Datenbank speichern unter...");
-    saveAsAction->setShortcut(QKeySequence::SaveAs);
-    connect(saveAsAction, &QAction::triggered, this, &App::saveAsDatabase);
+    auto *backupAction = fileMenu->addAction("💾  Backup erstellen...");
+    backupAction->setShortcut(QKeySequence::SaveAs);
+    connect(backupAction, &QAction::triggered, this, &App::saveAsDatabase);
     
     fileMenu->addSeparator();
     
-    auto *exitAction = fileMenu->addAction("Beenden");
+    auto *exitAction = fileMenu->addAction("🚪  Beenden");
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, this, &QWidget::close);
     
-    // User menu
-    auto *userMenu = menuBar->addMenu("Benutzer");
-    
-    auto *changeUserAction = userMenu->addAction("Benutzer wechseln...");
-    connect(changeUserAction, &QAction::triggered, this, &App::changeUser);
-    
-    auto *manageUsersAction = userMenu->addAction("Benutzer verwalten...");
-    connect(manageUsersAction, &QAction::triggered, this, &App::manageUsers);
-    
     // Help menu
     auto *helpMenu = menuBar->addMenu("Hilfe");
-    auto *aboutAction = helpMenu->addAction("Über...");
+    auto *aboutAction = helpMenu->addAction("ℹ️  Über Cashflow Planer...");
     connect(aboutAction, &QAction::triggered, this, &App::about);
     
     // Add status bar with size grip
@@ -135,7 +161,7 @@ void App::newDatabase() {
 
 void App::openDatabase() {
     QString fileName = QFileDialog::getOpenFileName(this, 
-        "Datenbank öffnen", 
+        "Datenbank wechseln", 
         "",
         "SQLite Datenbank (*.db);;Alle Dateien (*)");
     
@@ -146,22 +172,22 @@ void App::openDatabase() {
 
 void App::saveAsDatabase() {
     QString fileName = QFileDialog::getSaveFileName(this, 
-        "Datenbank speichern unter", 
-        "cashflow_kopie.db",
+        "Backup erstellen", 
+        "cashflow_backup_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmm") + ".db",
         "SQLite Datenbank (*.db);;Alle Dateien (*)");
     
     if (!fileName.isEmpty()) {
-        // Copy current database to new location
+        // Copy current database to backup location
         if (QFile::exists(fileName)) {
             QFile::remove(fileName);
         }
         
         if (QFile::copy(m_currentDbPath, fileName)) {
-            // Open the new copy
-            loadDatabase(fileName);
+            QMessageBox::information(this, "Backup erfolgreich", 
+                "Backup wurde erstellt:\n" + QFileInfo(fileName).fileName());
         } else {
             QMessageBox::critical(this, "Fehler", 
-                "Konnte Datenbank nicht speichern!");
+                "Konnte Backup nicht erstellen!");
         }
     }
 }

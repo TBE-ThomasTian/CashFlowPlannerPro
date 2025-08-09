@@ -1,6 +1,6 @@
 #pragma once
 #include <QWidget>
-class QLabel; class QTableWidget; class QDoubleSpinBox; class QSpinBox;
+class QLabel; class QTableWidget; class QDoubleSpinBox; class QSpinBox; class QCheckBox;
 QT_BEGIN_NAMESPACE class QChartView; class QBarSet; QT_END_NAMESPACE
 class Dashboard: public QWidget{
     Q_OBJECT
@@ -19,4 +19,7 @@ private:
     QSpinBox*m_horizon{};
     QTableWidget*m_table{};
     QChartView*m_chart{};
+    QCheckBox*m_includeOffers{};
+    QCheckBox*m_includeInvoices{};
+    QCheckBox*m_includeRecurring{};
 };

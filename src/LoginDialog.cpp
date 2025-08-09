@@ -108,18 +108,19 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent) {
     dbLayout->setContentsMargins(0, 0, 0, 0);
     dbLayout->setSpacing(8);
     
-    m_dbPathLabel = new QLabel("cashflow.db", dbContainer);
+    m_dbPathLabel = new QLabel(QDir::currentPath() + "/cashflow.db", dbContainer);
     m_dbPathLabel->setStyleSheet(
         "QLabel {"
         "    background-color: #f8f9fa;"
         "    border: 2px solid #e9ecef;"
         "    border-radius: 8px;"
         "    padding: 8px 12px;"
-        "    font-size: 12px;"
+        "    font-size: 11px;"
         "    color: #495057;"
         "    font-family: monospace;"
         "}"
     );
+    m_dbPathLabel->setWordWrap(true);
     
     auto *dbButtonsWidget = new QWidget(dbContainer);
     auto *dbButtonsLayout = new QHBoxLayout(dbButtonsWidget);
@@ -575,7 +576,7 @@ void LoginDialog::selectDatabase() {
     
     if (!fileName.isEmpty()) {
         m_databasePath = fileName;
-        m_dbPathLabel->setText(QFileInfo(fileName).fileName());
+        m_dbPathLabel->setText(fileName);
         
         // Close current database and open new one
         Database::instance().close();
@@ -585,7 +586,7 @@ void LoginDialog::selectDatabase() {
         } else {
             QMessageBox::critical(this, "Fehler", "Konnte Datenbank nicht öffnen!");
             m_databasePath = "cashflow.db";
-            m_dbPathLabel->setText("cashflow.db");
+            m_dbPathLabel->setText(QDir::currentPath() + "/cashflow.db");
             Database::instance().open(m_databasePath);
             Database::instance().ensureSchema();
         }
@@ -605,7 +606,7 @@ void LoginDialog::createNewDatabase() {
         }
         
         m_databasePath = fileName;
-        m_dbPathLabel->setText(QFileInfo(fileName).fileName());
+        m_dbPathLabel->setText(fileName);
         
         // Close current database and create new one
         Database::instance().close();
@@ -617,7 +618,7 @@ void LoginDialog::createNewDatabase() {
         } else {
             QMessageBox::critical(this, "Fehler", "Konnte Datenbank nicht erstellen!");
             m_databasePath = "cashflow.db";
-            m_dbPathLabel->setText("cashflow.db");
+            m_dbPathLabel->setText(QDir::currentPath() + "/cashflow.db");
             Database::instance().open(m_databasePath);
             Database::instance().ensureSchema();
         }

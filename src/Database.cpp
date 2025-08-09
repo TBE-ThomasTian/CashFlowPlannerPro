@@ -81,6 +81,7 @@ void Database::ensureSchema(){
         probability REAL,
         description TEXT,
         status TEXT,
+        payment_delay INTEGER DEFAULT 30,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );)");
     q.exec(R"(CREATE TABLE IF NOT EXISTS invoices(
@@ -102,7 +103,13 @@ void Database::ensureSchema(){
         amount REAL
     );)");
     q.exec(R"(CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);)");
-    if(q.lastError().isValid()){ qWarning()<<"Schema error:"<<q.lastError().text(); }
+    
+    // Add payment_delay column if it doesn't exist (for existing databases)
+    q.exec("ALTER TABLE offers ADD COLUMN payment_delay INTEGER DEFAULT 30");
+    
+    if(q.lastError().isValid() && !q.lastError().text().contains("duplicate column")){ 
+        qWarning()<<"Schema error:"<<q.lastError().text(); 
+    }
 }
 
 double Database::settingStartBalance(){ QSqlQuery q(m_db); q.prepare("SELECT value FROM settings WHERE key='start_balance'"); if(q.exec()&&q.next()) return q.value(0).toDouble(); return 0.0; }
@@ -113,36 +120,108 @@ QMap<QString,double> Database::targets(){ QMap<QString,double> out; QSqlQuery q(
 QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers,bool includeUnpaidInvoices,bool includeRecurring){
     struct Ev{QDate d; double a;}; QList<Ev> evs;
     QSqlQuery q(m_db);
-    q.exec("SELECT date,amount,COALESCE(interval,'') FROM transactions");
+    q.exec("SELECT date,amount,COALESCE(interval,''),notes FROM transactions");
     while(q.next()){
         QDate d=QDate::fromString(q.value(0).toString(),Qt::ISODate);
         double a=q.value(1).toDouble();
         QString it=q.value(2).toString().toLower().trimmed();
-        if(!includeRecurring || it.isEmpty()||it=="once"||it=="einmalig"){ evs.push_back({d,a}); }
+        QString notes=q.value(3).toString();
+        
+        // Include FIXKOSTEN and STEUER entries in recurring calculation
+        bool isFixkosten = notes.startsWith("FIXKOSTEN:");
+        bool isSteuer = notes.startsWith("STEUER:");
+        
+        if(!includeRecurring || (it.isEmpty() && !isFixkosten && !isSteuer) || it=="once"||it=="einmalig"){ 
+            evs.push_back({d,a}); 
+        }
         else{
             QDate cur=d; auto push=[&](const QDate&dd){ evs.push_back({dd,a}); };
             push(cur);
-            int stepM = (it=="monthly")?1:(it=="quarterly")?3:(it=="semiannual"||it=="semi-annually"||it=="halbjahr"||it=="halbjährlich")?6:(it=="yearly")?12:0;
+            // Support German interval names
+            int stepM = 0;
+            if(it=="monthly"||it=="monatlich") stepM=1;
+            else if(it=="quarterly"||it=="vierteljährlich") stepM=3;
+            else if(it=="semiannual"||it=="semi-annually"||it=="halbjahr"||it=="halbjährlich") stepM=6;
+            else if(it=="yearly"||it=="jährlich") stepM=12;
+            else if(isFixkosten || isSteuer) stepM=1; // Default to monthly for Fixkosten/Steuer
+            
             int stepD = (it=="biweekly")?14:(it=="weekly")?7:0;
-            QDate end=addMonthsClamped(QDate::currentDate(),horizonMonths); end=QDate(end.year(),end.month(),QDate(end.year(),end.month(),1).daysInMonth());
-            while(true){ if(stepM>0) cur=addMonthsClamped(cur,stepM); else cur=cur.addDays(stepD); if(cur>end) break; push(cur); }
-        }
-    }
-    if(includeUnpaidInvoices || true){
-        if(q.exec("SELECT paid_date,paid_amount,due_date,amount FROM invoices")){
-            while(q.next()){
-                QString paid_s=q.value(0).toString(); bool paid=!paid_s.isEmpty();
-                if(paid){ QDate paidD=QDate::fromString(paid_s,Qt::ISODate); double amt=q.value(1).isNull()?q.value(3).toDouble():q.value(1).toDouble(); evs.push_back({paidD,amt}); }
-                else if(includeUnpaidInvoices){ QDate due=QDate::fromString(q.value(2).toString(),Qt::ISODate); double amt=q.value(3).toDouble(); if(due.isValid()) evs.push_back({due,amt}); }
+            QDate end=addMonthsClamped(QDate::currentDate(),horizonMonths); 
+            end=QDate(end.year(),end.month(),QDate(end.year(),end.month(),1).daysInMonth());
+            
+            // Avoid infinite loop by limiting iterations
+            int maxIterations = horizonMonths * 31; // Maximum days in horizon
+            int iterations = 0;
+            while(iterations < maxIterations){ 
+                if(stepM>0) cur=addMonthsClamped(cur,stepM); 
+                else if(stepD>0) cur=cur.addDays(stepD);
+                else break; // No valid step
+                if(cur>end) break; 
+                push(cur); 
+                iterations++;
             }
         }
     }
+    // Include invoices - only "Offen" (open) invoices for future cashflow
+    if(q.exec("SELECT status,due_date,amount,paid_date,paid_amount FROM invoices")){
+        while(q.next()){
+            QString status = q.value(0).toString();
+            
+            if(status == "Offen" || status == "Überfällig" || status.isEmpty()){ 
+                // Open invoice - expect payment on due date
+                if(includeUnpaidInvoices){
+                    QString due_s = q.value(1).toString();
+                    QDate due = QDate::fromString(due_s, Qt::ISODate);
+                    if(!due.isValid()) {
+                        due = QDate::fromString(due_s, "dd.MM.yyyy");
+                    }
+                    if(!due.isValid()) {
+                        due = QDate::fromString(due_s, "yyyy-MM-dd");
+                    }
+                    double amt=q.value(2).toDouble(); 
+                    qDebug() << "Invoice date string:" << due_s << "Parsed as:" << due << "Amount:" << amt << "Status:" << status;
+                    if(due.isValid() && amt != 0) {
+                        evs.push_back({due,amt}); 
+                        qDebug() << "Added open invoice:" << due << amt << "Status:" << status;
+                    } else {
+                        qDebug() << "SKIPPED invoice - invalid date or zero amount";
+                    }
+                }
+            }
+            else if(status == "Bezahlt"){
+                // Paid invoice - use actual payment date (for historical data)
+                QString paid_s=q.value(3).toString(); 
+                if(!paid_s.isEmpty()){
+                    QDate paidD=QDate::fromString(paid_s,Qt::ISODate); 
+                    double amt=q.value(4).isNull()?q.value(2).toDouble():q.value(4).toDouble(); 
+                    if(paidD.isValid() && amt != 0) {
+                        evs.push_back({paidD,amt}); 
+                        qDebug() << "Added paid invoice:" << paidD << amt;
+                    }
+                }
+            }
+            // Storniert (cancelled) invoices are ignored
+        }
+    }
     if(includeOffers){
-        if(q.exec("SELECT date_expected,amount,probability FROM offers")){
+        if(q.exec("SELECT date_expected,amount,probability,payment_delay FROM offers")){
             while(q.next()){
                 QDate de=QDate::fromString(q.value(0).toString(),Qt::ISODate);
-                double amt=q.value(1).toDouble(); double p=q.value(2).toDouble(); if(p>1.0) p/=100.0; if(p<0)p=0; if(p>1)p=1;
-                if(de.isValid()) evs.push_back({de, amt*p});
+                double amt=q.value(1).toDouble(); 
+                double p=q.value(2).toDouble(); 
+                int paymentDelay = q.value(3).toInt();
+                
+                if(p>1.0) p/=100.0; 
+                if(p<0)p=0; 
+                if(p>1)p=1;
+                
+                // Apply payment delay to the expected date
+                QDate paymentDate = de.addDays(paymentDelay);
+                
+                if(paymentDate.isValid()) {
+                    evs.push_back({paymentDate, amt*p});
+                    qDebug() << "Offer payment:" << de << "->" << paymentDate << "(+" << paymentDelay << "days)" << amt*p;
+                }
             }
         }
     }

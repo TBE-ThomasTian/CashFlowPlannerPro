@@ -12,6 +12,7 @@
 #include <QHeaderView>
 #include <QFrame>
 #include <QLocale>
+#include <QCheckBox>
 #include <QtCharts/QChartView>
 #include <QtCharts/QChart>
 #include <QtCharts/QBarSet>
@@ -130,6 +131,19 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     m_rate->setValue(0.0);
     m_rate->setHidden(true);
     
+    // Create checkboxes for including different items
+    m_includeInvoices = new QCheckBox("Offene Rechnungen");
+    m_includeInvoices->setChecked(true);
+    m_includeInvoices->setToolTip("Berücksichtigt offene Rechnungen am Fälligkeitsdatum");
+    
+    m_includeOffers = new QCheckBox("Angebote");
+    m_includeOffers->setChecked(true);
+    m_includeOffers->setToolTip("Berücksichtigt Angebote mit ihrer Wahrscheinlichkeit");
+    
+    m_includeRecurring = new QCheckBox("Wiederkehrend");
+    m_includeRecurring->setChecked(true);
+    m_includeRecurring->setToolTip("Berücksichtigt wiederkehrende Zahlungen (Fixkosten, Steuern)");
+    
     // Create buttons
     auto*btnRefresh=new QPushButton("Aktualisieren"); 
     auto*btnSave=new QPushButton("Kontostand speichern");
@@ -139,7 +153,11 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     controlsRow->addWidget(new QLabel("<b>Aktueller Kontostand:</b>")); 
     controlsRow->addWidget(m_startBalance);
     controlsRow->addWidget(new QLabel("<b>Prognose für:</b>")); 
-    controlsRow->addWidget(m_horizon); 
+    controlsRow->addWidget(m_horizon);
+    controlsRow->addWidget(new QLabel("<b>Berücksichtigen:</b>"));
+    controlsRow->addWidget(m_includeInvoices);
+    controlsRow->addWidget(m_includeOffers);
+    controlsRow->addWidget(m_includeRecurring);
     controlsRow->addStretch(); 
     controlsRow->addWidget(btnSave); 
     controlsRow->addWidget(btnRefresh);
@@ -164,6 +182,9 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     connect(btnSave, &QPushButton::clicked, this, &Dashboard::saveStartBalance);
     connect(m_rate, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &Dashboard::refresh);
     connect(m_horizon, QOverload<int>::of(&QSpinBox::valueChanged), this, &Dashboard::refresh);
+    connect(m_includeInvoices, &QCheckBox::toggled, this, &Dashboard::refresh);
+    connect(m_includeOffers, &QCheckBox::toggled, this, &Dashboard::refresh);
+    connect(m_includeRecurring, &QCheckBox::toggled, this, &Dashboard::refresh);
     
     // Initial refresh
     refresh();
@@ -176,7 +197,11 @@ void Dashboard::saveStartBalance(){
 
 void Dashboard::refresh(){
     int horizon=m_horizon->value(); 
-    auto rows=Database::instance().monthlyCashflow(horizon,true,true,true); 
+    bool includeOffers = m_includeOffers->isChecked();
+    bool includeInvoices = m_includeInvoices->isChecked();
+    bool includeRecurring = m_includeRecurring->isChecked();
+    
+    auto rows=Database::instance().monthlyCashflow(horizon, includeOffers, includeInvoices, includeRecurring); 
     auto tmap=Database::instance().targets();
     
     m_table->setRowCount(rows.size()); 
@@ -213,10 +238,26 @@ void Dashboard::refresh(){
     double endBalance = run;  // This is the final cumulative value
     double avgMonthly = series.size() > 0 ? sum / series.size() : 0;
     
+    // Find when money runs out
+    int monthsUntilZero = -1;
+    for(int i = 0; i < cum.size(); ++i) {
+        if(cum[i] <= 0) {
+            monthsUntilZero = i + 1;
+            break;
+        }
+    }
+    
     // Format with thousand separators
     QLocale locale(QLocale::German);
     m_sum->setText(locale.toString(currentBalance, 'f', 2) + " €");  // Current balance
-    m_npv->setText(locale.toString(endBalance, 'f', 2) + " €");      // End balance after forecast
+    
+    // Show warning if money runs out
+    if(monthsUntilZero > 0) {
+        m_npv->setText(QString("<span style='color: red;'>Geld alle in %1 Monaten!</span>").arg(monthsUntilZero));
+    } else {
+        m_npv->setText(locale.toString(endBalance, 'f', 2) + " €");      // End balance after forecast
+    }
+    
     m_irr->setText(locale.toString(avgMonthly, 'f', 2) + " €");      // Average monthly cashflow
     
     // Create new chart

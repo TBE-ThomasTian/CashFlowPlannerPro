@@ -32,12 +32,9 @@ TargetsPage::TargetsPage(QWidget*parent,Dashboard*d):QWidget(parent),m_dashboard
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     
-    m_add=new QPushButton("➕ Neue Fixkosten"); 
+    m_add=new QPushButton("➕ Neues Ziel"); 
     m_del=new QPushButton("🗑️ Löschen");
     
-    // Add info label
-    auto*infoLabel = new QLabel("💡 <b>Tipp:</b> Tragen Sie hier Ihre monatlichen Fixkosten ein (Miete, Versicherungen, Abos, etc.)");
-    infoLabel->setStyleSheet("QLabel { background-color: #f0f8ff; padding: 8px; border-radius: 5px; }");
     
     auto*btns=new QHBoxLayout(); 
     btns->addWidget(m_add); 
@@ -45,7 +42,6 @@ TargetsPage::TargetsPage(QWidget*parent,Dashboard*d):QWidget(parent),m_dashboard
     btns->addStretch(1);
     
     auto*lay=new QVBoxLayout(this); 
-    lay->addWidget(infoLabel);
     lay->addLayout(btns); 
     lay->addWidget(m_view,1);
     
