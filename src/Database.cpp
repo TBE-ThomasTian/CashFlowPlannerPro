@@ -122,7 +122,14 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
     QSqlQuery q(m_db);
     q.exec("SELECT date,amount,COALESCE(interval,''),notes FROM transactions");
     while(q.next()){
-        QDate d=QDate::fromString(q.value(0).toString(),Qt::ISODate);
+        QString date_s = q.value(0).toString();
+        QDate d = QDate::fromString(date_s, Qt::ISODate);
+        if(!d.isValid()) {
+            d = QDate::fromString(date_s, "dd.MM.yyyy");
+        }
+        if(!d.isValid()) {
+            d = QDate::fromString(date_s, "yyyy-MM-dd");
+        }
         double a=q.value(1).toDouble();
         QString it=q.value(2).toString().toLower().trimmed();
         QString notes=q.value(3).toString();
@@ -131,7 +138,9 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
         bool isFixkosten = notes.startsWith("FIXKOSTEN:");
         bool isSteuer = notes.startsWith("STEUER:");
         
-        if(!includeRecurring || (it.isEmpty() && !isFixkosten && !isSteuer) || it=="once"||it=="einmalig"){ 
+        qDebug() << "Transaction:" << date_s << "->" << d << a << "Interval:" << it << "Notes:" << notes << "isFixkosten:" << isFixkosten << "isSteuer:" << isSteuer;
+        
+        if(!includeRecurring || it.isEmpty() || it=="once"||it=="einmalig"){ 
             evs.push_back({d,a}); 
         }
         else{
@@ -143,7 +152,8 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
             else if(it=="quarterly"||it=="vierteljährlich") stepM=3;
             else if(it=="semiannual"||it=="semi-annually"||it=="halbjahr"||it=="halbjährlich") stepM=6;
             else if(it=="yearly"||it=="jährlich") stepM=12;
-            else if(isFixkosten || isSteuer) stepM=1; // Default to monthly for Fixkosten/Steuer
+            else if(isFixkosten) stepM=1; // Default to monthly for Fixkosten only
+            else if(isSteuer) stepM=12; // Default to yearly for Steuer
             
             int stepD = (it=="biweekly")?14:(it=="weekly")?7:0;
             QDate end=addMonthsClamped(QDate::currentDate(),horizonMonths); 

@@ -21,8 +21,8 @@ TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     m_model->setHeaderData(1, Qt::Horizontal, "Datum");
     m_model->setHeaderData(2, Qt::Horizontal, "Beschreibung");
     m_model->setHeaderData(3, Qt::Horizontal, "Betrag (€)");
-    m_model->setHeaderData(7, Qt::Horizontal, "Intervall");
-    m_model->setHeaderData(8, Qt::Horizontal, "Notizen");
+    m_model->setHeaderData(6, Qt::Horizontal, "Intervall");
+    m_model->setHeaderData(7, Qt::Horizontal, "Notizen");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
@@ -31,14 +31,14 @@ TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_view->horizontalHeader()->setSectionResizeMode(8, QHeaderView::Interactive); // Notes column can be resized
+    m_view->horizontalHeader()->setSectionResizeMode(7, QHeaderView::Interactive); // Notes column can be resized
     
     // Hide unnecessary columns
     m_view->hideColumn(0);  // id
     m_view->hideColumn(4);  // category_id
     m_view->hideColumn(5);  // person_id
-    m_view->hideColumn(9);  // created_at
-    m_view->hideColumn(10); // updated_at
+    m_view->hideColumn(8);  // created_at
+    m_view->hideColumn(9);  // updated_at
     
     m_add=new QPushButton("➕ Neue Transaktion"); 
     m_del=new QPushButton("🗑️ Löschen");

@@ -20,7 +20,7 @@ public:
                          const QModelIndex &index) const override {
         if (index.column() == 6) {  // interval column
             auto *editor = new QComboBox(parent);
-            editor->addItems({"", "Monatlich", "Vierteljährlich", "Jährlich"});
+            editor->addItems({"Einmalig", "Monatlich", "Vierteljährlich", "Jährlich"});
             return editor;
         }
         return QStyledItemDelegate::createEditor(parent, option, index);
@@ -93,12 +93,11 @@ TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
     m_model->setFilter("notes LIKE 'STEUER:%'");
     m_model->select();
     
-    // Set German column headers - exactly like TransactionsPage
+    // Set German column headers - hide notes column since it's auto-managed
     m_model->setHeaderData(1, Qt::Horizontal, "Fälligkeitsdatum");
     m_model->setHeaderData(2, Qt::Horizontal, "Beschreibung");
     m_model->setHeaderData(3, Qt::Horizontal, "Betrag (€)");
     m_model->setHeaderData(6, Qt::Horizontal, "Intervall");
-    m_model->setHeaderData(7, Qt::Horizontal, "Steuerart");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
@@ -107,18 +106,18 @@ TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
     
     // Set delegates
     m_view->setItemDelegateForColumn(6, new TaxIntervalDelegate(this));
-    m_view->setItemDelegateForColumn(7, new TaxTypeDelegate(this));
     
-    // Hide unnecessary columns - exactly like TransactionsPage
+    // Hide unnecessary columns
     m_view->hideColumn(0);  // id
     m_view->hideColumn(4);  // category_id
     m_view->hideColumn(5);  // person_id
+    m_view->hideColumn(7);  // notes (auto-managed with STEUER: prefix)
     m_view->hideColumn(8);  // created_at
     m_view->hideColumn(9);  // updated_at
     
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_view->horizontalHeader()->setSectionResizeMode(7, QHeaderView::Interactive); // Tax type column can be resized
+    // All columns stretch evenly since notes column is hidden
     
     m_add=new QPushButton("➕ Neue Steuerzahlung"); 
     m_del=new QPushButton("🗑️ Löschen");
