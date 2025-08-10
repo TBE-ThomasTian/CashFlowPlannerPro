@@ -1,6 +1,7 @@
 #include "Dashboard.h"
 #include "Database.h"
 #include <QSqlQuery>
+#include <QDate>
 #include <QDebug>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -198,8 +199,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     mainSplitter->addWidget(m_chart);
     
     // Table
-    m_table=new QTableWidget(0, 5, this); 
-    m_table->setHorizontalHeaderLabels({"Monat", "Netto", "Kumuliert", "Ziel", "Abweichung"}); 
+    m_table=new QTableWidget(0, 6, this); 
+    m_table->setHorizontalHeaderLabels({"Monat", "Netto", "Kumuliert", "Ziel", "Abweichung", "Rechnungen"}); 
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setAlternatingRowColors(true);
     m_table->setMinimumHeight(150);
@@ -243,6 +244,26 @@ void Dashboard::refresh(){
     auto rows=Database::instance().monthlyCashflow(horizon, includeOffersOffen, includeOffersBeauftragt, includeInvoices, includeRecurring); 
     auto tmap=Database::instance().targets();
     
+    // Get monthly invoice data
+    QMap<QString, double> monthlyInvoices;
+    QSqlQuery invoiceQuery(Database::instance().db());
+    if(invoiceQuery.exec("SELECT due_date, amount FROM invoices WHERE status = 'Offen' OR status IS NULL")) {
+        while(invoiceQuery.next()) {
+            QString dueStr = invoiceQuery.value(0).toString();
+            QDate dueDate = QDate::fromString(dueStr, Qt::ISODate);
+            if(!dueDate.isValid()) {
+                dueDate = QDate::fromString(dueStr, "dd.MM.yyyy");
+            }
+            if(!dueDate.isValid()) {
+                dueDate = QDate::fromString(dueStr, "yyyy-MM-dd");
+            }
+            if(dueDate.isValid()) {
+                QString monthKey = QString("%1-%2").arg(dueDate.year()).arg(dueDate.month(), 2, 10, QChar('0'));
+                monthlyInvoices[monthKey] += invoiceQuery.value(1).toDouble();
+            }
+        }
+    }
+    
     m_table->setRowCount(rows.size()); 
     QVector<double> series; 
     series.reserve(rows.size()); 
@@ -261,15 +282,23 @@ void Dashboard::refresh(){
         
         double target = tmap.value(rows[i].ym, 0.0); 
         double var = rows[i].net - target;
+        double invoiceAmount = monthlyInvoices.value(rows[i].ym, 0.0);
         
         m_table->setItem(i, 0, new QTableWidgetItem(rows[i].ym));
-        m_table->setItem(i, 1, new QTableWidgetItem(QString::number(rows[i].net, 'f', 2)));
-        m_table->setItem(i, 2, new QTableWidgetItem(QString::number(run, 'f', 2)));
-        m_table->setItem(i, 3, new QTableWidgetItem(QString::number(target, 'f', 2)));
+        m_table->setItem(i, 1, new QTableWidgetItem(QString::number(rows[i].net, 'f', 2) + " €"));
+        m_table->setItem(i, 2, new QTableWidgetItem(QString::number(run, 'f', 2) + " €"));
+        m_table->setItem(i, 3, new QTableWidgetItem(QString::number(target, 'f', 2) + " €"));
         
-        auto*varItem = new QTableWidgetItem(QString::number(var, 'f', 2)); 
+        auto*varItem = new QTableWidgetItem(QString::number(var, 'f', 2) + " €"); 
         varItem->setForeground(var < 0 ? QColor("#EF4444") : QColor("#10B981")); 
         m_table->setItem(i, 4, varItem);
+        
+        // Add invoice column with green color for positive amounts
+        auto*invoiceItem = new QTableWidgetItem(QString::number(invoiceAmount, 'f', 2) + " €");
+        if(invoiceAmount > 0) {
+            invoiceItem->setForeground(QColor("#10B981")); // Green for income
+        }
+        m_table->setItem(i, 5, invoiceItem);
     }
     
     // Update KPIs with meaningful values
@@ -417,7 +446,7 @@ void Dashboard::refresh(){
     zeroLine->append(labels.size() - 0.5, 0);
     
     // Style the zero line
-    QPen zeroPen(QColor(255, 0, 0));  // Red color for zero line
+    QPen zeroPen(QColor(120, 120, 120));  // Gray color for zero line
     zeroPen.setWidth(2);
     zeroPen.setStyle(Qt::DashLine);  // Dashed line
     zeroLine->setPen(zeroPen);
