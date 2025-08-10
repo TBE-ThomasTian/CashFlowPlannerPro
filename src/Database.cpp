@@ -128,6 +128,10 @@ void Database::ensureSchema(){
     // Add payment_delay column if it doesn't exist (for existing databases)
     q.exec("ALTER TABLE offers ADD COLUMN payment_delay INTEGER DEFAULT 30");
     
+    // Add PDF attachment columns if they don't exist
+    q.exec("ALTER TABLE invoices ADD COLUMN pdf_path TEXT");
+    q.exec("ALTER TABLE offers ADD COLUMN pdf_path TEXT");
+    
     // Create resources tables
     q.exec(R"(CREATE TABLE IF NOT EXISTS resources(
         id INTEGER PRIMARY KEY AUTOINCREMENT,

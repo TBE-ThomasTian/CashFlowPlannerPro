@@ -12,6 +12,16 @@
 #include <QMessageBox>
 #include <QComboBox>
 #include <QStyledItemDelegate>
+#include <QFileDialog>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QPainter>
+#include <QApplication>
+#include <QStyle>
+#include <QEvent>
 
 class InvoiceStatusDelegate : public QStyledItemDelegate {
 public:
@@ -65,6 +75,86 @@ public:
     }
 };
 
+class PDFAttachmentDelegate : public QStyledItemDelegate {
+public:
+    PDFAttachmentDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const override {
+        Q_UNUSED(option)
+        Q_UNUSED(index)
+        
+        auto *button = new QPushButton("PDF auswählen...", parent);
+        connect(button, &QPushButton::clicked, [this, index, button]() mutable {
+            QString fileName = QFileDialog::getOpenFileName(button, 
+                "PDF Rechnung auswählen", 
+                QDir::homePath(),
+                "PDF Dateien (*.pdf)");
+            
+            if (!fileName.isEmpty()) {
+                // Store the file path in the model
+                const_cast<QAbstractItemModel*>(index.model())->setData(index, fileName, Qt::EditRole);
+                button->setText(QFileInfo(fileName).fileName());
+            }
+        });
+        return button;
+    }
+    
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
+        auto *button = static_cast<QPushButton*>(editor);
+        QString value = index.model()->data(index, Qt::EditRole).toString();
+        if (!value.isEmpty()) {
+            button->setText(QFileInfo(value).fileName());
+        }
+    }
+    
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                     const QModelIndex &index) const override {
+        // Data is already set in the button's clicked handler
+        Q_UNUSED(editor)
+        Q_UNUSED(model)
+        Q_UNUSED(index)
+    }
+    
+    QString displayText(const QVariant &value, const QLocale &locale) const override {
+        Q_UNUSED(locale)
+        QString path = value.toString();
+        if (path.isEmpty()) {
+            return "Keine Datei";
+        }
+        return QFileInfo(path).fileName();
+    }
+    
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override {
+        QString path = index.data().toString();
+        
+        // Draw base item
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        
+        if (!path.isEmpty()) {
+            opt.text = "📄 " + QFileInfo(path).fileName();
+        } else {
+            opt.text = "Keine Datei";
+        }
+        
+        QApplication::style()->drawControl(QStyle::CE_ItemViewItem, &opt, painter);
+    }
+    
+    bool editorEvent(QEvent *event, QAbstractItemModel *model,
+                     const QStyleOptionViewItem &option, const QModelIndex &index) override {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            QString path = model->data(index).toString();
+            if (!path.isEmpty() && QFile::exists(path)) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+                return true;
+            }
+        }
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
+};
+
 InvoicesPage::InvoicesPage(QWidget*parent):QWidget(parent){
     m_model=new QSqlTableModel(this,Database::instance().db()); 
     m_model->setTable("invoices"); 
@@ -80,6 +170,7 @@ InvoicesPage::InvoicesPage(QWidget*parent):QWidget(parent){
     m_model->setHeaderData(6, Qt::Horizontal, "Bezahlt am");
     m_model->setHeaderData(7, Qt::Horizontal, "Bezahlter Betrag");
     m_model->setHeaderData(8, Qt::Horizontal, "Status");
+    m_model->setHeaderData(10, Qt::Horizontal, "PDF Anhang");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
@@ -91,6 +182,7 @@ InvoicesPage::InvoicesPage(QWidget*parent):QWidget(parent){
     m_view->setItemDelegateForColumn(4, new CurrencyDelegate(this));  // Amount column
     m_view->setItemDelegateForColumn(7, new CurrencyDelegate(this));  // Paid amount column
     m_view->setItemDelegateForColumn(8, new InvoiceStatusDelegate(this));  // Status column
+    m_view->setItemDelegateForColumn(10, new PDFAttachmentDelegate(this));  // PDF attachment column
     
     // Hide id and timestamp columns
     m_view->hideColumn(0);  // id

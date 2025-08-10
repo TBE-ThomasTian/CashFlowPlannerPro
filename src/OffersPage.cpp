@@ -13,6 +13,16 @@
 #include <QMessageBox>
 #include <QComboBox>
 #include <QStyledItemDelegate>
+#include <QFileDialog>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QPainter>
+#include <QApplication>
+#include <QStyle>
+#include <QEvent>
 
 class StatusDelegate : public QStyledItemDelegate {
 public:
@@ -103,6 +113,86 @@ public:
     }
 };
 
+class OfferPDFAttachmentDelegate : public QStyledItemDelegate {
+public:
+    OfferPDFAttachmentDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const override {
+        Q_UNUSED(option)
+        Q_UNUSED(index)
+        
+        auto *button = new QPushButton("PDF auswählen...", parent);
+        connect(button, &QPushButton::clicked, [this, index, button]() mutable {
+            QString fileName = QFileDialog::getOpenFileName(button, 
+                "PDF Angebot auswählen", 
+                QDir::homePath(),
+                "PDF Dateien (*.pdf)");
+            
+            if (!fileName.isEmpty()) {
+                // Store the file path in the model
+                const_cast<QAbstractItemModel*>(index.model())->setData(index, fileName, Qt::EditRole);
+                button->setText(QFileInfo(fileName).fileName());
+            }
+        });
+        return button;
+    }
+    
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
+        auto *button = static_cast<QPushButton*>(editor);
+        QString value = index.model()->data(index, Qt::EditRole).toString();
+        if (!value.isEmpty()) {
+            button->setText(QFileInfo(value).fileName());
+        }
+    }
+    
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                     const QModelIndex &index) const override {
+        // Data is already set in the button's clicked handler
+        Q_UNUSED(editor)
+        Q_UNUSED(model)
+        Q_UNUSED(index)
+    }
+    
+    QString displayText(const QVariant &value, const QLocale &locale) const override {
+        Q_UNUSED(locale)
+        QString path = value.toString();
+        if (path.isEmpty()) {
+            return "Keine Datei";
+        }
+        return QFileInfo(path).fileName();
+    }
+    
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override {
+        QString path = index.data().toString();
+        
+        // Draw base item
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        
+        if (!path.isEmpty()) {
+            opt.text = "📄 " + QFileInfo(path).fileName();
+        } else {
+            opt.text = "Keine Datei";
+        }
+        
+        QApplication::style()->drawControl(QStyle::CE_ItemViewItem, &opt, painter);
+    }
+    
+    bool editorEvent(QEvent *event, QAbstractItemModel *model,
+                     const QStyleOptionViewItem &option, const QModelIndex &index) override {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            QString path = model->data(index).toString();
+            if (!path.isEmpty() && QFile::exists(path)) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+                return true;
+            }
+        }
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
+};
+
 OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_model=new QSqlTableModel(this,Database::instance().db()); 
     m_model->setTable("offers"); 
@@ -121,6 +211,7 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     // 8: created_at
     // 9: offer_number
     // 10: offer_date
+    // 11: pdf_path
     
     // Set correct German headers matching ACTUAL positions
     m_model->setHeaderData(1, Qt::Horizontal, "Erwartetes Datum");
@@ -132,6 +223,7 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_model->setHeaderData(7, Qt::Horizontal, "Zahlungsziel");
     m_model->setHeaderData(9, Qt::Horizontal, "Angebotsnummer");
     m_model->setHeaderData(10, Qt::Horizontal, "Angebotsdatum");
+    m_model->setHeaderData(11, Qt::Horizontal, "PDF Anhang");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
@@ -143,6 +235,7 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_view->setItemDelegateForColumn(4, new PercentDelegate(this));   // Probability column (actual position 4)
     m_view->setItemDelegateForColumn(6, new StatusDelegate(this));  // Status column (actual position 6)
     m_view->setItemDelegateForColumn(7, new PaymentDelayDelegate(this));  // Payment delay column (actual position 7)
+    m_view->setItemDelegateForColumn(11, new OfferPDFAttachmentDelegate(this));  // PDF attachment column (actual position 11)
     
     // Hide id and timestamp columns
     m_view->hideColumn(0);  // id
