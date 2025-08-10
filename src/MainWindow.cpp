@@ -6,6 +6,7 @@
 #include "TargetsPage.h"
 #include "TaxesPage.h"
 #include "FixkostenPage.h"
+#include "ResourcesPage.h"
 #include "Database.h"
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -24,6 +25,7 @@ MainWindow::MainWindow(QWidget*parent):QWidget(parent){
     m_targetsPage=new TargetsPage(this,m_dashboard);
     m_taxesPage=new TaxesPage(this);
     m_fixkostenPage=new FixkostenPage(this);
+    m_resourcesPage=new ResourcesPage(this);
     
     auto*lay=new QVBoxLayout(this);
     lay->setContentsMargins(8,8,8,8);
@@ -35,5 +37,6 @@ MainWindow::MainWindow(QWidget*parent):QWidget(parent){
     m_tabs->addTab(m_taxesPage,"Steuer");
     m_tabs->addTab(m_invoicesPage,"Rechnungen");
     m_tabs->addTab(m_offersPage,"Angebote");
+    m_tabs->addTab(m_resourcesPage,"Ressourcen");
     m_tabs->addTab(m_targetsPage,"Ziele");
 }

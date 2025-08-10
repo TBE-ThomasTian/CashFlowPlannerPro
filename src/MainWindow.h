@@ -1,6 +1,6 @@
 #pragma once
 #include <QWidget>
-class QTabWidget; class Dashboard; class TransactionsPage; class OffersPage; class InvoicesPage; class TargetsPage; class TaxesPage; class FixkostenPage;
+class QTabWidget; class Dashboard; class TransactionsPage; class OffersPage; class InvoicesPage; class TargetsPage; class TaxesPage; class FixkostenPage; class ResourcesPage;
 class MainWindow: public QWidget{
     Q_OBJECT
 public:
@@ -14,4 +14,5 @@ private:
     TargetsPage*m_targetsPage;
     TaxesPage*m_taxesPage;
     FixkostenPage*m_fixkostenPage;
+    ResourcesPage*m_resourcesPage;
 };

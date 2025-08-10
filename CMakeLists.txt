@@ -23,6 +23,7 @@ set(SOURCES
     src/TargetsPage.cpp src/TargetsPage.h
     src/TaxesPage.cpp src/TaxesPage.h
     src/FixkostenPage.cpp src/FixkostenPage.h
+    src/ResourcesPage.cpp src/ResourcesPage.h
     src/LoginDialog.cpp src/LoginDialog.h
     src/TableDelegates.h
     ${RESOURCES}
