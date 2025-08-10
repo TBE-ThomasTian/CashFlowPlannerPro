@@ -13,6 +13,32 @@
 #include <QComboBox>
 #include <QStyledItemDelegate>
 
+class StatusDelegate : public QStyledItemDelegate {
+public:
+    StatusDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const override {
+        auto *editor = new QComboBox(parent);
+        editor->addItem("Offen");
+        editor->addItem("Beauftragt");
+        editor->addItem("Abgelehnt");
+        return editor;
+    }
+    
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        QString value = index.model()->data(index, Qt::EditRole).toString();
+        comboBox->setCurrentText(value);
+    }
+    
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                     const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        model->setData(index, comboBox->currentText(), Qt::EditRole);
+    }
+};
+
 class PaymentDelayDelegate : public QStyledItemDelegate {
 public:
     PaymentDelayDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
@@ -82,7 +108,20 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_model->setEditStrategy(QSqlTableModel::OnFieldChange); 
     m_model->select();
     
-    // Set German column headers - reordered for better flow
+    // ACTUAL column order from database:
+    // 0: id
+    // 1: date_expected  
+    // 2: customer
+    // 3: amount
+    // 4: probability
+    // 5: description
+    // 6: status
+    // 7: payment_delay
+    // 8: created_at
+    // 9: offer_number
+    // 10: offer_date
+    
+    // Set correct German headers matching ACTUAL positions
     m_model->setHeaderData(1, Qt::Horizontal, "Erwartetes Datum");
     m_model->setHeaderData(2, Qt::Horizontal, "Kunde");
     m_model->setHeaderData(3, Qt::Horizontal, "Betrag (€)");
@@ -90,22 +129,38 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_model->setHeaderData(5, Qt::Horizontal, "Beschreibung");
     m_model->setHeaderData(6, Qt::Horizontal, "Status");
     m_model->setHeaderData(7, Qt::Horizontal, "Zahlungsziel");
+    m_model->setHeaderData(9, Qt::Horizontal, "Angebotsnummer");
+    m_model->setHeaderData(10, Qt::Horizontal, "Angebotsdatum");
     
     m_view=new QTableView(this); 
     m_view->setModel(m_model); 
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
     
-    // Set delegate for payment delay
-    m_view->setItemDelegateForColumn(7, new PaymentDelayDelegate(this));
+    // Set delegates based on ACTUAL column positions
+    m_view->setItemDelegateForColumn(6, new StatusDelegate(this));  // Status column (actual position 6)
+    m_view->setItemDelegateForColumn(7, new PaymentDelayDelegate(this));  // Payment delay column (actual position 7)
     
     // Hide id and timestamp columns
     m_view->hideColumn(0);  // id
     m_view->hideColumn(8);  // created_at
     
+    // Reorder visual columns to show offer_number and offer_date at the beginning
+    // We need to move columns to get this order:
+    // offer_number(9), offer_date(10), date_expected(1), customer(2), amount(3), probability(4), status(6), description(5), payment_delay(7)
+    QHeaderView* header = m_view->horizontalHeader();
+    
+    // First, move offer_number from logical position 9 to visual position 1 (after hidden id)
+    header->moveSection(header->visualIndex(9), 1);
+    // Then move offer_date from logical position 10 to visual position 2
+    header->moveSection(header->visualIndex(10), 2);
+    
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_view->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Interactive); // Description column can be resized
+    m_view->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents); // Date expected
+    m_view->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Interactive); // Description column
+    m_view->horizontalHeader()->setSectionResizeMode(9, QHeaderView::ResizeToContents); // Offer number
+    m_view->horizontalHeader()->setSectionResizeMode(10, QHeaderView::ResizeToContents); // Offer date
     
     m_add=new QPushButton("➕ Neues Angebot"); 
     m_del=new QPushButton("🗑️ Löschen");
@@ -126,6 +181,8 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
 void OffersPage::addRow(){ 
     int row=m_model->rowCount(); 
     m_model->insertRow(row); 
+    m_model->setData(m_model->index(row,m_model->fieldIndex("offer_number")), Database::instance().nextOfferNumber());
+    m_model->setData(m_model->index(row,m_model->fieldIndex("offer_date")), QDate::currentDate().toString(Qt::ISODate));
     m_model->setData(m_model->index(row,m_model->fieldIndex("date_expected")), QDate::currentDate().toString(Qt::ISODate)); 
     m_model->setData(m_model->index(row,m_model->fieldIndex("status")), "Offen");
     m_model->setData(m_model->index(row,m_model->fieldIndex("probability")), 50);

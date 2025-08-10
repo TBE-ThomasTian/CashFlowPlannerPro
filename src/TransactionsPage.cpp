@@ -9,6 +9,47 @@
 #include <QLabel>
 #include <QDate>
 #include <QMessageBox>
+#include <QComboBox>
+#include <QStyledItemDelegate>
+
+class IntervalDelegate : public QStyledItemDelegate {
+public:
+    IntervalDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+    
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const override {
+        auto *editor = new QComboBox(parent);
+        editor->addItem("einmalig");
+        editor->addItem("täglich");
+        editor->addItem("wöchentlich");
+        editor->addItem("monatlich");
+        editor->addItem("vierteljährlich");
+        editor->addItem("halbjährlich");
+        editor->addItem("jährlich");
+        editor->setEditable(true);  // Allow custom intervals
+        return editor;
+    }
+    
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        QString value = index.model()->data(index, Qt::EditRole).toString();
+        
+        // Find the item or set as editable text
+        int itemIndex = comboBox->findText(value);
+        if (itemIndex >= 0) {
+            comboBox->setCurrentIndex(itemIndex);
+        } else {
+            comboBox->setEditText(value);
+        }
+    }
+    
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                     const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        model->setData(index, comboBox->currentText(), Qt::EditRole);
+    }
+};
+
 TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     m_model=new QSqlTableModel(this,Database::instance().db()); 
     m_model->setTable("transactions"); 
@@ -28,6 +69,9 @@ TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     m_view->setModel(m_model); 
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
+    
+    // Set delegate for interval column
+    m_view->setItemDelegateForColumn(6, new IntervalDelegate(this));  // Interval column
     
     // Set header resize mode for even distribution
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -56,7 +100,14 @@ TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     connect(m_add,&QPushButton::clicked,this,&TransactionsPage::addRow);
     connect(m_del,&QPushButton::clicked,this,&TransactionsPage::removeRow);
 }
-void TransactionsPage::addRow(){ int row=m_model->rowCount(); m_model->insertRow(row); m_model->setData(m_model->index(row,m_model->fieldIndex("date")), QDate::currentDate().toString(Qt::ISODate)); m_view->selectRow(row); }
+void TransactionsPage::addRow(){ 
+    int row=m_model->rowCount(); 
+    m_model->insertRow(row); 
+    m_model->setData(m_model->index(row,m_model->fieldIndex("date")), QDate::currentDate().toString(Qt::ISODate)); 
+    m_model->setData(m_model->index(row,m_model->fieldIndex("interval")), "einmalig");
+    m_model->setData(m_model->index(row,m_model->fieldIndex("amount")), 0.00);
+    m_view->selectRow(row); 
+}
 void TransactionsPage::removeRow(){ 
     auto idx=m_view->currentIndex(); 
     if(!idx.isValid()) {

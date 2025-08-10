@@ -14,8 +14,11 @@ public:
     QSqlDatabase db(); 
     double settingStartBalance(); 
     void setSettingStartBalance(double v); 
-    QVector<MonthRow> monthlyCashflow(int horizonMonths,bool includeOffers,bool includeUnpaidInvoices,bool includeRecurring); 
-    QMap<QString,double> targets(); 
+    QVector<MonthRow> monthlyCashflow(int horizonMonths,bool includeOffersOffen,bool includeOffersBeauftragt,bool includeUnpaidInvoices,bool includeRecurring); 
+    QMap<QString,double> targets();
+    double activeOffersSum();
+    double openInvoicesSum();
+    QString nextOfferNumber(); 
 private: 
     Database(); 
     QSqlDatabase m_db;

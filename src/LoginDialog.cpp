@@ -1,5 +1,6 @@
 #include "LoginDialog.h"
 #include "Database.h"
+#include <QSettings>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -37,8 +38,16 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent) {
     
     // Window icon is set in main.cpp for the whole application
     
-    // Set default database
-    m_databasePath = "cashflow.db";
+    // Load last database path from settings (cross-platform)
+    QSettings settings("CashflowPlanner", "CashflowPlannerPro");
+    QString lastDbPath = settings.value("lastDatabasePath", "").toString();
+    
+    // Set database path - use last path if it exists, otherwise default
+    if (!lastDbPath.isEmpty() && QFile::exists(lastDbPath)) {
+        m_databasePath = lastDbPath;
+    } else {
+        m_databasePath = QDir::currentPath() + "/cashflow.db";
+    }
     
     // Create main widget
     auto *mainWidget = new QWidget(this);
@@ -108,7 +117,7 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent) {
     dbLayout->setContentsMargins(0, 0, 0, 0);
     dbLayout->setSpacing(8);
     
-    m_dbPathLabel = new QLabel(QDir::currentPath() + "/cashflow.db", dbContainer);
+    m_dbPathLabel = new QLabel(m_databasePath, dbContainer);
     m_dbPathLabel->setStyleSheet(
         "QLabel {"
         "    background-color: #f8f9fa;"
@@ -418,7 +427,9 @@ void LoginDialog::onLoginClicked() {
     query.addBindValue(password);  // In production, hash the password!
     
     if (query.exec() && query.next()) {
-        // Login successful
+        // Login successful - save current database path
+        QSettings settings("CashflowPlanner", "CashflowPlannerPro");
+        settings.setValue("lastDatabasePath", m_databasePath);
         accept();
     } else {
         m_messageLabel->setText("Ungültige Anmeldedaten");
@@ -569,14 +580,21 @@ void LoginDialog::selectLogoFile() {
 }
 
 void LoginDialog::selectDatabase() {
+    // Use last database directory as starting point
+    QSettings settings("CashflowPlanner", "CashflowPlannerPro");
+    QString lastDir = QFileInfo(m_databasePath).absolutePath();
+    
     QString fileName = QFileDialog::getOpenFileName(this,
         "Datenbank öffnen",
-        QDir::homePath(),
+        lastDir,
         "SQLite Datenbank (*.db);;Alle Dateien (*)");
     
     if (!fileName.isEmpty()) {
         m_databasePath = fileName;
         m_dbPathLabel->setText(fileName);
+        
+        // Save this path as the last used database
+        settings.setValue("lastDatabasePath", fileName);
         
         // Close current database and open new one
         Database::instance().close();
@@ -594,9 +612,13 @@ void LoginDialog::selectDatabase() {
 }
 
 void LoginDialog::createNewDatabase() {
+    // Use last database directory as starting point
+    QSettings settings("CashflowPlanner", "CashflowPlannerPro");
+    QString lastDir = QFileInfo(m_databasePath).absolutePath();
+    
     QString fileName = QFileDialog::getSaveFileName(this,
         "Neue Datenbank erstellen",
-        QDir::homePath() + "/cashflow_neu.db",
+        lastDir + "/cashflow_neu.db",
         "SQLite Datenbank (*.db);;Alle Dateien (*)");
     
     if (!fileName.isEmpty()) {
@@ -607,6 +629,9 @@ void LoginDialog::createNewDatabase() {
         
         m_databasePath = fileName;
         m_dbPathLabel->setText(fileName);
+        
+        // Save this path as the last used database
+        settings.setValue("lastDatabasePath", fileName);
         
         // Close current database and create new one
         Database::instance().close();

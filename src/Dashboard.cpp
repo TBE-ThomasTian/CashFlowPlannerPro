@@ -1,5 +1,7 @@
 #include "Dashboard.h"
 #include "Database.h"
+#include <QSqlQuery>
+#include <QDebug>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -13,6 +15,7 @@
 #include <QFrame>
 #include <QLocale>
 #include <QCheckBox>
+#include <QSplitter>
 #include <QtCharts/QChartView>
 #include <QtCharts/QChart>
 #include <QtCharts/QBarSet>
@@ -57,6 +60,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     m_sum=new QLabel("€ 0.00"); 
     m_npv=new QLabel("€ 0.00"); 
     m_irr=new QLabel("—");
+    m_offersSum=new QLabel("€ 0.00");
+    m_invoicesSum=new QLabel("€ 0.00");
     
     // Create modern KPI card function with icon space
     auto createCard=[](const QString&title, QLabel*value, const QString&iconText, bool isDark = false) -> QWidget* { 
@@ -98,7 +103,9 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     // Add KPI cards with icons
     kpiRow->addWidget(createCard("Kontostand Heute", m_sum, "💰", true));  // Dark card for current balance
     kpiRow->addWidget(createCard("Prognose Ende", m_npv, "📊", false));  // End balance after forecast period
-    kpiRow->addWidget(createCard("Monatl. Cashflow", m_irr, "📈", false));  // Average monthly cashflow 
+    kpiRow->addWidget(createCard("Monatl. Cashflow", m_irr, "📈", false));  // Average monthly cashflow
+    kpiRow->addWidget(createCard("Aktive Angebote", m_offersSum, "🎯", false));  // Active offers sum
+    kpiRow->addWidget(createCard("Offene Rechnungen", m_invoicesSum, "📋", false));  // Open invoices sum
     kpiRow->addStretch();
     
     root->addLayout(kpiRow);
@@ -132,13 +139,17 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     m_rate->setHidden(true);
     
     // Create checkboxes for including different items
-    m_includeInvoices = new QCheckBox("Offene Rechnungen");
+    m_includeInvoices = new QCheckBox("Rechnungen");
     m_includeInvoices->setChecked(true);
     m_includeInvoices->setToolTip("Berücksichtigt offene Rechnungen am Fälligkeitsdatum");
     
-    m_includeOffers = new QCheckBox("Angebote");
+    m_includeOffers = new QCheckBox("Offene Angebote");
     m_includeOffers->setChecked(true);
-    m_includeOffers->setToolTip("Berücksichtigt Angebote mit ihrer Wahrscheinlichkeit");
+    m_includeOffers->setToolTip("Berücksichtigt offene Angebote mit ihrer Wahrscheinlichkeit");
+    
+    m_includeOffersBeauftragt = new QCheckBox("Beauftragte");
+    m_includeOffersBeauftragt->setChecked(true);
+    m_includeOffersBeauftragt->setToolTip("Berücksichtigt beauftragte Angebote mit ihrer Wahrscheinlichkeit");
     
     m_includeRecurring = new QCheckBox("Wiederkehrend");
     m_includeRecurring->setChecked(true);
@@ -154,28 +165,58 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     controlsRow->addWidget(m_startBalance);
     controlsRow->addWidget(new QLabel("<b>Prognose für:</b>")); 
     controlsRow->addWidget(m_horizon);
+    
+    // Add separator
+    auto*separator1 = new QFrame();
+    separator1->setFrameShape(QFrame::VLine);
+    separator1->setFrameShadow(QFrame::Sunken);
+    controlsRow->addWidget(separator1);
+    
+    // Add checkboxes to the same row
     controlsRow->addWidget(new QLabel("<b>Berücksichtigen:</b>"));
     controlsRow->addWidget(m_includeInvoices);
     controlsRow->addWidget(m_includeOffers);
+    controlsRow->addWidget(m_includeOffersBeauftragt);
     controlsRow->addWidget(m_includeRecurring);
+    
     controlsRow->addStretch(); 
     controlsRow->addWidget(btnSave); 
     controlsRow->addWidget(btnRefresh);
     
     root->addLayout(controlsRow);
     
+    // Create main vertical splitter for all sections
+    auto*mainSplitter = new QSplitter(Qt::Vertical, this);
+    mainSplitter->setChildrenCollapsible(false);
+    
+    // Container for KPI cards
+    auto*kpiContainer = new QWidget();
+    auto*kpiContainerLayout = new QVBoxLayout(kpiContainer);
+    kpiContainerLayout->setContentsMargins(0, 0, 0, 0);
+    kpiContainerLayout->addLayout(kpiRow);
+    
+    // Add KPI container to main splitter
+    mainSplitter->addWidget(kpiContainer);
+    
     // Chart - NO EFFECTS
     m_chart=new QChartView(this); 
-    m_chart->setMinimumHeight(300);
-    root->addWidget(m_chart, 2);
+    m_chart->setMinimumHeight(200);
+    mainSplitter->addWidget(m_chart);
     
     // Table
     m_table=new QTableWidget(0, 5, this); 
     m_table->setHorizontalHeaderLabels({"Monat", "Netto", "Kumuliert", "Ziel", "Abweichung"}); 
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setAlternatingRowColors(true);
-    m_table->setMinimumHeight(200);
-    root->addWidget(m_table, 3);
+    m_table->setMinimumHeight(150);
+    mainSplitter->addWidget(m_table);
+    
+    // Set initial splitter sizes (20% KPI, 45% chart, 35% table)
+    mainSplitter->setStretchFactor(0, 1);
+    mainSplitter->setStretchFactor(1, 2);
+    mainSplitter->setStretchFactor(2, 2);
+    
+    root->addWidget(mainSplitter, 1);
     
     // Connect signals
     connect(btnRefresh, &QPushButton::clicked, this, &Dashboard::refresh); 
@@ -184,6 +225,7 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     connect(m_horizon, QOverload<int>::of(&QSpinBox::valueChanged), this, &Dashboard::refresh);
     connect(m_includeInvoices, &QCheckBox::toggled, this, &Dashboard::refresh);
     connect(m_includeOffers, &QCheckBox::toggled, this, &Dashboard::refresh);
+    connect(m_includeOffersBeauftragt, &QCheckBox::toggled, this, &Dashboard::refresh);
     connect(m_includeRecurring, &QCheckBox::toggled, this, &Dashboard::refresh);
     
     // Initial refresh
@@ -197,11 +239,14 @@ void Dashboard::saveStartBalance(){
 
 void Dashboard::refresh(){
     int horizon=m_horizon->value(); 
-    bool includeOffers = m_includeOffers->isChecked();
+    bool includeOffersOffen = m_includeOffers->isChecked();
+    bool includeOffersBeauftragt = m_includeOffersBeauftragt->isChecked();
     bool includeInvoices = m_includeInvoices->isChecked();
     bool includeRecurring = m_includeRecurring->isChecked();
     
-    auto rows=Database::instance().monthlyCashflow(horizon, includeOffers, includeInvoices, includeRecurring); 
+    qDebug() << "Dashboard refresh - OffersOffen:" << includeOffersOffen << "OffersBeauftragt:" << includeOffersBeauftragt;
+    
+    auto rows=Database::instance().monthlyCashflow(horizon, includeOffersOffen, includeOffersBeauftragt, includeInvoices, includeRecurring); 
     auto tmap=Database::instance().targets();
     
     m_table->setRowCount(rows.size()); 
@@ -259,6 +304,37 @@ void Dashboard::refresh(){
     }
     
     m_irr->setText(locale.toString(avgMonthly, 'f', 2) + " €");      // Average monthly cashflow
+    
+    // Update offers and invoices sums
+    // Calculate offers sum based on checkbox state
+    double offersSum = 0.0;
+    if(includeOffersOffen || includeOffersBeauftragt) {
+        QSqlQuery q(Database::instance().db());
+        QString statusCondition;
+        if(includeOffersOffen && includeOffersBeauftragt){
+            statusCondition = "WHERE status = 'Offen' OR status = 'Beauftragt' OR status IS NULL";
+        } else if(includeOffersOffen){
+            statusCondition = "WHERE status = 'Offen' OR status IS NULL";
+        } else if(includeOffersBeauftragt){
+            statusCondition = "WHERE status = 'Beauftragt'";
+        }
+        QString query = QString("SELECT amount, probability FROM offers %1").arg(statusCondition);
+        if(q.exec(query)){
+            while(q.next()){
+                double amt = q.value(0).toDouble();
+                double prob = q.value(1).toDouble();
+                if(prob > 1.0) prob /= 100.0;
+                // Include full amount if probability > 0%
+                if(prob > 0) {
+                    offersSum += amt; // Use full amount, not weighted
+                }
+            }
+        }
+    }
+    
+    double invoicesSum = Database::instance().openInvoicesSum();
+    m_offersSum->setText(locale.toString(offersSum, 'f', 2) + " €");
+    m_invoicesSum->setText(locale.toString(invoicesSum, 'f', 2) + " €");
     
     // Create new chart
     auto* chart = new QChart(); 

@@ -14,12 +14,15 @@ private:
     QLabel*m_sum{};
     QLabel*m_npv{};
     QLabel*m_irr{};
+    QLabel*m_offersSum{};
+    QLabel*m_invoicesSum{};
     QDoubleSpinBox*m_rate{};
     QDoubleSpinBox*m_startBalance{};
     QSpinBox*m_horizon{};
     QTableWidget*m_table{};
     QChartView*m_chart{};
     QCheckBox*m_includeOffers{};
+    QCheckBox*m_includeOffersBeauftragt{};
     QCheckBox*m_includeInvoices{};
     QCheckBox*m_includeRecurring{};
 };

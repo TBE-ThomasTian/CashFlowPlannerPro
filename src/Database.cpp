@@ -75,6 +75,8 @@ void Database::ensureSchema(){
     );)");
     q.exec(R"(CREATE TABLE IF NOT EXISTS offers(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        offer_number TEXT,
+        offer_date TEXT,
         date_expected TEXT,
         customer TEXT,
         amount REAL,
@@ -84,6 +86,25 @@ void Database::ensureSchema(){
         payment_delay INTEGER DEFAULT 30,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );)");
+    
+    // Add columns if they don't exist (for existing databases)
+    q.exec("PRAGMA table_info(offers)");
+    bool hasOfferNumber = false;
+    bool hasOfferDate = false;
+    while(q.next()) {
+        QString colName = q.value(1).toString();
+        if(colName == "offer_number") {
+            hasOfferNumber = true;
+        } else if(colName == "offer_date") {
+            hasOfferDate = true;
+        }
+    }
+    if(!hasOfferNumber) {
+        q.exec("ALTER TABLE offers ADD COLUMN offer_number TEXT");
+    }
+    if(!hasOfferDate) {
+        q.exec("ALTER TABLE offers ADD COLUMN offer_date TEXT");
+    }
     q.exec(R"(CREATE TABLE IF NOT EXISTS invoices(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         issue_date TEXT,
@@ -117,7 +138,7 @@ void Database::setSettingStartBalance(double v){ QSqlQuery q(m_db); q.prepare("I
 
 QMap<QString,double> Database::targets(){ QMap<QString,double> out; QSqlQuery q(m_db); if(q.exec("SELECT year,month,amount FROM targets")){ while(q.next()){ out[monthLabel(q.value(0).toInt(), q.value(1).toInt())]=q.value(2).toDouble(); } } return out; }
 
-QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers,bool includeUnpaidInvoices,bool includeRecurring){
+QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffersOffen,bool includeOffersBeauftragt,bool includeUnpaidInvoices,bool includeRecurring){
     struct Ev{QDate d; double a;}; QList<Ev> evs;
     QSqlQuery q(m_db);
     q.exec("SELECT date,amount,COALESCE(interval,''),notes FROM transactions");
@@ -213,24 +234,51 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
             // Storniert (cancelled) invoices are ignored
         }
     }
-    if(includeOffers){
-        if(q.exec("SELECT date_expected,amount,probability,payment_delay FROM offers")){
+    if(includeOffersOffen || includeOffersBeauftragt){
+        QString statusCondition;
+        if(includeOffersOffen && includeOffersBeauftragt){
+            statusCondition = "WHERE status = 'Offen' OR status = 'Beauftragt' OR status IS NULL";
+        } else if(includeOffersOffen){
+            statusCondition = "WHERE status = 'Offen' OR status IS NULL";
+        } else if(includeOffersBeauftragt){
+            statusCondition = "WHERE status = 'Beauftragt'";
+        }
+        
+        QString query = QString("SELECT date_expected,amount,probability,payment_delay,status FROM offers %1").arg(statusCondition);
+        qDebug() << "Offers query:" << query;
+        if(q.exec(query)){
+            qDebug() << "Offers query executed successfully";
             while(q.next()){
-                QDate de=QDate::fromString(q.value(0).toString(),Qt::ISODate);
+                QString date_s = q.value(0).toString();
+                QDate de = QDate::fromString(date_s, Qt::ISODate);
+                if(!de.isValid()) {
+                    de = QDate::fromString(date_s, "dd.MM.yyyy");
+                }
+                
                 double amt=q.value(1).toDouble(); 
                 double p=q.value(2).toDouble(); 
                 int paymentDelay = q.value(3).toInt();
+                QString status = q.value(4).toString();
+                
+                qDebug() << "Offer found - Date:" << date_s << "Parsed:" << de << "Amount:" << amt << "Probability:" << p << "Status:" << status;
                 
                 if(p>1.0) p/=100.0; 
-                if(p<0)p=0; 
-                if(p>1)p=1;
                 
-                // Apply payment delay to the expected date
-                QDate paymentDate = de.addDays(paymentDelay);
-                
-                if(paymentDate.isValid()) {
-                    evs.push_back({paymentDate, amt*p});
-                    qDebug() << "Offer payment:" << de << "->" << paymentDate << "(+" << paymentDelay << "days)" << amt*p;
+                // Include full amount if probability > 0%
+                if(p > 0 && de.isValid()) {
+                    // Apply payment delay to the expected date
+                    QDate paymentDate = de.addDays(paymentDelay);
+                    
+                    if(paymentDate.isValid()) {
+                        evs.push_back({paymentDate, amt}); // Use full amount, not weighted
+                        qDebug() << "Added offer to cashflow:" << de << "->" << paymentDate << "(+" << paymentDelay << "days)" << amt;
+                    } else {
+                        qDebug() << "Invalid payment date for offer after adding delay";
+                    }
+                } else if(p <= 0) {
+                    qDebug() << "Offer skipped due to 0% probability";
+                } else {
+                    qDebug() << "Offer skipped due to invalid date";
                 }
             }
         }
@@ -240,4 +288,49 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
     QMap<QString,double> m; for(const auto&e: evs){ if(!e.d.isValid()) continue; m[monthLabel(e.d.year(),e.d.month())]+=e.a; }
     QVector<MonthRow> out; out.reserve(m.size()); for(auto it=m.begin(); it!=m.end(); ++it){ out.push_back({it.key(), it.value()}); }
     return out;
+}
+
+double Database::activeOffersSum(){
+    QSqlQuery q(m_db);
+    double sum = 0.0;
+    if(q.exec("SELECT amount, probability FROM offers WHERE status = 'Offen' OR status = 'Beauftragt' OR status IS NULL")){
+        while(q.next()){
+            double amt = q.value(0).toDouble();
+            double prob = q.value(1).toDouble();
+            if(prob > 1.0) prob /= 100.0;
+            // Include full amount if probability > 0%
+            if(prob > 0) {
+                sum += amt; // Use full amount, not weighted
+            }
+        }
+    }
+    return sum;
+}
+
+double Database::openInvoicesSum(){
+    QSqlQuery q(m_db);
+    double sum = 0.0;
+    if(q.exec("SELECT amount FROM invoices WHERE status = 'Offen' OR status = 'Überfällig' OR status IS NULL")){
+        while(q.next()){
+            sum += q.value(0).toDouble();
+        }
+    }
+    return sum;
+}
+
+QString Database::nextOfferNumber(){
+    QSqlQuery q(m_db);
+    QString prefix = QString("ANG-%1-").arg(QDate::currentDate().year());
+    
+    // Find the highest number for the current year
+    QString query = QString("SELECT offer_number FROM offers WHERE offer_number LIKE '%1%' ORDER BY offer_number DESC LIMIT 1").arg(prefix);
+    if(q.exec(query) && q.next()){
+        QString lastNumber = q.value(0).toString();
+        // Extract the number part after the prefix
+        QString numberPart = lastNumber.mid(prefix.length());
+        int num = numberPart.toInt() + 1;
+        return prefix + QString("%1").arg(num, 4, 10, QChar('0'));
+    }
+    // First offer of the year
+    return prefix + "0001";
 }
