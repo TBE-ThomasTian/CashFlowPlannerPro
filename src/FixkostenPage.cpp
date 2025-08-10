@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QComboBox>
 #include <QStyledItemDelegate>
+#include <QSqlQuery>
 
 class FixkostenIntervalDelegate : public QStyledItemDelegate {
 public:
@@ -48,6 +49,68 @@ public:
     }
 };
 
+class CategoryDelegate : public QStyledItemDelegate {
+public:
+    CategoryDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {
+        loadCategories();
+    }
+    
+    void loadCategories() {
+        m_categories.clear();
+        m_categoryIds.clear();
+        
+        QSqlQuery query(Database::instance().db());
+        if(query.exec("SELECT id, name FROM categories ORDER BY name")) {
+            while(query.next()) {
+                m_categoryIds.append(query.value(0).toInt());
+                m_categories.append(query.value(1).toString());
+            }
+        }
+    }
+    
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const override {
+        auto *editor = new QComboBox(parent);
+        editor->addItem("", QVariant());  // Empty option
+        for(int i = 0; i < m_categories.size(); ++i) {
+            editor->addItem(m_categories[i], m_categoryIds[i]);
+        }
+        return editor;
+    }
+    
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        int categoryId = index.model()->data(index, Qt::EditRole).toInt();
+        
+        int idx = m_categoryIds.indexOf(categoryId);
+        if (idx >= 0) {
+            comboBox->setCurrentIndex(idx + 1);  // +1 because of empty option
+        } else {
+            comboBox->setCurrentIndex(0);  // Empty option
+        }
+    }
+    
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                     const QModelIndex &index) const override {
+        auto *comboBox = static_cast<QComboBox*>(editor);
+        QVariant categoryId = comboBox->currentData();
+        model->setData(index, categoryId, Qt::EditRole);
+    }
+    
+    QString displayText(const QVariant &value, const QLocale &locale) const override {
+        int categoryId = value.toInt();
+        int idx = m_categoryIds.indexOf(categoryId);
+        if (idx >= 0) {
+            return m_categories[idx];
+        }
+        return QString();
+    }
+    
+private:
+    mutable QList<int> m_categoryIds;
+    mutable QStringList m_categories;
+};
+
 FixkostenPage::FixkostenPage(QWidget*parent):QWidget(parent){
     m_model=new QSqlTableModel(this,Database::instance().db()); 
     m_model->setTable("transactions"); 
@@ -59,6 +122,7 @@ FixkostenPage::FixkostenPage(QWidget*parent):QWidget(parent){
     m_model->setHeaderData(1, Qt::Horizontal, "Datum");
     m_model->setHeaderData(2, Qt::Horizontal, "Beschreibung");
     m_model->setHeaderData(3, Qt::Horizontal, "Betrag (€)");
+    m_model->setHeaderData(4, Qt::Horizontal, "Kategorie");
     m_model->setHeaderData(6, Qt::Horizontal, "Intervall");
     
     m_view=new QTableView(this); 
@@ -68,11 +132,12 @@ FixkostenPage::FixkostenPage(QWidget*parent):QWidget(parent){
     
     // Set delegates for columns
     m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Amount column
+    m_view->setItemDelegateForColumn(4, new CategoryDelegate(this));  // Category column
     m_view->setItemDelegateForColumn(6, new FixkostenIntervalDelegate(this));  // Interval column
     
     // Hide unnecessary columns
     m_view->hideColumn(0);  // id
-    m_view->hideColumn(4);  // category_id
+    // Show category_id column (4) with delegate
     m_view->hideColumn(5);  // person_id
     m_view->hideColumn(7);  // notes (auto-managed with FIXKOSTEN: prefix)
     m_view->hideColumn(8);  // created_at

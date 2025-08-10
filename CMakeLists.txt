@@ -3,9 +3,15 @@ project(CashflowPlannerProCpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Sql Charts)
 qt6_standard_project_setup()
-add_executable(${PROJECT_NAME}
+
+# Qt Resources
+qt6_add_resources(RESOURCES resources.qrc)
+
+# Set up sources
+set(SOURCES
     src/main.cpp
     src/App.cpp src/App.h
     src/MainWindow.cpp src/MainWindow.h
@@ -19,7 +25,15 @@ add_executable(${PROJECT_NAME}
     src/FixkostenPage.cpp src/FixkostenPage.h
     src/LoginDialog.cpp src/LoginDialog.h
     src/TableDelegates.h
+    ${RESOURCES}
 )
+
+# Add Windows resource file for icon
+if(WIN32)
+    set(SOURCES ${SOURCES} resources/app.rc)
+endif()
+
+add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} Qt6::Widgets Qt6::Sql Qt6::Charts)
 add_custom_target(copy_resources ALL

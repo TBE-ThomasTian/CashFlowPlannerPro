@@ -128,6 +128,25 @@ void Database::ensureSchema(){
     // Add payment_delay column if it doesn't exist (for existing databases)
     q.exec("ALTER TABLE offers ADD COLUMN payment_delay INTEGER DEFAULT 30");
     
+    // Populate default categories for Fixkosten if they don't exist
+    QStringList categories = {
+        "Lohn", 
+        "Kapitalsteuer", 
+        "Sozialversicherung", 
+        "Lohnsteuer", 
+        "Umsatzsteuer", 
+        "Versicherung", 
+        "Miete", 
+        "Strom",
+        "Steuerberatung"
+    };
+    
+    for(const QString& category : categories) {
+        q.prepare("INSERT OR IGNORE INTO categories(name) VALUES(:name)");
+        q.bindValue(":name", category);
+        q.exec();
+    }
+    
     if(q.lastError().isValid() && !q.lastError().text().contains("duplicate column")){ 
         qWarning()<<"Schema error:"<<q.lastError().text(); 
     }

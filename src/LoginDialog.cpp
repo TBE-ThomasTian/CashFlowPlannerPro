@@ -36,7 +36,7 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent) {
     // Use standard window with title bar
     setWindowFlags(Qt::Dialog);
     
-    // Window icon is set in main.cpp for the whole application
+    // Icon is already set globally in main.cpp
     
     // Load last database path from settings (cross-platform)
     QSettings settings("CashflowPlanner", "CashflowPlannerPro");

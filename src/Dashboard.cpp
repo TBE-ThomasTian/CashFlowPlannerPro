@@ -25,6 +25,7 @@
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QLineSeries>
 #include <cmath>
+#include <algorithm>
 
 
 Dashboard::Dashboard(QWidget*parent):QWidget(parent){
@@ -284,17 +285,19 @@ void Dashboard::refresh(){
         double var = rows[i].net - target;
         double invoiceAmount = monthlyInvoices.value(rows[i].ym, 0.0);
         
-        m_table->setItem(i, 0, new QTableWidgetItem(rows[i].ym));
-        m_table->setItem(i, 1, new QTableWidgetItem(QString::number(rows[i].net, 'f', 2) + " €"));
-        m_table->setItem(i, 2, new QTableWidgetItem(QString::number(run, 'f', 2) + " €"));
-        m_table->setItem(i, 3, new QTableWidgetItem(QString::number(target, 'f', 2) + " €"));
+        QLocale germanLocale(QLocale::German);
         
-        auto*varItem = new QTableWidgetItem(QString::number(var, 'f', 2) + " €"); 
+        m_table->setItem(i, 0, new QTableWidgetItem(rows[i].ym));
+        m_table->setItem(i, 1, new QTableWidgetItem(germanLocale.toString(rows[i].net, 'f', 2) + " €"));
+        m_table->setItem(i, 2, new QTableWidgetItem(germanLocale.toString(run, 'f', 2) + " €"));
+        m_table->setItem(i, 3, new QTableWidgetItem(germanLocale.toString(target, 'f', 2) + " €"));
+        
+        auto*varItem = new QTableWidgetItem(germanLocale.toString(var, 'f', 2) + " €"); 
         varItem->setForeground(var < 0 ? QColor("#EF4444") : QColor("#10B981")); 
         m_table->setItem(i, 4, varItem);
         
         // Add invoice column with green color for positive amounts
-        auto*invoiceItem = new QTableWidgetItem(QString::number(invoiceAmount, 'f', 2) + " €");
+        auto*invoiceItem = new QTableWidgetItem(germanLocale.toString(invoiceAmount, 'f', 2) + " €");
         if(invoiceAmount > 0) {
             invoiceItem->setForeground(QColor("#10B981")); // Green for income
         }
@@ -460,8 +463,25 @@ void Dashboard::refresh(){
     axisX->setLabelsColor(QColor(0, 0, 0));
     axisX->setGridLineVisible(true);
     
-    // Y Axis - simple 
+    // Y Axis - calculate range with margin
+    double minValue = 0;
+    double maxValue = 0;
+    for(double v : series) {
+        minValue = std::min(minValue, v);
+        maxValue = std::max(maxValue, v);
+    }
+    for(double v : cum) {
+        minValue = std::min(minValue, v);
+        maxValue = std::max(maxValue, v);
+    }
+    
+    // Add 10% margin to prevent clipping
+    double range = maxValue - minValue;
+    double margin = range * 0.1;
+    
     auto* axisY = new QValueAxis(); 
+    axisY->setRange(minValue - margin, maxValue + margin);
+    axisY->setLabelFormat("%.0f €");  // Add Euro symbol to Y-axis labels
     axisY->setLabelsColor(QColor(0, 0, 0));
     axisY->setGridLineColor(QColor(200, 200, 200));
     

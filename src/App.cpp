@@ -133,7 +133,6 @@ App::App(QWidget*parent):QMainWindow(parent){
     m_main=new MainWindow(this);
     setCentralWidget(m_main);
     setWindowTitle("Cashflow Planer - Finanzübersicht v1.0");
-    setWindowIcon(QIcon("resources/CashFlowIcon.png"));
     resize(1200, 800);
 } 
 

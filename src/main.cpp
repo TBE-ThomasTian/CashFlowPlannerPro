@@ -1,19 +1,20 @@
 #include "App.h"
 #include <QApplication>
 #include <QIcon>
+#include <QFile>
+#include <QStringList>
+#include <QDebug>
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     
-    // Set application icon - this sets it for all windows
-    QIcon appIcon("resources/CashFlowIcon.png");
-    if (appIcon.isNull()) {
-        // Try alternative path
-        appIcon = QIcon(":/resources/CashFlowIcon.png");
-    }
-    if (!appIcon.isNull()) {
-        app.setWindowIcon(appIcon);
-    }
+    // Set application metadata
+    app.setApplicationName("CashflowPlanner");
+    app.setOrganizationName("CashflowPlanner");
+    app.setApplicationDisplayName("Cashflow Planer");
+    
+    app.setDesktopFileName("CashflowPlanner.desktop");
+    app.setWindowIcon(QIcon(":/images/resources/CashFlowIcon.ico"));
     
     App w;
     w.show();
