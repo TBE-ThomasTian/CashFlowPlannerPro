@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS resources (
 -- Projects
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_number TEXT,
     name TEXT NOT NULL,
     color TEXT DEFAULT '#3498db',
     start_date DATE,

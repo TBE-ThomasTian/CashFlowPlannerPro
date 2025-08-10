@@ -444,7 +444,7 @@ void ResourceCalendarWidget::mousePressEvent(QMouseEvent* event) {
                     // Show context menu to delete
                     QMenu menu(this);
                     QAction* deleteAction = menu.addAction("Zuweisung löschen");
-                    if (menu.exec(event->globalPos()) == deleteAction) {
+                    if (menu.exec(event->globalPosition().toPoint()) == deleteAction) {
                         QSqlQuery query;
                         query.prepare("DELETE FROM resource_allocations WHERE resource_id=? AND date=?");
                         query.addBindValue(it->resourceId);
@@ -496,8 +496,8 @@ void ResourceCalendarWidget::dragMoveEvent(QDragMoveEvent* event) {
 void ResourceCalendarWidget::dropEvent(QDropEvent* event) {
     if (!event->mimeData()->hasText()) return;
     
-    int resourceRow = getResourceAtPos(event->pos());
-    QDate targetDate = getDateAtPos(event->pos());
+    int resourceRow = getResourceAtPos(event->position().toPoint());
+    QDate targetDate = getDateAtPos(event->position().toPoint());
     
     if (resourceRow < 0 || !targetDate.isValid()) return;
     
@@ -539,7 +539,7 @@ void ResourceCalendarWidget::dropEvent(QDropEvent* event) {
                 int projectId = selectedItems[0]->data(Qt::UserRole).toInt();
                 
                 // Check if we want to create a range
-                if (event->keyboardModifiers() & Qt::ShiftModifier) {
+                if (event->modifiers() & Qt::ShiftModifier) {
                     // Shift pressed - create week allocation
                     for (int i = 0; i < 5; ++i) { // Mon-Fri
                         QDate date = targetDate.addDays(i);
