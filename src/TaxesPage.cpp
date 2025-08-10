@@ -1,5 +1,6 @@
 #include "TaxesPage.h"
 #include "Database.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -105,6 +106,7 @@ TaxesPage::TaxesPage(QWidget*parent):QWidget(parent){
     m_view->setAlternatingRowColors(true);
     
     // Set delegates
+    m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Amount column
     m_view->setItemDelegateForColumn(6, new TaxIntervalDelegate(this));
     
     // Hide unnecessary columns

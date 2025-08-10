@@ -1,5 +1,6 @@
 #include "FixkostenPage.h"
 #include "Database.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -65,8 +66,9 @@ FixkostenPage::FixkostenPage(QWidget*parent):QWidget(parent){
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
     
-    // Set delegate for interval dropdown
-    m_view->setItemDelegateForColumn(6, new FixkostenIntervalDelegate(this));
+    // Set delegates for columns
+    m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Amount column
+    m_view->setItemDelegateForColumn(6, new FixkostenIntervalDelegate(this));  // Interval column
     
     // Hide unnecessary columns
     m_view->hideColumn(0);  // id

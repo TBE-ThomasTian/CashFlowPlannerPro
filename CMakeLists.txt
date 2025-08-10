@@ -18,6 +18,7 @@ add_executable(${PROJECT_NAME}
     src/TaxesPage.cpp src/TaxesPage.h
     src/FixkostenPage.cpp src/FixkostenPage.h
     src/LoginDialog.cpp src/LoginDialog.h
+    src/TableDelegates.h
 )
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} Qt6::Widgets Qt6::Sql Qt6::Charts)

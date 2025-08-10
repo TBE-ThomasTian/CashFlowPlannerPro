@@ -1,6 +1,7 @@
 #include "TargetsPage.h"
 #include "Database.h"
 #include "Dashboard.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -25,6 +26,9 @@ TargetsPage::TargetsPage(QWidget*parent,Dashboard*d):QWidget(parent),m_dashboard
     m_view->setModel(m_model); 
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
+    
+    // Set delegate for amount column
+    m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Target amount column
     
     // Hide id column
     m_view->hideColumn(0);

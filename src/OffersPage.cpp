@@ -1,5 +1,6 @@
 #include "OffersPage.h"
 #include "Database.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -138,6 +139,8 @@ OffersPage::OffersPage(QWidget*parent):QWidget(parent){
     m_view->setAlternatingRowColors(true);
     
     // Set delegates based on ACTUAL column positions
+    m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Amount column (actual position 3)
+    m_view->setItemDelegateForColumn(4, new PercentDelegate(this));   // Probability column (actual position 4)
     m_view->setItemDelegateForColumn(6, new StatusDelegate(this));  // Status column (actual position 6)
     m_view->setItemDelegateForColumn(7, new PaymentDelayDelegate(this));  // Payment delay column (actual position 7)
     

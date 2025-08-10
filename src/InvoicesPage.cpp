@@ -1,5 +1,6 @@
 #include "InvoicesPage.h"
 #include "Database.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -86,7 +87,10 @@ InvoicesPage::InvoicesPage(QWidget*parent):QWidget(parent){
     m_view->setAlternatingRowColors(true);
     
     // Set delegate for status dropdown
-    m_view->setItemDelegateForColumn(8, new InvoiceStatusDelegate(this));
+    // Set delegates for columns
+    m_view->setItemDelegateForColumn(4, new CurrencyDelegate(this));  // Amount column
+    m_view->setItemDelegateForColumn(7, new CurrencyDelegate(this));  // Paid amount column
+    m_view->setItemDelegateForColumn(8, new InvoiceStatusDelegate(this));  // Status column
     
     // Hide id and timestamp columns
     m_view->hideColumn(0);  // id

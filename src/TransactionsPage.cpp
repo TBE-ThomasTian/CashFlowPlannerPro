@@ -1,5 +1,6 @@
 #include "TransactionsPage.h"
 #include "Database.h"
+#include "TableDelegates.h"
 #include <QSqlTableModel>
 #include <QTableView>
 #include <QHeaderView>
@@ -70,7 +71,8 @@ TransactionsPage::TransactionsPage(QWidget*parent):QWidget(parent){
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->setAlternatingRowColors(true);
     
-    // Set delegate for interval column
+    // Set delegates for columns
+    m_view->setItemDelegateForColumn(3, new CurrencyDelegate(this));  // Amount column
     m_view->setItemDelegateForColumn(6, new IntervalDelegate(this));  // Interval column
     
     // Set header resize mode for even distribution
