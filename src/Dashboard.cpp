@@ -36,6 +36,45 @@ static double npv(const QVector<double>& s,double r){
     return t; 
 }
 
+static double irr(const QVector<double>& cashflows, double initialInvestment) {
+    // IRR calculation using Newton-Raphson method
+    // Include initial investment as negative first cashflow
+    QVector<double> cf;
+    cf.append(-initialInvestment);
+    cf.append(cashflows);
+    
+    double rate = 0.1; // Initial guess 10%
+    const int maxIterations = 100;
+    const double tolerance = 0.00001;
+    
+    for(int iter = 0; iter < maxIterations; ++iter) {
+        double npvVal = 0.0;
+        double npvDeriv = 0.0;
+        
+        for(int i = 0; i < cf.size(); ++i) {
+            double factor = std::pow(1.0 + rate, -i);
+            npvVal += cf[i] * factor;
+            npvDeriv -= i * cf[i] * factor / (1.0 + rate);
+        }
+        
+        if(std::abs(npvVal) < tolerance) {
+            return rate * 100.0; // Return as percentage
+        }
+        
+        if(std::abs(npvDeriv) < tolerance) {
+            break; // Avoid division by zero
+        }
+        
+        rate = rate - npvVal / npvDeriv;
+        
+        // Bound the rate to avoid unrealistic values
+        if(rate < -0.99) rate = -0.99;
+        if(rate > 10.0) rate = 10.0;
+    }
+    
+    return rate * 100.0; // Return as percentage
+}
+
 Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     // DISABLE ALL EFFECTS
     
@@ -62,6 +101,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     m_irr=new QLabel("—");
     m_offersSum=new QLabel("€ 0.00");
     m_invoicesSum=new QLabel("€ 0.00");
+    m_actualNpv=new QLabel("€ 0.00");
+    m_actualIrr=new QLabel("—");
     
     // Create modern KPI card function with icon space
     auto createCard=[](const QString&title, QLabel*value, const QString&iconText, bool isDark = false) -> QWidget* { 
@@ -106,6 +147,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     kpiRow->addWidget(createCard("Monatl. Cashflow", m_irr, "📈", false));  // Average monthly cashflow
     kpiRow->addWidget(createCard("Aktive Angebote", m_offersSum, "🎯", false));  // Active offers sum
     kpiRow->addWidget(createCard("Offene Rechnungen", m_invoicesSum, "📋", false));  // Open invoices sum
+    kpiRow->addWidget(createCard("NPV (Kapitalwert)", m_actualNpv, "💎", false));  // Net Present Value
+    kpiRow->addWidget(createCard("IRR (Zinsfuß)", m_actualIrr, "📉", false));  // Internal Rate of Return
     kpiRow->addStretch();
     
     root->addLayout(kpiRow);
@@ -304,6 +347,18 @@ void Dashboard::refresh(){
     }
     
     m_irr->setText(locale.toString(avgMonthly, 'f', 2) + " €");      // Average monthly cashflow
+    
+    // Calculate and display actual NPV and IRR
+    double discountRate = 5.0; // Default 5% annual discount rate
+    double npvValue = npv(series, discountRate);
+    double irrValue = irr(series, currentBalance);
+    
+    m_actualNpv->setText(locale.toString(npvValue, 'f', 2) + " €");
+    if(std::isnan(irrValue) || std::isinf(irrValue)) {
+        m_actualIrr->setText("—");
+    } else {
+        m_actualIrr->setText(locale.toString(irrValue, 'f', 1) + " %");
+    }
     
     // Update offers and invoices sums
     // Calculate offers sum based on checkbox state

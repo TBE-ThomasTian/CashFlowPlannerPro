@@ -16,6 +16,8 @@ private:
     QLabel*m_irr{};
     QLabel*m_offersSum{};
     QLabel*m_invoicesSum{};
+    QLabel*m_actualNpv{};
+    QLabel*m_actualIrr{};
     QDoubleSpinBox*m_rate{};
     QDoubleSpinBox*m_startBalance{};
     QSpinBox*m_horizon{};
