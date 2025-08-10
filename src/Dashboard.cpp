@@ -410,6 +410,21 @@ void Dashboard::refresh(){
     
     chart->addSeries(lineSeries);
     
+    // Add horizontal zero line
+    auto* zeroLine = new QLineSeries();
+    zeroLine->setName("Nulllinie");
+    zeroLine->append(-0.5, 0);
+    zeroLine->append(labels.size() - 0.5, 0);
+    
+    // Style the zero line
+    QPen zeroPen(QColor(255, 0, 0));  // Red color for zero line
+    zeroPen.setWidth(2);
+    zeroPen.setStyle(Qt::DashLine);  // Dashed line
+    zeroLine->setPen(zeroPen);
+    zeroLine->setPointsVisible(false);
+    
+    chart->addSeries(zeroLine);
+    
     // X Axis - simple
     auto* axisX = new QBarCategoryAxis(); 
     axisX->append(labels); 
@@ -427,6 +442,8 @@ void Dashboard::refresh(){
     barSeries->attachAxis(axisY);
     lineSeries->attachAxis(axisX);
     lineSeries->attachAxis(axisY);
+    zeroLine->attachAxis(axisX);
+    zeroLine->attachAxis(axisY);
     
     // Simple title
     chart->setTitle("Cashflow & Kontostand");
