@@ -22,6 +22,7 @@
 #include <QtCharts/QBarSeries>
 #include <QtCharts/QBarCategoryAxis>
 #include <QtCharts/QValueAxis>
+#include <QtCharts/QLineSeries>
 #include <cmath>
 
 
@@ -377,19 +378,37 @@ void Dashboard::refresh(){
     chart->setBackgroundBrush(QBrush(QColor(255, 255, 255)));
     chart->setPlotAreaBackgroundVisible(false);
     
-    // Create bar series
-    auto* set = new QBarSet("Cashflow"); 
+    // Create bar series for monthly cashflow
+    auto* set = new QBarSet("Monatlicher Cashflow"); 
     for(double v: series) {
         *set << v;
     }
     
-    // Use the same blue as in the design
+    // Use blue for bars
     set->setColor(QColor(100, 132, 154));  // #64849a
     set->setBorderColor(QColor(100, 132, 154));
     
     auto* barSeries = new QBarSeries(); 
     barSeries->append(set); 
     chart->addSeries(barSeries);
+    
+    // Create line series for cumulative balance
+    auto* lineSeries = new QLineSeries();
+    lineSeries->setName("Kontostand");
+    for(int i = 0; i < cum.size(); ++i) {
+        lineSeries->append(i, cum[i]);
+    }
+    
+    // Style the line
+    QPen pen(QColor(220, 38, 127));  // Pink/red color for line
+    pen.setWidth(3);
+    lineSeries->setPen(pen);
+    
+    // Add markers to the line
+    lineSeries->setPointsVisible(true);
+    lineSeries->setPointLabelsVisible(false);
+    
+    chart->addSeries(lineSeries);
     
     // X Axis - simple
     auto* axisX = new QBarCategoryAxis(); 
@@ -405,13 +424,19 @@ void Dashboard::refresh(){
     chart->addAxis(axisX, Qt::AlignBottom); 
     chart->addAxis(axisY, Qt::AlignLeft); 
     barSeries->attachAxis(axisX); 
-    barSeries->attachAxis(axisY); 
+    barSeries->attachAxis(axisY);
+    lineSeries->attachAxis(axisX);
+    lineSeries->attachAxis(axisY);
     
     // Simple title
-    chart->setTitle("Monatlicher Cashflow");
+    chart->setTitle("Cashflow & Kontostand");
     chart->setTitleBrush(QBrush(QColor(0, 0, 0)));
     chart->setTitleFont(QFont("Arial", 14));
-    chart->legend()->setVisible(false);
+    
+    // Show legend for both series
+    chart->legend()->setVisible(true);
+    chart->legend()->setAlignment(Qt::AlignBottom);
+    chart->legend()->setFont(QFont("Arial", 10));
     
     // Apply chart
     m_chart->setChart(chart);
