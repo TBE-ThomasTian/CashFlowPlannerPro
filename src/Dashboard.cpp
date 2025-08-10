@@ -24,56 +24,6 @@
 #include <QtCharts/QValueAxis>
 #include <cmath>
 
-static double npv(const QVector<double>& s,double r){ 
-    if(r==0){
-        double t=0;
-        for(double v:s)t+=v;
-        return t;
-    } 
-    double rm=std::pow(1.0+r/100.0,1.0/12.0)-1.0; 
-    double t=0; 
-    for(int i=0;i<s.size();++i) t+= s[i]/std::pow(1.0+rm,i); 
-    return t; 
-}
-
-static double irr(const QVector<double>& cashflows, double initialInvestment) {
-    // IRR calculation using Newton-Raphson method
-    // Include initial investment as negative first cashflow
-    QVector<double> cf;
-    cf.append(-initialInvestment);
-    cf.append(cashflows);
-    
-    double rate = 0.1; // Initial guess 10%
-    const int maxIterations = 100;
-    const double tolerance = 0.00001;
-    
-    for(int iter = 0; iter < maxIterations; ++iter) {
-        double npvVal = 0.0;
-        double npvDeriv = 0.0;
-        
-        for(int i = 0; i < cf.size(); ++i) {
-            double factor = std::pow(1.0 + rate, -i);
-            npvVal += cf[i] * factor;
-            npvDeriv -= i * cf[i] * factor / (1.0 + rate);
-        }
-        
-        if(std::abs(npvVal) < tolerance) {
-            return rate * 100.0; // Return as percentage
-        }
-        
-        if(std::abs(npvDeriv) < tolerance) {
-            break; // Avoid division by zero
-        }
-        
-        rate = rate - npvVal / npvDeriv;
-        
-        // Bound the rate to avoid unrealistic values
-        if(rate < -0.99) rate = -0.99;
-        if(rate > 10.0) rate = 10.0;
-    }
-    
-    return rate * 100.0; // Return as percentage
-}
 
 Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     // DISABLE ALL EFFECTS
@@ -101,8 +51,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     m_irr=new QLabel("—");
     m_offersSum=new QLabel("€ 0.00");
     m_invoicesSum=new QLabel("€ 0.00");
-    m_actualNpv=new QLabel("€ 0.00");
-    m_actualIrr=new QLabel("—");
+    m_burnRate=new QLabel("€ 0.00");
+    m_runway=new QLabel("—");
     
     // Create modern KPI card function with icon space
     auto createCard=[](const QString&title, QLabel*value, const QString&iconText, bool isDark = false) -> QWidget* { 
@@ -147,8 +97,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     kpiRow->addWidget(createCard("Monatl. Cashflow", m_irr, "📈", false));  // Average monthly cashflow
     kpiRow->addWidget(createCard("Aktive Angebote", m_offersSum, "🎯", false));  // Active offers sum
     kpiRow->addWidget(createCard("Offene Rechnungen", m_invoicesSum, "📋", false));  // Open invoices sum
-    kpiRow->addWidget(createCard("NPV (Kapitalwert)", m_actualNpv, "💎", false));  // Net Present Value
-    kpiRow->addWidget(createCard("IRR (Zinsfuß)", m_actualIrr, "📉", false));  // Internal Rate of Return
+    kpiRow->addWidget(createCard("Burn Rate", m_burnRate, "🔥", false));  // Monthly burn rate
+    kpiRow->addWidget(createCard("Runway", m_runway, "⏱️", false));  // Months until money runs out
     kpiRow->addStretch();
     
     root->addLayout(kpiRow);
@@ -348,16 +298,45 @@ void Dashboard::refresh(){
     
     m_irr->setText(locale.toString(avgMonthly, 'f', 2) + " €");      // Average monthly cashflow
     
-    // Calculate and display actual NPV and IRR
-    double discountRate = 5.0; // Default 5% annual discount rate
-    double npvValue = npv(series, discountRate);
-    double irrValue = irr(series, currentBalance);
+    // Calculate Burn Rate (average monthly expenses) and Runway
+    double totalExpenses = 0.0;
+    double totalIncome = 0.0;
+    int monthCount = 0;
     
-    m_actualNpv->setText(locale.toString(npvValue, 'f', 2) + " €");
-    if(std::isnan(irrValue) || std::isinf(irrValue)) {
-        m_actualIrr->setText("—");
+    for(const auto& row : rows) {
+        if(row.net < 0) {
+            totalExpenses += std::abs(row.net);
+        } else {
+            totalIncome += row.net;
+        }
+        monthCount++;
+    }
+    
+    double avgMonthlyExpenses = monthCount > 0 ? totalExpenses / monthCount : 0;
+    double netBurnRate = monthCount > 0 ? (totalExpenses - totalIncome) / monthCount : 0;
+    
+    // Calculate runway (how many months until money runs out)
+    double runway = 0;
+    if(netBurnRate > 0 && currentBalance > 0) {
+        runway = currentBalance / netBurnRate;
+    } else if(netBurnRate <= 0) {
+        runway = -1; // Infinite runway (profitable)
+    }
+    
+    // Display Burn Rate (show gross expenses, more useful)
+    m_burnRate->setText(locale.toString(-avgMonthlyExpenses, 'f', 2) + " €/Monat");
+    
+    // Display Runway
+    if(runway < 0) {
+        m_runway->setText("<span style='color: green;'>∞ (Profitabel)</span>");
+    } else if(runway == 0) {
+        m_runway->setText("<span style='color: red;'>0 Monate</span>");
+    } else if(runway < 6) {
+        m_runway->setText(QString("<span style='color: red;'>%1 Monate</span>").arg(QString::number(runway, 'f', 1)));
+    } else if(runway < 12) {
+        m_runway->setText(QString("<span style='color: orange;'>%1 Monate</span>").arg(QString::number(runway, 'f', 1)));
     } else {
-        m_actualIrr->setText(locale.toString(irrValue, 'f', 1) + " %");
+        m_runway->setText(QString("<span style='color: green;'>%1 Monate</span>").arg(QString::number(runway, 'f', 1)));
     }
     
     // Update offers and invoices sums
