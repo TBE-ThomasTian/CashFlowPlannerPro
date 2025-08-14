@@ -200,8 +200,8 @@ Dashboard::Dashboard(QWidget*parent):QWidget(parent){
     mainSplitter->addWidget(m_chart);
     
     // Table
-    m_table=new QTableWidget(0, 6, this); 
-    m_table->setHorizontalHeaderLabels({"Monat", "Netto", "Kumuliert", "Ziel", "Abweichung", "Rechnungen"}); 
+    m_table=new QTableWidget(0, 8, this); 
+    m_table->setHorizontalHeaderLabels({"Monat", "Einnahmen", "Ausgaben", "Netto", "Kumuliert", "Ziel", "Abweichung", "Rechnungen"}); 
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setAlternatingRowColors(true);
     m_table->setMinimumHeight(150);
@@ -245,10 +245,10 @@ void Dashboard::refresh(){
     auto rows=Database::instance().monthlyCashflow(horizon, includeOffersOffen, includeOffersBeauftragt, includeInvoices, includeRecurring); 
     auto tmap=Database::instance().targets();
     
-    // Get monthly invoice data
+    // Get monthly invoice data (considering partial payments)
     QMap<QString, double> monthlyInvoices;
     QSqlQuery invoiceQuery(Database::instance().db());
-    if(invoiceQuery.exec("SELECT due_date, amount FROM invoices WHERE status = 'Offen' OR status IS NULL")) {
+    if(invoiceQuery.exec("SELECT due_date, amount, paid_amount FROM invoices WHERE status = 'Offen' OR status IS NULL")) {
         while(invoiceQuery.next()) {
             QString dueStr = invoiceQuery.value(0).toString();
             QDate dueDate = QDate::fromString(dueStr, Qt::ISODate);
@@ -260,19 +260,47 @@ void Dashboard::refresh(){
             }
             if(dueDate.isValid()) {
                 QString monthKey = QString("%1-%2").arg(dueDate.year()).arg(dueDate.month(), 2, 10, QChar('0'));
-                monthlyInvoices[monthKey] += invoiceQuery.value(1).toDouble();
+                double totalAmount = invoiceQuery.value(1).toDouble();
+                double paidAmount = invoiceQuery.value(2).isNull() ? 0.0 : invoiceQuery.value(2).toDouble();
+                double remainingAmount = totalAmount - paidAmount;
+                monthlyInvoices[monthKey] += remainingAmount;
             }
         }
     }
     
-    m_table->setRowCount(rows.size()); 
+    // Add one extra row for the starting balance
+    m_table->setRowCount(rows.size() + 1); 
     QVector<double> series; 
     series.reserve(rows.size()); 
     QVector<double> cum; 
-    cum.reserve(rows.size());
+    cum.reserve(rows.size() + 1);
     
     double sum=0, run=m_startBalance->value(); 
     QStringList labels;
+    
+    // Add starting balance as first row
+    QLocale germanLocale(QLocale::German);
+    m_table->setItem(0, 0, new QTableWidgetItem("Start"));
+    m_table->setItem(0, 1, new QTableWidgetItem("-"));
+    m_table->setItem(0, 2, new QTableWidgetItem("-"));
+    m_table->setItem(0, 3, new QTableWidgetItem("-"));
+    m_table->setItem(0, 4, new QTableWidgetItem(germanLocale.toString(run, 'f', 2) + " €"));
+    m_table->setItem(0, 5, new QTableWidgetItem("-"));
+    m_table->setItem(0, 6, new QTableWidgetItem("-"));
+    m_table->setItem(0, 7, new QTableWidgetItem("-"));
+    
+    // Make the start row visually distinct
+    for(int col = 0; col < 8; ++col) {
+        auto* item = m_table->item(0, col);
+        if(item) {
+            item->setBackground(QBrush(QColor(240, 240, 240)));
+            QFont font = item->font();
+            font.setBold(true);
+            item->setFont(font);
+        }
+    }
+    
+    cum << run;  // Add starting balance to cumulative series
     
     for(int i=0; i<rows.size(); ++i){ 
         labels << rows[i].ym; 
@@ -285,23 +313,45 @@ void Dashboard::refresh(){
         double var = rows[i].net - target;
         double invoiceAmount = monthlyInvoices.value(rows[i].ym, 0.0);
         
-        QLocale germanLocale(QLocale::German);
+        // Use i+1 for table row index since row 0 is now the starting balance
+        m_table->setItem(i+1, 0, new QTableWidgetItem(rows[i].ym));
         
-        m_table->setItem(i, 0, new QTableWidgetItem(rows[i].ym));
-        m_table->setItem(i, 1, new QTableWidgetItem(germanLocale.toString(rows[i].net, 'f', 2) + " €"));
-        m_table->setItem(i, 2, new QTableWidgetItem(germanLocale.toString(run, 'f', 2) + " €"));
-        m_table->setItem(i, 3, new QTableWidgetItem(germanLocale.toString(target, 'f', 2) + " €"));
+        // Income column (green)
+        auto*incomeItem = new QTableWidgetItem(germanLocale.toString(rows[i].income, 'f', 2) + " €");
+        if(rows[i].income > 0) {
+            incomeItem->setForeground(QColor("#10B981")); // Green for income
+        }
+        m_table->setItem(i+1, 1, incomeItem);
         
+        // Expenses column (red)
+        auto*expensesItem = new QTableWidgetItem(germanLocale.toString(rows[i].expenses, 'f', 2) + " €");
+        if(rows[i].expenses < 0) {
+            expensesItem->setForeground(QColor("#EF4444")); // Red for expenses
+        }
+        m_table->setItem(i+1, 2, expensesItem);
+        
+        // Net column
+        auto*netItem = new QTableWidgetItem(germanLocale.toString(rows[i].net, 'f', 2) + " €");
+        netItem->setForeground(rows[i].net < 0 ? QColor("#EF4444") : QColor("#10B981"));
+        m_table->setItem(i+1, 3, netItem);
+        
+        // Cumulative column
+        m_table->setItem(i+1, 4, new QTableWidgetItem(germanLocale.toString(run, 'f', 2) + " €"));
+        
+        // Target column
+        m_table->setItem(i+1, 5, new QTableWidgetItem(germanLocale.toString(target, 'f', 2) + " €"));
+        
+        // Variance column
         auto*varItem = new QTableWidgetItem(germanLocale.toString(var, 'f', 2) + " €"); 
         varItem->setForeground(var < 0 ? QColor("#EF4444") : QColor("#10B981")); 
-        m_table->setItem(i, 4, varItem);
+        m_table->setItem(i+1, 6, varItem);
         
         // Add invoice column with green color for positive amounts
         auto*invoiceItem = new QTableWidgetItem(germanLocale.toString(invoiceAmount, 'f', 2) + " €");
         if(invoiceAmount > 0) {
             invoiceItem->setForeground(QColor("#10B981")); // Green for income
         }
-        m_table->setItem(i, 5, invoiceItem);
+        m_table->setItem(i+1, 7, invoiceItem);
     }
     
     // Update KPIs with meaningful values

@@ -4,7 +4,7 @@
 #include <QVector>
 #include <QPair>
 #include <QMap>
-struct MonthRow{QString ym; double net=0;};
+struct MonthRow{QString ym; double net=0; double income=0; double expenses=0;};
 class Database{
 public: 
     static Database& instance(); 

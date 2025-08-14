@@ -154,6 +154,20 @@ void Database::ensureSchema(){
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );)");
     
+    // Add project_number column if it doesn't exist (for existing databases)
+    q.exec("PRAGMA table_info(projects)");
+    bool hasProjectNumber = false;
+    while(q.next()) {
+        QString colName = q.value(1).toString();
+        if(colName == "project_number") {
+            hasProjectNumber = true;
+            break;
+        }
+    }
+    if(!hasProjectNumber) {
+        q.exec("ALTER TABLE projects ADD COLUMN project_number TEXT");
+    }
+    
     q.exec(R"(CREATE TABLE IF NOT EXISTS resource_allocations(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         resource_id INTEGER NOT NULL,
@@ -261,7 +275,7 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
             QString status = q.value(0).toString();
             
             if(status == "Offen" || status == "Überfällig" || status.isEmpty()){ 
-                // Open invoice - expect payment on due date
+                // Open invoice - expect payment on due date (considering partial payments)
                 if(includeUnpaidInvoices){
                     QString due_s = q.value(1).toString();
                     QDate due = QDate::fromString(due_s, Qt::ISODate);
@@ -271,13 +285,15 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
                     if(!due.isValid()) {
                         due = QDate::fromString(due_s, "yyyy-MM-dd");
                     }
-                    double amt=q.value(2).toDouble(); 
-                    qDebug() << "Invoice date string:" << due_s << "Parsed as:" << due << "Amount:" << amt << "Status:" << status;
-                    if(due.isValid() && amt != 0) {
-                        evs.push_back({due,amt}); 
-                        qDebug() << "Added open invoice:" << due << amt << "Status:" << status;
+                    double totalAmt=q.value(2).toDouble();
+                    double paidAmt = q.value(4).isNull() ? 0.0 : q.value(4).toDouble();
+                    double remainingAmt = totalAmt - paidAmt;
+                    qDebug() << "Invoice date string:" << due_s << "Parsed as:" << due << "Total:" << totalAmt << "Paid:" << paidAmt << "Remaining:" << remainingAmt << "Status:" << status;
+                    if(due.isValid() && remainingAmt != 0) {
+                        evs.push_back({due,remainingAmt}); 
+                        qDebug() << "Added open invoice:" << due << remainingAmt << "Status:" << status;
                     } else {
-                        qDebug() << "SKIPPED invoice - invalid date or zero amount";
+                        qDebug() << "SKIPPED invoice - invalid date or zero remaining amount";
                     }
                 }
             }
@@ -345,10 +361,48 @@ QVector<MonthRow> Database::monthlyCashflow(int horizonMonths,bool includeOffers
             }
         }
     }
-    if(evs.isEmpty()) return {};
+    // Sort events by date
     std::sort(evs.begin(), evs.end(), [](const Ev&a,const Ev&b){return a.d<b.d;});
-    QMap<QString,double> m; for(const auto&e: evs){ if(!e.d.isValid()) continue; m[monthLabel(e.d.year(),e.d.month())]+=e.a; }
-    QVector<MonthRow> out; out.reserve(m.size()); for(auto it=m.begin(); it!=m.end(); ++it){ out.push_back({it.key(), it.value()}); }
+    
+    // Create maps for all months from current month to horizon
+    QMap<QString,double> netMap;
+    QMap<QString,double> incomeMap;
+    QMap<QString,double> expensesMap;
+    QDate currentDate = QDate::currentDate();
+    QDate startOfMonth = QDate(currentDate.year(), currentDate.month(), 1);
+    
+    // Initialize all months in the horizon with 0
+    for(int i = 0; i < horizonMonths; ++i) {
+        QDate monthDate = addMonthsClamped(startOfMonth, i);
+        QString label = monthLabel(monthDate.year(), monthDate.month());
+        netMap[label] = 0.0;
+        incomeMap[label] = 0.0;
+        expensesMap[label] = 0.0;
+    }
+    
+    // Add events to the appropriate months (only current and future)
+    for(const auto&e: evs){ 
+        if(!e.d.isValid()) continue;
+        // Only include events from current month onwards
+        if(e.d >= startOfMonth) {
+            QString label = monthLabel(e.d.year(),e.d.month());
+            // Only add if within our horizon
+            if(netMap.contains(label)) {
+                netMap[label] += e.a;
+                if(e.a > 0) {
+                    incomeMap[label] += e.a;
+                } else {
+                    expensesMap[label] += e.a;  // Keep negative
+                }
+            }
+        }
+    }
+    
+    QVector<MonthRow> out; 
+    out.reserve(netMap.size()); 
+    for(auto it=netMap.begin(); it!=netMap.end(); ++it){ 
+        out.push_back({it.key(), it.value(), incomeMap[it.key()], expensesMap[it.key()]}); 
+    }
     return out;
 }
 
@@ -372,9 +426,12 @@ double Database::activeOffersSum(){
 double Database::openInvoicesSum(){
     QSqlQuery q(m_db);
     double sum = 0.0;
-    if(q.exec("SELECT amount FROM invoices WHERE status = 'Offen' OR status = 'Überfällig' OR status IS NULL")){
+    if(q.exec("SELECT amount, paid_amount FROM invoices WHERE status = 'Offen' OR status = 'Überfällig' OR status IS NULL")){
         while(q.next()){
-            sum += q.value(0).toDouble();
+            double totalAmount = q.value(0).toDouble();
+            double paidAmount = q.value(1).isNull() ? 0.0 : q.value(1).toDouble();
+            double remainingAmount = totalAmount - paidAmount;
+            sum += remainingAmount;
         }
     }
     return sum;
