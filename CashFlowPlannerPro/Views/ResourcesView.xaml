@@ -24,7 +24,11 @@
                 <Button Content="➕ Mitarbeiter" Click="AddResource_Click"
                         Style="{StaticResource AddButton}" Margin="0,0,8,0" Padding="8,4"/>
                 <Button Content="➕ Projekt" Click="AddProject_Click"
-                        Style="{StaticResource AddButton}" Padding="8,4"/>
+                        Style="{StaticResource AddButton}" Padding="8,4" Margin="0,0,8,0"/>
+                <Button Content="➕ Hardware" Click="AddHardware_Click"
+                        Style="{StaticResource AddButton}" Padding="8,4" Margin="0,0,8,0"/>
+                <Button Content="📋 Kanban" Click="OpenKanban_Click"
+                        Style="{StaticResource NavButton}" Padding="10,4"/>
 
                 <TextBlock Text="   Ctrl+Scroll: Zoom  |  Shift+Scroll: Zeilenhöhe"
                            Foreground="#6B6490" FontSize="10" VerticalAlignment="Center" Margin="16,0,0,0"/>
@@ -51,15 +55,35 @@
                           VerticalAlignment="Center" Background="{StaticResource GridLineBrush}"
                           Cursor="SizeNS" ResizeBehavior="PreviousAndNext" Margin="0,2"/>
 
-            <!-- Project List (Drag Source) -->
+            <!-- Project + Hardware Lists -->
             <Border Grid.Row="2" Background="{StaticResource BackgroundBrush}" Padding="12,8">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Projekte — zum Zuweisen auf Mitarbeiter ziehen"
-                               FontSize="12" FontWeight="SemiBold" Foreground="Gray" Margin="0,0,0,8"/>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <WrapPanel x:Name="ProjectListPanel"/>
-                    </ScrollViewer>
-                </DockPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Project List -->
+                    <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Text="Projekte — auf Mitarbeiter-Zeile ziehen"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="Gray" Margin="0,0,0,8"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <WrapPanel x:Name="ProjectListPanel"/>
+                        </ScrollViewer>
+                    </DockPanel>
+
+                    <Border Grid.Column="1" Width="1" Background="{StaticResource GridLineBrush}" Margin="8,0"/>
+
+                    <!-- Hardware List -->
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" Text="🖥 Hardware — auf Hardware-Zeile ziehen"
+                                   FontSize="12" FontWeight="SemiBold" Foreground="Gray" Margin="0,0,0,8"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <WrapPanel x:Name="HardwareListPanel"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Grid>
             </Border>
         </Grid>
     </DockPanel>

@@ -1,0 +1,45 @@
+<Window x:Class="CashFlowPlannerPro.Views.MilestoneEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Meilenstein" Width="420" Height="520"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#F5F6FA">
+    <DockPanel Margin="20">
+        <Button DockPanel.Dock="Bottom" Content="Speichern" Click="Save_Click"
+                HorizontalAlignment="Stretch" Padding="0,10" Margin="0,12,0,0"
+                Style="{StaticResource AccentButton}"/>
+
+        <StackPanel>
+            <TextBlock Text="Name *" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbName" FontSize="13" Padding="8,6" Margin="0,0,0,10"/>
+
+            <TextBlock Text="Status" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <ComboBox x:Name="CbStatus" FontSize="13" Padding="8,6" Margin="0,0,0,10">
+                <ComboBoxItem Content="Offen"/>
+                <ComboBoxItem Content="Aktiv"/>
+                <ComboBoxItem Content="Review"/>
+                <ComboBoxItem Content="Abgeschlossen"/>
+            </ComboBox>
+
+            <TextBlock Text="Priorität" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <ComboBox x:Name="CbPriority" FontSize="13" Padding="8,6" Margin="0,0,0,10">
+                <ComboBoxItem Content="🔴 Hoch" Tag="1"/>
+                <ComboBoxItem Content="🟡 Mittel" Tag="2"/>
+                <ComboBoxItem Content="🟢 Niedrig" Tag="3"/>
+            </ComboBox>
+
+            <TextBlock Text="Deadline" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <DatePicker x:Name="DpDeadline" FontSize="13" Margin="0,0,0,10"/>
+
+            <TextBlock Text="Verantwortlich" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbResponsible" FontSize="13" Padding="8,6" Margin="0,0,0,10"/>
+
+            <TextBlock Text="Stunden-Budget" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbHours" FontSize="13" Padding="8,6" Margin="0,0,0,10"/>
+
+            <TextBlock Text="Notizen" FontWeight="SemiBold" FontSize="12" Foreground="#555" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbNotes" FontSize="13" Padding="8,6" AcceptsReturn="True"
+                     TextWrapping="Wrap" Height="60" VerticalScrollBarVisibility="Auto"/>
+        </StackPanel>
+    </DockPanel>
+</Window>

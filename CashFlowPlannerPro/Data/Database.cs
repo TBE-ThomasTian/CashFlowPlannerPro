@@ -109,6 +109,61 @@ public sealed class Database : IDisposable {
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_resource ON resource_allocations(resource_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_project ON resource_allocations(project_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_date ON resource_allocations(date)");
+        Exec(@"CREATE TABLE IF NOT EXISTS hardware_resources(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT,
+            cost_per_hour REAL DEFAULT 0, color TEXT DEFAULT '#17a2b8', notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        Exec(@"CREATE TABLE IF NOT EXISTS hardware_allocations(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resource_id INTEGER NOT NULL, hardware_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
+            date TEXT NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(resource_id) REFERENCES resources(id) ON DELETE CASCADE,
+            FOREIGN KEY(hardware_id) REFERENCES hardware_resources(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            UNIQUE(resource_id, hardware_id, project_id, date))");
+        Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_resource ON hardware_allocations(resource_id)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_hardware ON hardware_allocations(hardware_id)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_date ON hardware_allocations(date)");
+        Exec(@"CREATE TABLE IF NOT EXISTS project_milestones(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL, name TEXT NOT NULL,
+            status TEXT DEFAULT 'Offen', deadline TEXT, responsible TEXT,
+            hours_budget REAL DEFAULT 0, priority INTEGER DEFAULT 2,
+            dependencies TEXT, notes TEXT, sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_milestones_project ON project_milestones(project_id)");
+
+        // Roles & permissions
+        Exec(@"CREATE TABLE IF NOT EXISTS roles(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+            description TEXT DEFAULT '')");
+        Exec(@"CREATE TABLE IF NOT EXISTS role_permissions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_id INTEGER NOT NULL, page_key TEXT NOT NULL,
+            access_level TEXT DEFAULT 'none',
+            FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE,
+            UNIQUE(role_id, page_key))");
+        // Add role_id to users
+        try { Exec("ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)"); } catch { }
+        // Default roles
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = "SELECT COUNT(*) FROM roles";
+            if (Convert.ToInt64(cmd.ExecuteScalar()) == 0) {
+                Exec("INSERT INTO roles(name,description) VALUES('Admin','Vollzugriff auf alle Bereiche')");
+                long adminRoleId = LastInsertId();
+                Exec("INSERT INTO roles(name,description) VALUES('Mitarbeiter','Nur Ressourcen-Ansicht')");
+                long mitarbeiterRoleId = LastInsertId();
+                var pages = new[] { "dashboard","transactions","fixkosten","taxes","invoices","offers","resources","targets","admin" };
+                foreach (var p in pages)
+                    Exec($"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES({adminRoleId},'{p}','full')");
+                Exec($"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES({mitarbeiterRoleId},'resources','read')");
+                // Assign admin role to admin user
+                Exec($"UPDATE users SET role_id={adminRoleId} WHERE username='admin'");
+            }
+        }
+
         var cats = new[] { "Lohn","Kapitalsteuer","Sozialversicherung","Lohnsteuer","Umsatzsteuer","Versicherung","Miete","Strom","Steuerberatung" };
         foreach (var c in cats) {
             using var cmd = Conn.CreateCommand();
@@ -654,6 +709,180 @@ public sealed class Database : IDisposable {
 
     public void DeleteAllocation(long id) { ExecWithId("DELETE FROM resource_allocations WHERE id=@id", id); }
 
+    // CRUD: HardwareResources
+    public List<HardwareResource> GetHardwareResources() {
+        var list = new List<HardwareResource>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,type,cost_per_hour,color,notes,created_at FROM hardware_resources ORDER BY name";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new HardwareResource {
+                Id = r.GetInt64(0), Name = r.GetString(1),
+                Type = r.IsDBNull(2) ? "" : r.GetString(2),
+                CostPerHour = r.IsDBNull(3) ? 0 : r.GetDouble(3),
+                Color = r.IsDBNull(4) ? "#17a2b8" : r.GetString(4),
+                Notes = r.IsDBNull(5) ? "" : r.GetString(5),
+                CreatedAt = r.IsDBNull(6) ? "" : r.GetString(6)
+            });
+        }
+        return list;
+    }
+
+    public void AddHardwareResource(HardwareResource h) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO hardware_resources(name,type,cost_per_hour,color,notes,created_at)
+            VALUES(@n,@t,@c,@col,@no,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@n", h.Name);
+        cmd.Parameters.AddWithValue("@t", (object?)h.Type ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@c", h.CostPerHour);
+        cmd.Parameters.AddWithValue("@col", (object?)h.Color ?? "#17a2b8");
+        cmd.Parameters.AddWithValue("@no", (object?)h.Notes ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+        h.Id = LastInsertId();
+    }
+
+    public void UpdateHardwareResource(HardwareResource h) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE hardware_resources SET name=@n,type=@t,cost_per_hour=@c,color=@col,notes=@no WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", h.Id);
+        cmd.Parameters.AddWithValue("@n", h.Name);
+        cmd.Parameters.AddWithValue("@t", (object?)h.Type ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@c", h.CostPerHour);
+        cmd.Parameters.AddWithValue("@col", (object?)h.Color ?? "#17a2b8");
+        cmd.Parameters.AddWithValue("@no", (object?)h.Notes ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteHardwareResource(long id) { ExecWithId("DELETE FROM hardware_resources WHERE id=@id", id); }
+
+    // CRUD: HardwareAllocations
+    public List<HardwareAllocation> GetHardwareAllocations(DateTime start, DateTime end) {
+        var list = new List<HardwareAllocation>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT ha.id,ha.resource_id,ha.hardware_id,ha.project_id,ha.date,ha.hours,ha.notes,
+            hr.name,hr.color,p.name
+            FROM hardware_allocations ha
+            JOIN hardware_resources hr ON hr.id=ha.hardware_id
+            JOIN projects p ON p.id=ha.project_id
+            WHERE ha.date>=@s AND ha.date<=@e";
+        cmd.Parameters.AddWithValue("@s", start.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("@e", end.ToString("yyyy-MM-dd"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new HardwareAllocation {
+                Id = r.GetInt64(0), ResourceId = r.GetInt64(1), HardwareId = r.GetInt64(2),
+                ProjectId = r.GetInt64(3), Date = r.GetString(4),
+                Hours = r.IsDBNull(5) ? 8.0 : r.GetDouble(5),
+                Notes = r.IsDBNull(6) ? "" : r.GetString(6),
+                HardwareName = r.GetString(7), HardwareColor = r.GetString(8),
+                ProjectName = r.GetString(9)
+            });
+        }
+        return list;
+    }
+
+    public void AddHardwareAllocation(HardwareAllocation a) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO hardware_allocations(resource_id,hardware_id,project_id,date,hours,notes,created_at)
+            VALUES(@rid,@hid,@pid,@d,@h,@n,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@rid", a.ResourceId);
+        cmd.Parameters.AddWithValue("@hid", a.HardwareId);
+        cmd.Parameters.AddWithValue("@pid", a.ProjectId);
+        cmd.Parameters.AddWithValue("@d", a.Date);
+        cmd.Parameters.AddWithValue("@h", a.Hours);
+        cmd.Parameters.AddWithValue("@n", (object?)a.Notes ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+        a.Id = LastInsertId();
+    }
+
+    public void DeleteHardwareAllocation(long id) { ExecWithId("DELETE FROM hardware_allocations WHERE id=@id", id); }
+
+    // CRUD: ProjectMilestones
+    public List<ProjectMilestone> GetMilestones(long projectId) {
+        var list = new List<ProjectMilestone>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,project_id,name,status,deadline,responsible,hours_budget,priority,dependencies,notes,sort_order,created_at FROM project_milestones WHERE project_id=@pid ORDER BY sort_order,id";
+        cmd.Parameters.AddWithValue("@pid", projectId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new ProjectMilestone {
+                Id = r.GetInt64(0), ProjectId = r.GetInt64(1), Name = r.GetString(2),
+                Status = r.IsDBNull(3) ? "Offen" : r.GetString(3),
+                Deadline = r.IsDBNull(4) ? null : r.GetString(4),
+                Responsible = r.IsDBNull(5) ? null : r.GetString(5),
+                HoursBudget = r.IsDBNull(6) ? 0 : r.GetDouble(6),
+                Priority = r.IsDBNull(7) ? 2 : r.GetInt32(7),
+                Dependencies = r.IsDBNull(8) ? null : r.GetString(8),
+                Notes = r.IsDBNull(9) ? null : r.GetString(9),
+                SortOrder = r.IsDBNull(10) ? 0 : r.GetInt32(10),
+                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+            });
+        }
+        return list;
+    }
+
+    public void AddMilestone(ProjectMilestone m) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO project_milestones(project_id,name,status,deadline,responsible,hours_budget,priority,dependencies,notes,sort_order,created_at)
+            VALUES(@pid,@n,@s,@dl,@r,@hb,@p,@dep,@no,@so,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@pid", m.ProjectId);
+        cmd.Parameters.AddWithValue("@n", m.Name);
+        cmd.Parameters.AddWithValue("@s", m.Status);
+        cmd.Parameters.AddWithValue("@dl", (object?)m.Deadline ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@r", (object?)m.Responsible ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@hb", m.HoursBudget);
+        cmd.Parameters.AddWithValue("@p", m.Priority);
+        cmd.Parameters.AddWithValue("@dep", (object?)m.Dependencies ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@no", (object?)m.Notes ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@so", m.SortOrder);
+        cmd.ExecuteNonQuery();
+        m.Id = LastInsertId();
+    }
+
+    public void UpdateMilestone(ProjectMilestone m) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"UPDATE project_milestones SET name=@n,status=@s,deadline=@dl,responsible=@r,
+            hours_budget=@hb,priority=@p,dependencies=@dep,notes=@no,sort_order=@so WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", m.Id);
+        cmd.Parameters.AddWithValue("@n", m.Name);
+        cmd.Parameters.AddWithValue("@s", m.Status);
+        cmd.Parameters.AddWithValue("@dl", (object?)m.Deadline ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@r", (object?)m.Responsible ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@hb", m.HoursBudget);
+        cmd.Parameters.AddWithValue("@p", m.Priority);
+        cmd.Parameters.AddWithValue("@dep", (object?)m.Dependencies ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@no", (object?)m.Notes ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@so", m.SortOrder);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteMilestone(long id) { ExecWithId("DELETE FROM project_milestones WHERE id=@id", id); }
+
+    public List<(ProjectMilestone milestone, string projectName, string projectColor)> GetAllMilestones() {
+        var list = new List<(ProjectMilestone, string, string)>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT m.id,m.project_id,m.name,m.status,m.deadline,m.responsible,
+            m.hours_budget,m.priority,m.dependencies,m.notes,m.sort_order,m.created_at,
+            p.name,p.color
+            FROM project_milestones m JOIN projects p ON p.id=m.project_id ORDER BY m.sort_order,m.id";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add((new ProjectMilestone {
+                Id = r.GetInt64(0), ProjectId = r.GetInt64(1), Name = r.GetString(2),
+                Status = r.IsDBNull(3) ? "Offen" : r.GetString(3),
+                Deadline = r.IsDBNull(4) ? null : r.GetString(4),
+                Responsible = r.IsDBNull(5) ? null : r.GetString(5),
+                HoursBudget = r.IsDBNull(6) ? 0 : r.GetDouble(6),
+                Priority = r.IsDBNull(7) ? 2 : r.GetInt32(7),
+                Dependencies = r.IsDBNull(8) ? null : r.GetString(8),
+                Notes = r.IsDBNull(9) ? null : r.GetString(9),
+                SortOrder = r.IsDBNull(10) ? 0 : r.GetInt32(10),
+                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+            }, r.GetString(12), r.IsDBNull(13) ? "#3498db" : r.GetString(13)));
+        }
+        return list;
+    }
+
     // Categories
     public List<string> GetCategories() {
         var list = new List<string>();
@@ -719,6 +948,101 @@ public sealed class Database : IDisposable {
         cmd.CommandText = "SELECT full_name FROM users WHERE username=@u";
         cmd.Parameters.AddWithValue("@u", username);
         return cmd.ExecuteScalar() as string;
+    }
+
+    public void SetUserRole(string username, long roleId) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE users SET role_id=@r WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@r", roleId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public long? GetUserRoleId(string username) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT role_id FROM users WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        var result = cmd.ExecuteScalar();
+        return result is DBNull or null ? null : Convert.ToInt64(result);
+    }
+
+    // Roles CRUD
+    public List<Role> GetRoles() {
+        var list = new List<Role>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,description FROM roles ORDER BY id";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(new Role {
+            Id = r.GetInt64(0), Name = r.GetString(1),
+            Description = r.IsDBNull(2) ? "" : r.GetString(2)
+        });
+        return list;
+    }
+
+    public void AddRole(Role role) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO roles(name,description) VALUES(@n,@d)";
+        cmd.Parameters.AddWithValue("@n", role.Name);
+        cmd.Parameters.AddWithValue("@d", role.Description);
+        cmd.ExecuteNonQuery();
+        role.Id = LastInsertId();
+    }
+
+    public void UpdateRole(Role role) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE roles SET name=@n,description=@d WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", role.Id);
+        cmd.Parameters.AddWithValue("@n", role.Name);
+        cmd.Parameters.AddWithValue("@d", role.Description);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteRole(long id) { ExecWithId("DELETE FROM roles WHERE id=@id", id); }
+
+    public List<RolePermission> GetRolePermissions(long roleId) {
+        var list = new List<RolePermission>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,role_id,page_key,access_level FROM role_permissions WHERE role_id=@r";
+        cmd.Parameters.AddWithValue("@r", roleId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(new RolePermission {
+            Id = r.GetInt64(0), RoleId = r.GetInt64(1),
+            PageKey = r.GetString(2), AccessLevel = r.IsDBNull(3) ? "none" : r.GetString(3)
+        });
+        return list;
+    }
+
+    public void SetRolePermission(long roleId, string pageKey, string accessLevel) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES(@r,@p,@a)
+            ON CONFLICT(role_id,page_key) DO UPDATE SET access_level=@a";
+        cmd.Parameters.AddWithValue("@r", roleId);
+        cmd.Parameters.AddWithValue("@p", pageKey);
+        cmd.Parameters.AddWithValue("@a", accessLevel);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string GetUserAccessLevel(string username, string pageKey) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT rp.access_level FROM users u
+            JOIN role_permissions rp ON rp.role_id=u.role_id
+            WHERE u.username=@u AND rp.page_key=@p";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@p", pageKey);
+        var result = cmd.ExecuteScalar();
+        return result as string ?? "none";
+    }
+
+    public Dictionary<string, string> GetUserPermissions(string username) {
+        var perms = new Dictionary<string, string>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT rp.page_key,rp.access_level FROM users u
+            JOIN role_permissions rp ON rp.role_id=u.role_id
+            WHERE u.username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) perms[r.GetString(0)] = r.GetString(1);
+        return perms;
     }
 
     // Helpers

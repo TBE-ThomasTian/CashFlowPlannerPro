@@ -29,7 +29,7 @@
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,12">
                     <TextBlock Text="SYSTEM" Foreground="#475569" FontSize="10" FontWeight="Bold"
                                Margin="24,12,0,6"/>
-                    <Button Content="👤  Benutzer" Style="{StaticResource SidebarButton}"
+                    <Button Content="👤  Mein Profil" Style="{StaticResource SidebarButton}"
                             Click="UserSettings_Click"/>
                     <Button Content="⚙  Datenbank wechseln" Style="{StaticResource SidebarButton}"
                             Click="SwitchDatabase_Click"/>
@@ -49,14 +49,15 @@
                     <StackPanel Margin="0,8,0,0">
                         <TextBlock Text="NAVIGATION" Foreground="#475569" FontSize="10" FontWeight="Bold"
                                    Margin="24,0,0,6"/>
-                        <Button x:Name="Nav0" Content="📊  Übersicht" Tag="0" Click="NavButton_Click"/>
-                        <Button x:Name="Nav1" Content="💰  Ein/Ausgaben" Tag="1" Click="NavButton_Click"/>
-                        <Button x:Name="Nav2" Content="📋  Fixkosten" Tag="2" Click="NavButton_Click"/>
-                        <Button x:Name="Nav3" Content="🏛  Steuer" Tag="3" Click="NavButton_Click"/>
-                        <Button x:Name="Nav4" Content="📄  Rechnungen" Tag="4" Click="NavButton_Click"/>
-                        <Button x:Name="Nav5" Content="📝  Angebote" Tag="5" Click="NavButton_Click"/>
-                        <Button x:Name="Nav6" Content="👥  Ressourcen" Tag="6" Click="NavButton_Click"/>
-                        <Button x:Name="Nav7" Content="🎯  Ziele" Tag="7" Click="NavButton_Click"/>
+                        <Button x:Name="Nav0" Content="📊  Übersicht" Tag="dashboard:0" Click="NavButton_Click"/>
+                        <Button x:Name="Nav1" Content="💰  Ein/Ausgaben" Tag="transactions:1" Click="NavButton_Click"/>
+                        <Button x:Name="Nav2" Content="📋  Fixkosten" Tag="fixkosten:2" Click="NavButton_Click"/>
+                        <Button x:Name="Nav3" Content="🏛  Steuer" Tag="taxes:3" Click="NavButton_Click"/>
+                        <Button x:Name="Nav4" Content="📄  Rechnungen" Tag="invoices:4" Click="NavButton_Click"/>
+                        <Button x:Name="Nav5" Content="📝  Angebote" Tag="offers:5" Click="NavButton_Click"/>
+                        <Button x:Name="Nav6" Content="👥  Ressourcen" Tag="resources:6" Click="NavButton_Click"/>
+                        <Button x:Name="Nav7" Content="🎯  Ziele" Tag="targets:7" Click="NavButton_Click"/>
+                        <Button x:Name="Nav8" Content="🔐  Verwaltung" Tag="admin:8" Click="NavButton_Click"/>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
@@ -72,6 +73,7 @@
             <TabItem><views:OffersView/></TabItem>
             <TabItem><views:ResourcesView/></TabItem>
             <TabItem><views:TargetsView/></TabItem>
+            <TabItem><views:AdminView/></TabItem>
         </TabControl>
     </Grid>
 </Window>

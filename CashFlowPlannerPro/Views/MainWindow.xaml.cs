@@ -7,13 +7,17 @@ namespace CashFlowPlannerPro.Views;
 public partial class MainWindow : Window
 {
     private readonly Button[] _navButtons;
+    private static readonly string[] NavPageKeys = [
+        "dashboard", "transactions", "fixkosten", "taxes",
+        "invoices", "offers", "resources", "targets", "admin"
+    ];
 
     public MainWindow()
     {
         InitializeComponent();
-        _navButtons = [Nav0, Nav1, Nav2, Nav3, Nav4, Nav5, Nav6, Nav7];
+        _navButtons = [Nav0, Nav1, Nav2, Nav3, Nav4, Nav5, Nav6, Nav7, Nav8];
         UpdateStatusBar();
-        SetActiveNav(0);
+        ApplyPermissions();
     }
 
     private void UpdateStatusBar()
@@ -23,12 +27,33 @@ public partial class MainWindow : Window
         DbText.Text = dbName;
     }
 
+    private void ApplyPermissions()
+    {
+        int firstVisible = -1;
+        for (int i = 0; i < _navButtons.Length && i < NavPageKeys.Length; i++)
+        {
+            bool canView = App.CanView(NavPageKeys[i]);
+            _navButtons[i].Visibility = canView ? Visibility.Visible : Visibility.Collapsed;
+            if (canView && firstVisible < 0) firstVisible = i;
+        }
+        // Navigate to first visible page
+        if (firstVisible >= 0)
+        {
+            ContentTabs.SelectedIndex = firstVisible;
+            SetActiveNav(firstVisible);
+        }
+    }
+
     private void NavButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string tag && int.TryParse(tag, out int idx))
+        if (sender is Button btn && btn.Tag is string tag)
         {
-            ContentTabs.SelectedIndex = idx;
-            SetActiveNav(idx);
+            var parts = tag.Split(':');
+            if (parts.Length == 2 && int.TryParse(parts[1], out int idx))
+            {
+                ContentTabs.SelectedIndex = idx;
+                SetActiveNav(idx);
+            }
         }
     }
 
@@ -36,6 +61,7 @@ public partial class MainWindow : Window
     {
         for (int i = 0; i < _navButtons.Length; i++)
         {
+            if (_navButtons[i].Visibility != Visibility.Visible) continue;
             _navButtons[i].Style = i == activeIndex
                 ? (Style)FindResource("SidebarButtonActive")
                 : (Style)FindResource("SidebarButton");
@@ -50,6 +76,7 @@ public partial class MainWindow : Window
         {
             App.CurrentUsername = loginDialog.SelectedUsername;
             App.DatabasePath = loginDialog.SelectedDatabasePath;
+            App.LoadPermissions();
             var newWindow = new MainWindow();
             newWindow.Show();
             Close();

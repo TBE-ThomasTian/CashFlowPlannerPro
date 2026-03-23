@@ -40,9 +40,8 @@ public partial class ResourcesView : UserControl
         InitializeComponent();
         _vm = new ResourcesViewModel();
         DataContext = _vm;
-        _vm.CalendarChanged += BuildCalendar;
+        _vm.CalendarChanged += () => { BuildCalendar(); BuildProjectList(); BuildHardwareList(); };
         _vm.Load();
-        BuildProjectList();
     }
 
     private void CalendarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -95,7 +94,10 @@ public partial class ResourcesView : UserControl
 
         CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
         foreach (var _ in resources)
-            CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_rowHeight) });
+        {
+            CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_rowHeight) }); // project row
+            CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(Math.Max(30, _rowHeight * 0.5)) }); // hardware row
+        }
 
         // Top-left corner
         AddToGrid(new Border {
@@ -142,6 +144,9 @@ public partial class ResourcesView : UserControl
             var hoursText = $"{resource.WorkStartHour:00}:00 – {resource.WorkEndHour:00}:00";
             infoPanel.Children.Add(new TextBlock { Text = hoursText, Foreground = new SolidColorBrush(Color.FromRgb(0x81, 0x2B, 0x8C)), FontSize = 10 });
 
+            int projectRow = r * 2 + 1;
+            int hardwareRow = r * 2 + 2;
+
             var infoBorder = new Border { Background = ResourceBg, BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1), Child = infoPanel, Cursor = Cursors.Hand };
             var capturedResource = resource;
             infoBorder.MouseLeftButtonDown += (s, e) => {
@@ -156,7 +161,19 @@ public partial class ResourcesView : UserControl
                     }
                 }
             };
-            AddToGrid(infoBorder, r + 1, 0);
+            AddToGrid(infoBorder, projectRow, 0);
+
+            // Hardware row label
+            var hwLabel = new Border {
+                Background = new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8)),
+                BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock {
+                    Text = "   🖥 Hardware", FontSize = 10, Foreground = Brushes.Gray,
+                    FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(12, 0, 0, 0)
+                }
+            };
+            AddToGrid(hwLabel, hardwareRow, 0);
 
             // Background cells with drop support
             for (int d = 0; d < days; d++)
@@ -192,7 +209,34 @@ public partial class ResourcesView : UserControl
                     }
                     e.Handled = true;
                 };
-                AddToGrid(cell, r + 1, d + 1);
+                AddToGrid(cell, projectRow, d + 1);
+
+                // Hardware cell (drop target for hardware)
+                var hwCell = new Border {
+                    Background = isWeekend ? WeekendBg : new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8)),
+                    BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1),
+                    AllowDrop = true
+                };
+                var hwResId = resource.Id;
+                var hwCellDate = date;
+                hwCell.DragEnter += (s, e) => { ((Border)s!).Background = DropHighlight; e.Handled = true; };
+                hwCell.DragLeave += (s, _) => { ((Border)s!).Background = isWeekend ? WeekendBg : new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8)); };
+                hwCell.DragOver += (_, e) => { e.Effects = DragDropEffects.Copy; e.Handled = true; };
+                hwCell.Drop += (s, e) => {
+                    ((Border)s!).Background = isWeekend ? WeekendBg : new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8));
+                    if (e.Data.GetDataPresent("HardwareId"))
+                    {
+                        var hwId = (long)e.Data.GetData("HardwareId")!;
+                        // Need a project — use the project allocated on this day, or show menu
+                        var projAllocs = _vm.GetAllocations(hwResId, hwCellDate);
+                        if (projAllocs.Count == 1)
+                            _vm.AddHardwareAllocation(hwResId, hwId, projAllocs[0].ProjectId, hwCellDate);
+                        else if (projAllocs.Count > 1)
+                            ShowHardwareProjectMenu(hwResId, hwId, hwCellDate, projAllocs);
+                    }
+                    e.Handled = true;
+                };
+                AddToGrid(hwCell, hardwareRow, d + 1);
             }
 
             // Gantt bars — stacked when multiple projects overlap
@@ -292,6 +336,16 @@ public partial class ResourcesView : UserControl
                 bar.MouseLeftButtonDown += (s, e) => Bar_MouseLeftButtonDown(s, e, capturedSpan, capturedResId);
                 bar.MouseLeftButtonUp += Bar_MouseLeftButtonUp;
 
+                // Double-click opens Kanban board
+                var barProject = project;
+                bar.MouseLeftButtonDown += (s, e) => {
+                    if (e.ClickCount == 2 && barProject != null)
+                    {
+                        e.Handled = true;
+                        ProjectKanbanDialog.Show(barProject);
+                    }
+                };
+
                 // Right-click delete
                 var allocIds = span.AllocationIds;
                 bar.MouseRightButtonUp += (_, _) => {
@@ -302,7 +356,7 @@ public partial class ResourcesView : UserControl
                     }
                 };
 
-                Grid.SetRow(bar, r + 1);
+                Grid.SetRow(bar, projectRow);
                 Grid.SetColumn(bar, span.StartCol + 1);
                 Grid.SetColumnSpan(bar, span.ColSpan);
                 CalendarGrid.Children.Add(bar);
@@ -334,11 +388,67 @@ public partial class ResourcesView : UserControl
                                 wd == span.ColSpan - 1 ? 4 : 0, wd == 0 ? 4 : 0),
                             IsHitTestVisible = false // clicks pass through to bar
                         };
-                        Grid.SetRow(overlay, r + 1);
+                        Grid.SetRow(overlay, projectRow);
                         Grid.SetColumn(overlay, span.StartCol + wd + 1);
                         CalendarGrid.Children.Add(overlay);
                     }
                 }
+            }
+
+            // Hardware allocation bars in hardware row
+            var hwSpans = GetHardwareAllocationSpans(resource.Id, start, days);
+            foreach (var hwSpan in hwSpans)
+            {
+                var hw = _vm.HardwareResources.FirstOrDefault(h => h.Id == hwSpan.HardwareId);
+                var hwColorStr = hw?.Color ?? "#17a2b8";
+                Color hwBarColor;
+                try { hwBarColor = (Color)ColorConverter.ConvertFromString(hwColorStr); }
+                catch { hwBarColor = Color.FromRgb(0x17, 0xa2, 0xb8); }
+
+                var hwBarText = hw?.Name ?? "Hardware";
+                var project = _vm.Projects.FirstOrDefault(p => p.Id == hwSpan.ProjectId);
+                var projLabel = project?.Name ?? "";
+
+                var hwTextPanel = new StackPanel {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0, 4, 0)
+                };
+                hwTextPanel.Children.Add(new TextBlock {
+                    Text = $"🖥 {hwBarText}", Foreground = Brushes.White,
+                    FontSize = 9, FontWeight = FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                if (!string.IsNullOrEmpty(projLabel))
+                    hwTextPanel.Children.Add(new TextBlock {
+                        Text = $"  ({projLabel})", FontSize = 8,
+                        Foreground = new SolidColorBrush(Color.FromArgb(0xBB, 0xFF, 0xFF, 0xFF)),
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+
+                var hwBar = new Border {
+                    Background = new SolidColorBrush(hwBarColor),
+                    CornerRadius = new CornerRadius(3),
+                    Height = Math.Max(16, Math.Max(30, _rowHeight * 0.5) - 6),
+                    Margin = new Thickness(2, 2, 2, 2),
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = hwTextPanel,
+                    ToolTip = $"{hwBarText}\nProjekt: {projLabel}\n{hwSpan.StartDate:dd.MM} - {hwSpan.EndDate:dd.MM}",
+                    Effect = new DropShadowEffect { BlurRadius = 2, ShadowDepth = 1, Opacity = 0.08 }
+                };
+
+                // Right-click to delete
+                var capturedHwSpan = hwSpan;
+                hwBar.MouseRightButtonUp += (_, _) => {
+                    if (ModernMessageBox.ShowConfirm($"Hardware \"{hwBarText}\" Zuordnung löschen?", "Hardware entfernen"))
+                        foreach (var id in capturedHwSpan.AllocationIds)
+                            _vm.DeleteHardwareAllocation(id);
+                };
+
+                Grid.SetRow(hwBar, hardwareRow);
+                Grid.SetColumn(hwBar, hwSpan.StartCol + 1);
+                Grid.SetColumnSpan(hwBar, hwSpan.ColSpan);
+                CalendarGrid.Children.Add(hwBar);
             }
         }
 
@@ -483,6 +593,7 @@ public partial class ResourcesView : UserControl
 
     // --- Allocation spans with multi-project support ---
     private record AllocationSpan(long ProjectId, int StartCol, int ColSpan, DateTime StartDate, DateTime EndDate, double Hours, List<long> AllocationIds);
+    private record HwAllocationSpan(long HardwareId, long ProjectId, int StartCol, int ColSpan, DateTime StartDate, DateTime EndDate, List<long> AllocationIds);
 
     private List<AllocationSpan> GetAllocationSpansMulti(long resourceId, DateTime start, int days)
     {
@@ -548,10 +659,13 @@ public partial class ResourcesView : UserControl
         for (int h = 0; h < hourCount; h++)
             CalendarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(_columnWidth) });
 
-        // Rows: header + one per resource
+        // Rows: header + project row + hardware row per resource
         CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
         foreach (var _ in resources)
+        {
             CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(_rowHeight) });
+            CalendarGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(Math.Max(30, _rowHeight * 0.5)) });
+        }
 
         // Top-left corner
         bool isToday = date.Date == DateTime.Today;
@@ -603,7 +717,20 @@ public partial class ResourcesView : UserControl
                     if (edited != null) { Database.Instance.UpdateResource(edited); _vm.Load(); }
                 }
             };
-            AddToGrid(infoBorder, r + 1, 0);
+            int dayProjectRow = r * 2 + 1;
+            int dayHardwareRow = r * 2 + 2;
+            AddToGrid(infoBorder, dayProjectRow, 0);
+
+            // Hardware row label
+            AddToGrid(new Border {
+                Background = new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8)),
+                BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock {
+                    Text = "   🖥 Hardware", FontSize = 10, Foreground = Brushes.Gray,
+                    FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(12, 0, 0, 0)
+                }
+            }, dayHardwareRow, 0);
 
             // Hour cells — shade working vs. non-working hours
             for (int h = 0; h < hourCount; h++)
@@ -635,7 +762,14 @@ public partial class ResourcesView : UserControl
                     e.Handled = true;
                 };
 
-                AddToGrid(cell, r + 1, h + 1);
+                AddToGrid(cell, dayProjectRow, h + 1);
+
+                // Hardware hour cell
+                var hwHourCell = new Border {
+                    Background = isWorking ? new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8)) : new SolidColorBrush(Color.FromRgb(0xEE, 0xEC, 0xF0)),
+                    BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1)
+                };
+                AddToGrid(hwHourCell, dayHardwareRow, h + 1);
             }
 
             // Show allocation bars spanning work hours
@@ -663,15 +797,13 @@ public partial class ResourcesView : UserControl
                     }
                 };
 
-                Grid.SetRow(bar, r + 1);
+                Grid.SetRow(bar, dayProjectRow);
                 Grid.SetColumn(bar, barStartCol + 1);
                 Grid.SetColumnSpan(bar, barSpan);
                 CalendarGrid.Children.Add(bar);
                 break; // Show first allocation as full-width bar for now
             }
         }
-
-        BuildProjectList();
     }
 
     // --- Project list for drag & drop ---
@@ -745,8 +877,15 @@ public partial class ResourcesView : UserControl
                 }
             };
 
-            // Right-click context menu: change color + delete
+            // Right-click context menu
             var ctxMenu = new ContextMenu();
+
+            // Kanban board
+            var kanbanItem = new MenuItem { Header = "📋  Meilensteine (Kanban)", Foreground = Brushes.Black };
+            var kanbanProject = project;
+            kanbanItem.Click += (_, _) => { if (kanbanProject != null) ProjectKanbanDialog.Show(kanbanProject); };
+            ctxMenu.Items.Add(kanbanItem);
+            ctxMenu.Items.Add(new Separator());
 
             // Color picker submenu
             var colorItem = new MenuItem { Header = "🎨  Farbe ändern" };
@@ -826,5 +965,140 @@ public partial class ResourcesView : UserControl
             menu.Items.Add(new MenuItem { Header = "Keine Projekte vorhanden", IsEnabled = false });
         cell.ContextMenu = menu;
         menu.IsOpen = true;
+    }
+
+    private void ShowHardwareProjectMenu(long resourceId, long hardwareId, DateTime date, List<ResourceAllocation> projAllocs)
+    {
+        var menu = new ContextMenu();
+        foreach (var alloc in projAllocs)
+        {
+            var project = _vm.Projects.FirstOrDefault(p => p.Id == alloc.ProjectId);
+            var mi = new MenuItem { Header = project?.Name ?? $"Projekt #{alloc.ProjectId}", Foreground = Brushes.Black };
+            var pid = alloc.ProjectId;
+            mi.Click += (_, _) => _vm.AddHardwareAllocation(resourceId, hardwareId, pid, date);
+            menu.Items.Add(mi);
+        }
+        menu.IsOpen = true;
+    }
+
+    private List<HwAllocationSpan> GetHardwareAllocationSpans(long resourceId, DateTime start, int days)
+    {
+        var byKey = new Dictionary<(long hwId, long projId), List<(int col, DateTime date, long id)>>();
+        for (int d = 0; d < days; d++)
+        {
+            var date = start.AddDays(d);
+            var allocs = _vm.GetHardwareAllocationsForResource(resourceId, date);
+            foreach (var a in allocs)
+            {
+                var key = (a.HardwareId, a.ProjectId);
+                if (!byKey.ContainsKey(key)) byKey[key] = [];
+                byKey[key].Add((d, date, a.Id));
+            }
+        }
+
+        var spans = new List<HwAllocationSpan>();
+        foreach (var ((hwId, projId), entries) in byKey)
+        {
+            var sorted = entries.OrderBy(e => e.col).ToList();
+            int i = 0;
+            while (i < sorted.Count)
+            {
+                var spanStart = sorted[i].col;
+                var startDate = sorted[i].date;
+                var ids = new List<long> { sorted[i].id };
+                int j = i + 1;
+                while (j < sorted.Count && sorted[j].col == sorted[j - 1].col + 1)
+                {
+                    ids.Add(sorted[j].id);
+                    j++;
+                }
+                var endDate = sorted[j - 1].date;
+                spans.Add(new HwAllocationSpan(hwId, projId, spanStart, j - i, startDate, endDate, ids));
+                i = j;
+            }
+        }
+        return spans;
+    }
+
+    // --- Hardware list for drag & drop ---
+    private void BuildHardwareList()
+    {
+        if (HardwareListPanel == null) return;
+        HardwareListPanel.Children.Clear();
+
+        foreach (var hw in _vm.HardwareResources)
+        {
+            Color c;
+            try { c = (Color)ColorConverter.ConvertFromString(hw.Color ?? "#17a2b8"); }
+            catch { c = Color.FromRgb(0x17, 0xa2, 0xb8); }
+
+            var dot = new Border {
+                Width = 12, Height = 12, CornerRadius = new CornerRadius(6),
+                Background = new SolidColorBrush(c),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0)
+            };
+            var icon = new TextBlock {
+                Text = "🖥", FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0)
+            };
+            var name = new TextBlock {
+                Text = hw.Name, FontSize = 12, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var typeText = new TextBlock {
+                Text = string.IsNullOrEmpty(hw.Type) ? "" : $"  ({hw.Type})",
+                FontSize = 10, Foreground = Brushes.Gray,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(dot);
+            sp.Children.Add(icon);
+            sp.Children.Add(name);
+            sp.Children.Add(typeText);
+
+            var card = new Border {
+                Background = Brushes.White, CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 8, 8),
+                Cursor = Cursors.Hand, Child = sp,
+                BorderBrush = GridLine, BorderThickness = new Thickness(1),
+                Effect = new DropShadowEffect { BlurRadius = 3, ShadowDepth = 0, Opacity = 0.06 }
+            };
+
+            var hwId = hw.Id;
+            var hwName = hw.Name;
+            card.MouseMove += (s, e) => {
+                if (e.LeftButton == MouseButtonState.Pressed)
+                {
+                    var data = new DataObject();
+                    data.SetData("HardwareId", hwId);
+                    DragDrop.DoDragDrop((Border)s!, data, DragDropEffects.Copy);
+                }
+            };
+
+            // Right-click: delete
+            var ctxMenu = new ContextMenu();
+            var deleteItem = new MenuItem { Header = "🗑  Löschen", Foreground = Brushes.Black };
+            deleteItem.Click += (_, _) => {
+                if (ModernMessageBox.ShowConfirm($"Hardware \"{hwName}\" wirklich löschen?", "Hardware löschen"))
+                    _vm.DeleteHardware(hwId);
+            };
+            ctxMenu.Items.Add(deleteItem);
+            card.ContextMenu = ctxMenu;
+
+            HardwareListPanel.Children.Add(card);
+        }
+    }
+
+    private void AddHardware_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.AddHardwareCommand.Execute(null);
+        BuildHardwareList();
+    }
+
+    private void OpenKanban_Click(object sender, RoutedEventArgs e)
+    {
+        ProjectKanbanDialog.ShowGlobal();
     }
 }

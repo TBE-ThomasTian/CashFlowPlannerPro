@@ -11,7 +11,7 @@
             <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
         </Border.Effect>
         <StackPanel>
-            <TextBlock Text="Benutzereinstellungen" FontSize="20" FontWeight="Bold"
+            <TextBlock Text="Mein Profil" FontSize="20" FontWeight="Bold"
                        Foreground="#BF247A" Margin="0,0,0,20"/>
 
             <!-- Current user info -->
@@ -39,37 +39,6 @@
             <PasswordBox x:Name="PbConfirmPassword" Margin="0,0,0,20"
                          Background="#1E1A40" Foreground="White" CaretBrush="White"
                          BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
-
-            <!-- User Management (admin only) -->
-            <StackPanel x:Name="AdminPanel" Visibility="Collapsed">
-                <TextBlock Text="Benutzerverwaltung" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <ListBox x:Name="UserList" MaxHeight="150" Margin="0,0,0,8"
-                         Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                    <Button Content="➕ Neuer Benutzer" Click="AddUser_Click" Margin="0,0,8,0"
-                            Padding="10,6" FontSize="12" Cursor="Hand"
-                            Background="#D9731A" Foreground="White" BorderThickness="0">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <Button Content="🗑 Benutzer löschen" Click="DeleteUser_Click"
-                            Padding="10,6" FontSize="12" Cursor="Hand"
-                            Background="#BF3939" Foreground="White" BorderThickness="0">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                </StackPanel>
-            </StackPanel>
 
             <!-- Buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

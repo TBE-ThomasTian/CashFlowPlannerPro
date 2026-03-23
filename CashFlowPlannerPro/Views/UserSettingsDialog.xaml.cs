@@ -14,22 +14,7 @@ public partial class UserSettingsDialog : Window
         _currentUser = currentUser;
         TbCurrentUser.Text = currentUser;
         TbFullName.Text = Database.Instance.GetFullName(currentUser) ?? "";
-
-        // Show admin panel only for admin user
-        if (currentUser.ToLower() == "admin")
-        {
-            AdminPanel.Visibility = Visibility.Visible;
-            RefreshUserList();
-        }
-
         Owner = Application.Current.MainWindow?.IsVisible == true ? Application.Current.MainWindow : null;
-    }
-
-    private void RefreshUserList()
-    {
-        UserList.Items.Clear();
-        foreach (var user in Database.Instance.GetUsernames())
-            UserList.Items.Add(user);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -51,69 +36,25 @@ public partial class UserSettingsDialog : Window
                 ModernMessageBox.ShowError("Bitte geben Sie Ihr aktuelles Passwort ein.", "Passwort");
                 return;
             }
-
             if (!Database.Instance.ValidateUser(_currentUser, oldPw))
             {
                 ModernMessageBox.ShowError("Das aktuelle Passwort ist falsch.", "Passwort");
                 return;
             }
-
             if (string.IsNullOrEmpty(newPw))
             {
                 ModernMessageBox.ShowError("Bitte geben Sie ein neues Passwort ein.", "Passwort");
                 return;
             }
-
             if (newPw != confirmPw)
             {
                 ModernMessageBox.ShowError("Die neuen Passwörter stimmen nicht überein.", "Passwort");
                 return;
             }
-
             Database.Instance.ChangePassword(_currentUser, newPw);
             ModernMessageBox.ShowSuccess("Passwort wurde erfolgreich geändert.", "Passwort");
         }
-
         Close();
-    }
-
-    private void AddUser_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new NewUserDialog();
-        dlg.Owner = this;
-        dlg.ShowDialog();
-        if (dlg.Saved)
-        {
-            try
-            {
-                Database.Instance.AddUser(dlg.Username, dlg.Password, dlg.FullName);
-                RefreshUserList();
-            }
-            catch (Exception ex)
-            {
-                ModernMessageBox.ShowError($"Benutzer konnte nicht erstellt werden:\n{ex.Message}", "Fehler");
-            }
-        }
-    }
-
-    private void DeleteUser_Click(object sender, RoutedEventArgs e)
-    {
-        var selected = UserList.SelectedItem as string;
-        if (string.IsNullOrEmpty(selected))
-        {
-            ModernMessageBox.ShowError("Bitte wählen Sie einen Benutzer aus.", "Löschen");
-            return;
-        }
-        if (selected == "admin")
-        {
-            ModernMessageBox.ShowError("Der Admin-Benutzer kann nicht gelöscht werden.", "Löschen");
-            return;
-        }
-        if (ModernMessageBox.ShowConfirm($"Benutzer \"{selected}\" wirklich löschen?", "Benutzer löschen"))
-        {
-            Database.Instance.DeleteUser(selected);
-            RefreshUserList();
-        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();

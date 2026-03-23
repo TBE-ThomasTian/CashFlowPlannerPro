@@ -73,4 +73,10 @@ public partial class InvoicesViewModel : ObservableObject
             inv.PaidDate = DateTime.Today.ToString("yyyy-MM-dd");
         if (inv.Id > 0) Database.Instance.UpdateInvoice(inv);
     }
+
+    public void AddScannedInvoice(Invoice inv)
+    {
+        Database.Instance.AddInvoice(inv);
+        Load();
+    }
 }

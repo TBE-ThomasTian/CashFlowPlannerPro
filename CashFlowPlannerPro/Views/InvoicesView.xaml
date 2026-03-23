@@ -14,7 +14,8 @@
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
                 <Button Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}"/>
+                <Button Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,8,0"/>
+                <Button Style="{StaticResource NavButton}" Content="📄 PDF scannen" Click="ScanPdf_Click" Padding="10,4"/>
             </StackPanel>
         </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Invoices}" SelectedItem="{Binding SelectedInvoice}"

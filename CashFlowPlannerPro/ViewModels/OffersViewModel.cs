@@ -69,4 +69,10 @@ public partial class OffersViewModel : ObservableObject
     {
         if (o.Id > 0) Database.Instance.UpdateOffer(o);
     }
+
+    public void AddScannedOffer(Offer o)
+    {
+        Database.Instance.AddOffer(o);
+        Load();
+    }
 }

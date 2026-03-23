@@ -19,6 +19,12 @@ public partial class ResourcesViewModel : ObservableObject
     private List<ResourceAllocation> allocations = [];
 
     [ObservableProperty]
+    private ObservableCollection<HardwareResource> hardwareResources = [];
+
+    [ObservableProperty]
+    private List<HardwareAllocation> hardwareAllocations = [];
+
+    [ObservableProperty]
     private DateTime currentDate = StartOfWeek(DateTime.Today);
 
     [ObservableProperty]
@@ -39,8 +45,10 @@ public partial class ResourcesViewModel : ObservableObject
     {
         Resources = new ObservableCollection<Resource>(Database.Instance.GetResources());
         Projects = new ObservableCollection<Project>(Database.Instance.GetProjects());
+        HardwareResources = new ObservableCollection<HardwareResource>(Database.Instance.GetHardwareResources());
         var (start, end) = GetDateRange();
         Allocations = Database.Instance.GetAllocations(start, end);
+        HardwareAllocations = Database.Instance.GetHardwareAllocations(start, end);
         CalendarChanged?.Invoke();
     }
 
@@ -191,6 +199,54 @@ public partial class ResourcesViewModel : ObservableObject
             if (alloc != null) Database.Instance.DeleteAllocation(alloc.Id);
         }
         Load();
+    }
+
+    // Hardware resource methods
+    [RelayCommand]
+    private void AddHardware()
+    {
+        var name = PromptInput("Neue Hardware", "Name (z.B. HPC Cluster, AWS EC2):");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var hw = new HardwareResource { Name = name, Type = "Server" };
+        Database.Instance.AddHardwareResource(hw);
+        Load();
+    }
+
+    public void DeleteHardware(long id)
+    {
+        Database.Instance.DeleteHardwareResource(id);
+        Load();
+    }
+
+    public void UpdateHardwareColor(long id, string color)
+    {
+        var hw = HardwareResources.FirstOrDefault(h => h.Id == id);
+        if (hw == null) return;
+        hw.Color = color;
+        Database.Instance.UpdateHardwareResource(hw);
+        Load();
+    }
+
+    public void AddHardwareAllocation(long resourceId, long hardwareId, long projectId, DateTime date)
+    {
+        var a = new HardwareAllocation {
+            ResourceId = resourceId, HardwareId = hardwareId,
+            ProjectId = projectId, Date = date.ToString("yyyy-MM-dd"), Hours = 8.0
+        };
+        Database.Instance.AddHardwareAllocation(a);
+        Load();
+    }
+
+    public void DeleteHardwareAllocation(long id)
+    {
+        Database.Instance.DeleteHardwareAllocation(id);
+        Load();
+    }
+
+    public List<HardwareAllocation> GetHardwareAllocationsForResource(long resourceId, DateTime date)
+    {
+        var ds = date.ToString("yyyy-MM-dd");
+        return HardwareAllocations.Where(a => a.ResourceId == resourceId && a.Date == ds).ToList();
     }
 
     public (DateTime start, DateTime end) GetDateRange()
