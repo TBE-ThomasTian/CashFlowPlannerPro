@@ -17,23 +17,30 @@ public partial class ScanPreviewDialog : Window
     {
         InitializeComponent();
         _pdfPath = pdfPath;
+        TbFileName.Text = Path.GetFileName(pdfPath);
         PopulateFields(scanned);
-        Loaded += (_, _) => LoadPdfPreview();
+        Loaded += async (_, _) => await LoadPdfPreview();
     }
 
-    private void LoadPdfPreview()
+    private async Task LoadPdfPreview()
     {
         try
         {
-            if (File.Exists(_pdfPath))
-                PdfViewer.Navigate(new Uri(_pdfPath));
+            if (!File.Exists(_pdfPath)) return;
+            await PdfViewer.EnsureCoreWebView2Async();
+            PdfViewer.CoreWebView2.Navigate(new Uri(_pdfPath).AbsoluteUri);
         }
-        catch { /* PDF preview not available */ }
+        catch { /* WebView2 runtime not available */ }
     }
 
     private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton == MouseButton.Left) DragMove();
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) DialogResult = false;
     }
 
     private void PopulateFields(ScannedInvoice s)
