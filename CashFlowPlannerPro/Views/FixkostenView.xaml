@@ -8,10 +8,12 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" Margin="10">
-            <Button Content="&#x2795; Neu" Style="{StaticResource AddButton}" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-            <Button Content="&#x1F5D1;&#xFE0F; Löschen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
-        </StackPanel>
+        <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="&#x2795; Neu" Style="{StaticResource AddButton}" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
+                <Button Content="&#x1F5D1;&#xFE0F; Löschen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
+            </StackPanel>
+        </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Fixkosten}" SelectedItem="{Binding SelectedTransaction}"
                   AutoGenerateColumns="False" CanUserAddRows="False"
                   CellEditEnding="DataGrid_CellEditEnding">

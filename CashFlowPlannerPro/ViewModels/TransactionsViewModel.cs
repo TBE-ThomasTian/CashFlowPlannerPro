@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Windows;
 using CashFlowPlannerPro.Data;
+using CashFlowPlannerPro.Views;
 using CashFlowPlannerPro.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -44,7 +44,7 @@ public partial class TransactionsViewModel : ObservableObject
     private void Delete()
     {
         if (SelectedTransaction == null) return;
-        if (MessageBox.Show("Transaktion wirklich löschen?", "Löschen", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (!ModernMessageBox.ShowConfirm("Transaktion wirklich löschen?", "Löschen")) return;
         Database.Instance.DeleteTransaction(SelectedTransaction.Id);
         Load();
     }

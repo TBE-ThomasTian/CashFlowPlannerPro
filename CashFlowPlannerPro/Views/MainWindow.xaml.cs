@@ -56,9 +56,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UserSettings_Click(object sender, RoutedEventArgs e)
+    {
+        UserSettingsDialog.Show(App.CurrentUsername);
+        UpdateStatusBar();
+    }
+
     private void About_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show("CashFlow Planner Pro\nVersion 2.0\n\nFinanzplanung leicht gemacht.",
-            "Über CashFlow Planner Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+        ModernMessageBox.Show("CashFlow Planner Pro\nVersion 2.0\n\nFinanzplanung leicht gemacht.",
+            "Über CashFlow Planner Pro");
     }
 }

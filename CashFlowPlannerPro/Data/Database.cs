@@ -31,7 +31,8 @@ public sealed class Database : IDisposable {
 
     void Exec(string sql) { using var cmd = Conn.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
 
-    static string MonthLabel(int y, int m) => $"{y:D4}-{m:D2}";
+    static readonly string[] MonthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+    static string MonthLabel(int y, int m) => $"{MonthNames[m - 1]} {y % 100:D2}";
 
     static DateTime AddMonthsClamped(DateTime d, int months) {
         int totalM = (d.Year * 12 + d.Month - 1) + months;
@@ -86,12 +87,17 @@ public sealed class Database : IDisposable {
         Exec(@"CREATE TABLE IF NOT EXISTS resources(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role TEXT,
             availability REAL DEFAULT 1.0, hourly_rate REAL DEFAULT 0,
+            work_start_hour INTEGER DEFAULT 8, work_end_hour INTEGER DEFAULT 17,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        try { Exec("ALTER TABLE resources ADD COLUMN work_start_hour INTEGER DEFAULT 8"); } catch { }
+        try { Exec("ALTER TABLE resources ADD COLUMN work_end_hour INTEGER DEFAULT 17"); } catch { }
         Exec(@"CREATE TABLE IF NOT EXISTS projects(
             id INTEGER PRIMARY KEY AUTOINCREMENT, project_number TEXT, name TEXT NOT NULL,
-            color TEXT DEFAULT '#3498db', start_date TEXT, end_date TEXT,
+            client TEXT DEFAULT '', color TEXT DEFAULT '#3498db', start_date TEXT, end_date TEXT,
             budget REAL DEFAULT 0, status TEXT DEFAULT 'active',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        // Migration: add client column if missing
+        try { Exec("ALTER TABLE projects ADD COLUMN client TEXT DEFAULT ''"); } catch { }
         Exec(@"CREATE TABLE IF NOT EXISTS resource_allocations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             resource_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
@@ -513,7 +519,7 @@ public sealed class Database : IDisposable {
     public List<Resource> GetResources() {
         var list = new List<Resource>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,name,role,availability,hourly_rate,created_at FROM resources";
+        cmd.CommandText = "SELECT id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at FROM resources";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Resource {
@@ -521,7 +527,9 @@ public sealed class Database : IDisposable {
                 Role = r.IsDBNull(2) ? "" : r.GetString(2),
                 Availability = r.IsDBNull(3) ? 1.0 : r.GetDouble(3),
                 HourlyRate = r.IsDBNull(4) ? 0 : r.GetDouble(4),
-                CreatedAt = r.IsDBNull(5) ? "" : r.GetString(5)
+                WorkStartHour = r.IsDBNull(5) ? 8 : r.GetInt32(5),
+                WorkEndHour = r.IsDBNull(6) ? 17 : r.GetInt32(6),
+                CreatedAt = r.IsDBNull(7) ? "" : r.GetString(7)
             });
         }
         return list;
@@ -529,23 +537,27 @@ public sealed class Database : IDisposable {
 
     public void AddResource(Resource res) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO resources(name,role,availability,hourly_rate,created_at) VALUES(@n,@r,@a,@hr,CURRENT_TIMESTAMP)";
+        cmd.CommandText = "INSERT INTO resources(name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at) VALUES(@n,@r,@a,@hr,@ws,@we,CURRENT_TIMESTAMP)";
         cmd.Parameters.AddWithValue("@n", res.Name);
         cmd.Parameters.AddWithValue("@r", (object?)res.Role ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@a", res.Availability);
         cmd.Parameters.AddWithValue("@hr", res.HourlyRate);
+        cmd.Parameters.AddWithValue("@ws", res.WorkStartHour);
+        cmd.Parameters.AddWithValue("@we", res.WorkEndHour);
         cmd.ExecuteNonQuery();
         res.Id = LastInsertId();
     }
 
     public void UpdateResource(Resource res) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE resources SET name=@n,role=@r,availability=@a,hourly_rate=@hr WHERE id=@id";
+        cmd.CommandText = "UPDATE resources SET name=@n,role=@r,availability=@a,hourly_rate=@hr,work_start_hour=@ws,work_end_hour=@we WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", res.Id);
         cmd.Parameters.AddWithValue("@n", res.Name);
         cmd.Parameters.AddWithValue("@r", (object?)res.Role ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@a", res.Availability);
         cmd.Parameters.AddWithValue("@hr", res.HourlyRate);
+        cmd.Parameters.AddWithValue("@ws", res.WorkStartHour);
+        cmd.Parameters.AddWithValue("@we", res.WorkEndHour);
         cmd.ExecuteNonQuery();
     }
 
@@ -555,19 +567,20 @@ public sealed class Database : IDisposable {
     public List<Project> GetProjects() {
         var list = new List<Project>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,project_number,name,color,start_date,end_date,budget,status,created_at FROM projects";
+        cmd.CommandText = "SELECT id,project_number,name,client,color,start_date,end_date,budget,status,created_at FROM projects";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Project {
                 Id = r.GetInt64(0),
                 ProjectNumber = r.IsDBNull(1) ? "" : r.GetString(1),
                 Name = r.GetString(2),
-                Color = r.IsDBNull(3) ? "#3498db" : r.GetString(3),
-                StartDate = r.IsDBNull(4) ? "" : r.GetString(4),
-                EndDate = r.IsDBNull(5) ? "" : r.GetString(5),
-                Budget = r.IsDBNull(6) ? 0 : r.GetDouble(6),
-                Status = r.IsDBNull(7) ? "active" : r.GetString(7),
-                CreatedAt = r.IsDBNull(8) ? "" : r.GetString(8)
+                Client = r.IsDBNull(3) ? "" : r.GetString(3),
+                Color = r.IsDBNull(4) ? "#3498db" : r.GetString(4),
+                StartDate = r.IsDBNull(5) ? "" : r.GetString(5),
+                EndDate = r.IsDBNull(6) ? "" : r.GetString(6),
+                Budget = r.IsDBNull(7) ? 0 : r.GetDouble(7),
+                Status = r.IsDBNull(8) ? "active" : r.GetString(8),
+                CreatedAt = r.IsDBNull(9) ? "" : r.GetString(9)
             });
         }
         return list;
@@ -575,10 +588,11 @@ public sealed class Database : IDisposable {
 
     public void AddProject(Project p) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO projects(project_number,name,color,start_date,end_date,budget,status,created_at)
-            VALUES(@pn,@n,@c,@sd,@ed,@b,@s,CURRENT_TIMESTAMP)";
+        cmd.CommandText = @"INSERT INTO projects(project_number,name,client,color,start_date,end_date,budget,status,created_at)
+            VALUES(@pn,@n,@cl,@c,@sd,@ed,@b,@s,CURRENT_TIMESTAMP)";
         cmd.Parameters.AddWithValue("@pn", (object?)p.ProjectNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@n", p.Name);
+        cmd.Parameters.AddWithValue("@cl", (object?)p.Client ?? "");
         cmd.Parameters.AddWithValue("@c", (object?)p.Color ?? "#3498db");
         cmd.Parameters.AddWithValue("@sd", (object?)p.StartDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ed", (object?)p.EndDate ?? DBNull.Value);
@@ -590,11 +604,12 @@ public sealed class Database : IDisposable {
 
     public void UpdateProject(Project p) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"UPDATE projects SET project_number=@pn,name=@n,color=@c,start_date=@sd,
+        cmd.CommandText = @"UPDATE projects SET project_number=@pn,name=@n,client=@cl,color=@c,start_date=@sd,
             end_date=@ed,budget=@b,status=@s WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", p.Id);
         cmd.Parameters.AddWithValue("@pn", (object?)p.ProjectNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@n", p.Name);
+        cmd.Parameters.AddWithValue("@cl", (object?)p.Client ?? "");
         cmd.Parameters.AddWithValue("@c", (object?)p.Color ?? "#3498db");
         cmd.Parameters.AddWithValue("@sd", (object?)p.StartDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ed", (object?)p.EndDate ?? DBNull.Value);
@@ -665,6 +680,45 @@ public sealed class Database : IDisposable {
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(r.GetString(0));
         return list;
+    }
+
+    public void ChangePassword(string username, string newPassword) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE users SET password_hash=@p WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@p", newPassword);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void AddUser(string username, string password, string fullName) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO users(username, password_hash, full_name) VALUES(@u, @p, @f)";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@p", password);
+        cmd.Parameters.AddWithValue("@f", fullName);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteUser(string username) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM users WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void UpdateUserFullName(string username, string fullName) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE users SET full_name=@f WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@f", fullName);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetFullName(string username) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT full_name FROM users WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        return cmd.ExecuteScalar() as string;
     }
 
     // Helpers

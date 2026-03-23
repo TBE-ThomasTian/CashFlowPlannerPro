@@ -5,7 +5,7 @@
         Title="CashFlow Planner Pro"
         Icon="/Resources/CashFlowIcon.ico"
         WindowState="Maximized"
-        Background="#F0F2F5">
+        Background="{StaticResource BackgroundBrush}">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="220"/>
@@ -29,6 +29,8 @@
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,12">
                     <TextBlock Text="SYSTEM" Foreground="#475569" FontSize="10" FontWeight="Bold"
                                Margin="24,12,0,6"/>
+                    <Button Content="👤  Benutzer" Style="{StaticResource SidebarButton}"
+                            Click="UserSettings_Click"/>
                     <Button Content="⚙  Datenbank wechseln" Style="{StaticResource SidebarButton}"
                             Click="SwitchDatabase_Click"/>
                     <Button Content="ℹ  Über" Style="{StaticResource SidebarButton}"
@@ -61,7 +63,7 @@
         </Border>
 
         <!-- Content Area -->
-        <TabControl x:Name="ContentTabs" Grid.Column="1" Background="#F0F2F5">
+        <TabControl x:Name="ContentTabs" Grid.Column="1" SelectedIndex="0" Background="{StaticResource BackgroundBrush}">
             <TabItem><views:DashboardView/></TabItem>
             <TabItem><views:TransactionsView/></TabItem>
             <TabItem><views:FixkostenView/></TabItem>

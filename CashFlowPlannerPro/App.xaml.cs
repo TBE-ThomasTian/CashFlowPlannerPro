@@ -13,7 +13,7 @@ public partial class App : Application
 
         DispatcherUnhandledException += (s, ex) =>
         {
-            MessageBox.Show(ex.Exception.ToString(), "Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
+            Views.ModernMessageBox.ShowError(ex.Exception.Message, "Fehler");
             ex.Handled = true;
         };
 

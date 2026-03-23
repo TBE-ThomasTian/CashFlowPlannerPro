@@ -6,10 +6,12 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" Margin="10">
-            <Button Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-            <Button Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}"/>
-        </StackPanel>
+        <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+            <StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
+                <Button Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}"/>
+            </StackPanel>
+        </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>

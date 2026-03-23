@@ -103,6 +103,45 @@ public partial class ResourcesViewModel : ObservableObject
         Load();
     }
 
+    public void DeleteProject(long id)
+    {
+        Database.Instance.DeleteProject(id);
+        Load();
+    }
+
+    public void MoveAllocation(long fromResourceId, long toResourceId, long projectId, DateTime startDate, DateTime endDate)
+    {
+        // Delete from old resource
+        for (var d = startDate; d <= endDate; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            var alloc = Allocations.FirstOrDefault(a => a.ResourceId == fromResourceId && a.ProjectId == projectId && a.Date == ds);
+            if (alloc != null) Database.Instance.DeleteAllocation(alloc.Id);
+        }
+        // Add to new resource
+        for (var d = startDate; d <= endDate; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            if (!Allocations.Any(a => a.ResourceId == toResourceId && a.ProjectId == projectId && a.Date == ds))
+            {
+                Database.Instance.AddAllocation(new ResourceAllocation {
+                    ResourceId = toResourceId, ProjectId = projectId,
+                    Date = ds, Hours = 8.0
+                });
+            }
+        }
+        Load();
+    }
+
+    public void UpdateProjectColor(long id, string color)
+    {
+        var project = Projects.FirstOrDefault(p => p.Id == id);
+        if (project == null) return;
+        project.Color = color;
+        Database.Instance.UpdateProject(project);
+        Load();
+    }
+
     public void AddAllocation(long resourceId, long projectId, DateTime date)
     {
         var a = new ResourceAllocation {
@@ -119,6 +158,39 @@ public partial class ResourcesViewModel : ObservableObject
     {
         var ds = date.ToString("yyyy-MM-dd");
         return Allocations.FirstOrDefault(a => a.ResourceId == resourceId && a.Date == ds);
+    }
+
+    public List<ResourceAllocation> GetAllocations(long resourceId, DateTime date)
+    {
+        var ds = date.ToString("yyyy-MM-dd");
+        return Allocations.Where(a => a.ResourceId == resourceId && a.Date == ds).ToList();
+    }
+
+    public void AddAllocationsRange(long resourceId, long projectId, DateTime from, DateTime to)
+    {
+        for (var d = from; d <= to; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            if (!Allocations.Any(a => a.ResourceId == resourceId && a.ProjectId == projectId && a.Date == ds))
+            {
+                Database.Instance.AddAllocation(new ResourceAllocation {
+                    ResourceId = resourceId, ProjectId = projectId,
+                    Date = ds, Hours = 8.0
+                });
+            }
+        }
+        Load();
+    }
+
+    public void DeleteAllocationsRange(long resourceId, long projectId, DateTime from, DateTime to)
+    {
+        for (var d = from; d <= to; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            var alloc = Allocations.FirstOrDefault(a => a.ResourceId == resourceId && a.ProjectId == projectId && a.Date == ds);
+            if (alloc != null) Database.Instance.DeleteAllocation(alloc.Id);
+        }
+        Load();
     }
 
     public (DateTime start, DateTime end) GetDateRange()

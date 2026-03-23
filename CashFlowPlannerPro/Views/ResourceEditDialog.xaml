@@ -1,0 +1,95 @@
+<Window x:Class="CashFlowPlannerPro.Views.ResourceEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Mitarbeiter bearbeiten" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="420"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <StackPanel>
+            <TextBlock x:Name="DialogTitle" Text="Mitarbeiter bearbeiten" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <TextBlock Text="Name" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbName" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Rolle / Position" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbRole" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Verfügbarkeit (0.0 - 1.0)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbAvailability" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Stundensatz (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbHourlyRate" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Arbeitszeiten" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
+
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Beginn" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Ende" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+
+                <ComboBox x:Name="CbStartHour" Grid.Row="1" Grid.Column="0"
+                          Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
+                          FontSize="14" Padding="8,6">
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="Foreground" Value="Black"/>
+                            <Setter Property="Background" Value="White"/>
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="–" Foreground="White" FontSize="18"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <ComboBox x:Name="CbEndHour" Grid.Row="1" Grid.Column="2"
+                          Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
+                          FontSize="14" Padding="8,6">
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem">
+                            <Setter Property="Foreground" Value="Black"/>
+                            <Setter Property="Background" Value="White"/>
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                        Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                        Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button Content="Speichern" Click="Save_Click" MinWidth="100"
+                        Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

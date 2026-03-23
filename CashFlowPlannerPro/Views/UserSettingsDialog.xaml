@@ -1,0 +1,101 @@
+<Window x:Class="CashFlowPlannerPro.Views.UserSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Benutzereinstellungen" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="450"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <StackPanel>
+            <TextBlock Text="Benutzereinstellungen" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <!-- Current user info -->
+            <TextBlock Text="Angemeldet als" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBlock x:Name="TbCurrentUser" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,16"/>
+
+            <!-- Full Name -->
+            <TextBlock Text="Anzeigename" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbFullName" Style="{StaticResource DarkTextBox}" Margin="0,0,0,16"/>
+
+            <!-- Change Password Section -->
+            <TextBlock Text="Passwort ändern" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
+
+            <TextBlock Text="Aktuelles Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="PbOldPassword" Margin="0,0,0,12"
+                         Background="#1E1A40" Foreground="White" CaretBrush="White"
+                         BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
+
+            <TextBlock Text="Neues Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="PbNewPassword" Margin="0,0,0,12"
+                         Background="#1E1A40" Foreground="White" CaretBrush="White"
+                         BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
+
+            <TextBlock Text="Neues Passwort bestätigen" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="PbConfirmPassword" Margin="0,0,0,20"
+                         Background="#1E1A40" Foreground="White" CaretBrush="White"
+                         BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
+
+            <!-- User Management (admin only) -->
+            <StackPanel x:Name="AdminPanel" Visibility="Collapsed">
+                <TextBlock Text="Benutzerverwaltung" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <ListBox x:Name="UserList" MaxHeight="150" Margin="0,0,0,8"
+                         Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                    <Button Content="➕ Neuer Benutzer" Click="AddUser_Click" Margin="0,0,8,0"
+                            Padding="10,6" FontSize="12" Cursor="Hand"
+                            Background="#D9731A" Foreground="White" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button Content="🗑 Benutzer löschen" Click="DeleteUser_Click"
+                            Padding="10,6" FontSize="12" Cursor="Hand"
+                            Background="#BF3939" Foreground="White" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Buttons -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                        Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                        Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button Content="Speichern" Click="Save_Click" MinWidth="100"
+                        Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

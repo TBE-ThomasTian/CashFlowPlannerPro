@@ -3,27 +3,30 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
              xmlns:vm="clr-namespace:CashFlowPlannerPro.ViewModels">
-    <Grid Margin="10">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="350" MinHeight="150"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="*" MinHeight="100"/>
         </Grid.RowDefinitions>
 
         <!-- Top Controls -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+        <Border Grid.Row="0" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+        <StackPanel Orientation="Horizontal">
             <Label Content="Kontostand €" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <TextBox Text="{Binding StartBalance, StringFormat={}{0:N2}, UpdateSourceTrigger=PropertyChanged}" Width="120" VerticalAlignment="Center" Margin="0,0,12,0"/>
             <Label Content="Prognose Monate" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <TextBox Text="{Binding HorizonMonths, UpdateSourceTrigger=PropertyChanged}" Width="60" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <CheckBox Content="Rechnungen" IsChecked="{Binding IncludeInvoices}" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Offene Angebote" IsChecked="{Binding IncludeOffersOffen}" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Beauftragte" IsChecked="{Binding IncludeOffersBeauftragt}" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Wiederkehrend" IsChecked="{Binding IncludeRecurring}" Foreground="White" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <CheckBox Content="Rechnungen" IsChecked="{Binding IncludeInvoices}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <CheckBox Content="Offene Angebote" IsChecked="{Binding IncludeOffersOffen}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <CheckBox Content="Beauftragte" IsChecked="{Binding IncludeOffersBeauftragt}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <CheckBox Content="Wiederkehrend" IsChecked="{Binding IncludeRecurring}" VerticalAlignment="Center" Margin="0,0,12,0"/>
             <Button Content="Aktualisieren" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
             <Button Content="Kontostand speichern" Command="{Binding SaveBalanceCommand}"/>
         </StackPanel>
+        </Border>
 
         <!-- KPI Cards -->
         <UniformGrid Grid.Row="1" Columns="7" Margin="0,0,0,10">
@@ -72,10 +75,16 @@
         </UniformGrid>
 
         <!-- Chart -->
-        <scottplot:WpfPlot x:Name="Chart" Grid.Row="2" Height="350" Margin="0,0,0,10"/>
+        <scottplot:WpfPlot x:Name="Chart" Grid.Row="2" Margin="0,0,0,0"/>
+
+        <!-- Splitter -->
+        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center" Background="#E2E0E8"
+                      Cursor="SizeNS" ResizeBehavior="PreviousAndNext"
+                      Margin="0,4"/>
 
         <!-- Monthly Table -->
-        <DataGrid Grid.Row="3" ItemsSource="{Binding MonthRows}" IsReadOnly="True">
+        <DataGrid Grid.Row="4" ItemsSource="{Binding MonthRows}" IsReadOnly="True">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Monat" Binding="{Binding Month}" Width="100"/>
                 <DataGridTextColumn Header="Einnahmen" Binding="{Binding Income, StringFormat={}{0:N2}}" Width="120"/>

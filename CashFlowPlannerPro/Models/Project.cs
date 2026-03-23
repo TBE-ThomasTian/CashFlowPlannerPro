@@ -5,6 +5,7 @@ public class Project
     public long Id { get; set; }
     public string ProjectNumber { get; set; } = "";
     public string Name { get; set; } = "";
+    public string Client { get; set; } = "";
     public string Color { get; set; } = "#3498db";
     public string? StartDate { get; set; }
     public string? EndDate { get; set; }
