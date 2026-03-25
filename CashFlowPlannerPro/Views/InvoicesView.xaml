@@ -5,6 +5,7 @@
              xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <UserControl.Resources>
         <conv:FileNameConverter x:Key="FileNameConverter"/>
+        <conv:DateDisplayConverter x:Key="DateDisplayConverter"/>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -13,20 +14,20 @@
         </Grid.RowDefinitions>
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
-                <Button Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource NavButton}" Content="📄 PDF scannen" Click="ScanPdf_Click" Padding="10,4"/>
+                <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
+                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,8,0"/>
+                <Button x:Name="ScanPdfBtn" Style="{StaticResource NavButton}" Content="&#x1F4C4; PDF scannen" Click="ScanPdf_Click" Padding="10,4"/>
             </StackPanel>
         </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Invoices}" SelectedItem="{Binding SelectedInvoice}"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Ausstellungsdatum" Binding="{Binding IssueDate}" Width="120"/>
-                <DataGridTextColumn Header="F&#228;llig am" Binding="{Binding DueDate}" Width="120"/>
+                <DataGridTextColumn Header="Ausstellungsdatum" Binding="{Binding IssueDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
+                <DataGridTextColumn Header="F&#228;llig am" Binding="{Binding DueDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTextColumn Header="Kunde" Binding="{Binding Customer}" Width="150"/>
                 <DataGridTextColumn Header="Betrag &#8364;" Binding="{Binding Amount, StringFormat=N2}" Width="100"/>
                 <DataGridTextColumn Header="Beschreibung" Binding="{Binding Description}" Width="200"/>
-                <DataGridTextColumn Header="Bezahlt am" Binding="{Binding PaidDate}" Width="120"/>
+                <DataGridTextColumn Header="Bezahlt am" Binding="{Binding PaidDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTextColumn Header="Bezahlter Betrag" Binding="{Binding PaidAmount, StringFormat=N2}" Width="120"/>
                 <DataGridTemplateColumn Header="Status" Width="120">
                     <DataGridTemplateColumn.CellTemplate>
@@ -51,9 +52,9 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{Binding PdfPath, Converter={StaticResource FileNameConverter}}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                                 <Button Content="&#128206;" Command="{Binding DataContext.SelectPdfCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        Padding="4,2" FontSize="11" ToolTip="PDF ausw&#228;hlen"/>
+                                        Padding="4,2" FontSize="11" ToolTip="PDF anh&#228;ngen / Attach PDF"/>
                                 <Button Content="&#128194;" Command="{Binding DataContext.OpenPdfCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        Padding="4,2" FontSize="11" Margin="4,0,0,0" ToolTip="PDF &#246;ffnen"/>
+                                        Padding="4,2" FontSize="11" Margin="4,0,0,0" ToolTip="PDF &#246;ffnen / Open PDF"/>
                             </StackPanel>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>

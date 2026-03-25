@@ -3,88 +3,111 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Projekt — Meilensteine" Width="1000" Height="650"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
-        Background="#F5F6FA">
-    <DockPanel Margin="0">
-        <!-- Header -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource SidebarBrush}" Padding="20,14">
-            <DockPanel>
-                <StackPanel>
-                    <TextBlock x:Name="TbProjectName" FontSize="20" FontWeight="Bold" Foreground="White"/>
-                    <TextBlock x:Name="TbProjectInfo" FontSize="12" Foreground="#A0A0C0" Margin="0,4,0,0"/>
-                </StackPanel>
-                <Button Content="➕ Meilenstein" DockPanel.Dock="Right" HorizontalAlignment="Right"
-                        VerticalAlignment="Center" Click="AddMilestone_Click"
-                        Style="{StaticResource AddButton}" Padding="12,6"/>
-            </DockPanel>
-        </Border>
-
-        <!-- Kanban Board -->
-        <Grid Margin="12,12,12,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Offen -->
-            <Border Grid.Column="0" Background="#FFF" CornerRadius="8" Padding="0"
-                    BorderBrush="#E2E0E8" BorderThickness="1">
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" MinWidth="700" MinHeight="450" KeyDown="Window_KeyDown">
+    <Border Background="#F5F6FA" CornerRadius="12" BorderBrush="#812B8C" BorderThickness="2" ClipToBounds="True">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <DockPanel>
+            <!-- Header / Title Bar -->
+            <Border DockPanel.Dock="Top" Background="{StaticResource SidebarBrush}" Padding="20,14"
+                    CornerRadius="10,10,0,0" MouseLeftButtonDown="TitleBar_MouseDown">
                 <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#FFE8E0" CornerRadius="8,8,0,0" Padding="12,10">
-                        <TextBlock Text="📋 Offen" FontWeight="Bold" FontSize="13" Foreground="#BF3939"/>
-                    </Border>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8">
-                        <StackPanel x:Name="ColOffen" AllowDrop="True"
-                                    Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
-                    </ScrollViewer>
+                    <Button x:Name="CloseBtn" Content="✕" Click="Close_Click" DockPanel.Dock="Right"
+                            FontSize="18" Foreground="#8899AA" Background="Transparent"
+                            BorderThickness="0" Cursor="Hand" Padding="8,0"
+                            VerticalAlignment="Center">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button x:Name="AddMilestoneBtn" Content="➕ Meilenstein" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                            VerticalAlignment="Center" Click="AddMilestone_Click"
+                            Style="{StaticResource AddButton}" Padding="12,6" Margin="0,0,16,0"/>
+                    <StackPanel>
+                        <TextBlock x:Name="TbProjectName" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock x:Name="TbProjectInfo" FontSize="12" Foreground="#A0A0C0" Margin="0,4,0,0"/>
+                    </StackPanel>
                 </DockPanel>
             </Border>
 
-            <!-- Aktiv -->
-            <Border Grid.Column="2" Background="#FFF" CornerRadius="8" Padding="0"
-                    BorderBrush="#E2E0E8" BorderThickness="1">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#E0E8FF" CornerRadius="8,8,0,0" Padding="12,10">
-                        <TextBlock Text="🔄 Aktiv" FontWeight="Bold" FontSize="13" Foreground="#2A2359"/>
-                    </Border>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8">
-                        <StackPanel x:Name="ColAktiv" AllowDrop="True"
-                                    Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
+            <!-- Kanban Board -->
+            <Grid Margin="12,12,12,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Review -->
-            <Border Grid.Column="4" Background="#FFF" CornerRadius="8" Padding="0"
-                    BorderBrush="#E2E0E8" BorderThickness="1">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#FFF0E0" CornerRadius="8,8,0,0" Padding="12,10">
-                        <TextBlock Text="🔍 Review" FontWeight="Bold" FontSize="13" Foreground="#D9731A"/>
-                    </Border>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8">
-                        <StackPanel x:Name="ColReview" AllowDrop="True"
-                                    Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
+                <!-- Offen -->
+                <Border Grid.Column="0" Background="#FFF" CornerRadius="8" Padding="0"
+                        BorderBrush="#E2E0E8" BorderThickness="1">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="#FFE8E0" CornerRadius="8,8,0,0" Padding="12,10">
+                            <TextBlock Text="📋 Offen" FontWeight="Bold" FontSize="13" Foreground="#BF3939"/>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8"
+                                       AllowDrop="True" Drop="Column_Drop" DragOver="Column_DragOver" Tag="Offen">
+                            <StackPanel x:Name="ColOffen" AllowDrop="True" Tag="Offen"
+                                        Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
 
-            <!-- Abgeschlossen -->
-            <Border Grid.Column="6" Background="#FFF" CornerRadius="8" Padding="0"
-                    BorderBrush="#E2E0E8" BorderThickness="1">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#E0FFE8" CornerRadius="8,8,0,0" Padding="12,10">
-                        <TextBlock Text="✅ Abgeschlossen" FontWeight="Bold" FontSize="13" Foreground="#27ae60"/>
-                    </Border>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8">
-                        <StackPanel x:Name="ColAbgeschlossen" AllowDrop="True"
-                                    Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
-        </Grid>
-    </DockPanel>
+                <!-- Aktiv -->
+                <Border Grid.Column="2" Background="#FFF" CornerRadius="8" Padding="0"
+                        BorderBrush="#E2E0E8" BorderThickness="1">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="#E0E8FF" CornerRadius="8,8,0,0" Padding="12,10">
+                            <TextBlock Text="🔄 Aktiv" FontWeight="Bold" FontSize="13" Foreground="#2A2359"/>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8"
+                                       AllowDrop="True" Drop="Column_Drop" DragOver="Column_DragOver" Tag="Aktiv">
+                            <StackPanel x:Name="ColAktiv" AllowDrop="True" Tag="Aktiv"
+                                        Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+
+                <!-- Review -->
+                <Border Grid.Column="4" Background="#FFF" CornerRadius="8" Padding="0"
+                        BorderBrush="#E2E0E8" BorderThickness="1">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="#FFF0E0" CornerRadius="8,8,0,0" Padding="12,10">
+                            <TextBlock Text="🔍 Review" FontWeight="Bold" FontSize="13" Foreground="#D9731A"/>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8"
+                                       AllowDrop="True" Drop="Column_Drop" DragOver="Column_DragOver" Tag="Review">
+                            <StackPanel x:Name="ColReview" AllowDrop="True" Tag="Review"
+                                        Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+
+                <!-- Abgeschlossen -->
+                <Border Grid.Column="6" Background="#FFF" CornerRadius="8" Padding="0"
+                        BorderBrush="#E2E0E8" BorderThickness="1">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="#E0FFE8" CornerRadius="8,8,0,0" Padding="12,10">
+                            <TextBlock Text="✅ Abgeschlossen" FontWeight="Bold" FontSize="13" Foreground="#27ae60"/>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,8"
+                                       AllowDrop="True" Drop="Column_Drop" DragOver="Column_DragOver" Tag="Abgeschlossen">
+                            <StackPanel x:Name="ColAbgeschlossen" AllowDrop="True" Tag="Abgeschlossen"
+                                        Drop="Column_Drop" DragOver="Column_DragOver" MinHeight="100"/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+    </Border>
 </Window>

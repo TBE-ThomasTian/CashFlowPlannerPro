@@ -1,0 +1,50 @@
+<UserControl x:Class="CashFlowPlannerPro.Views.CustomersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neuer Kunde" Click="Add_Click" Margin="0,0,8,0"/>
+                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,16,0"/>
+                <TextBox x:Name="SearchBox" Width="250" VerticalContentAlignment="Center" Padding="6,4"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         Tag="Suche nach Firma, Name, E-Mail, Ort..."/>
+            </StackPanel>
+        </Border>
+        <DataGrid Grid.Row="1" ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}"
+                  CellEditEnding="DataGrid_CellEditEnding" MouseDoubleClick="DataGrid_MouseDoubleClick">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Firma" Binding="{Binding Company}" Width="180"/>
+                <DataGridTextColumn Header="Ansprechpartner" Binding="{Binding ContactName}" Width="150"/>
+                <DataGridTextColumn Header="E-Mail" Binding="{Binding Email}" Width="180"/>
+                <DataGridTextColumn Header="Telefon" Binding="{Binding Phone}" Width="130"/>
+                <DataGridTextColumn Header="Stra&#223;e" Binding="{Binding Street}" Width="160"/>
+                <DataGridTextColumn Header="PLZ" Binding="{Binding ZipCode}" Width="70"/>
+                <DataGridTextColumn Header="Ort" Binding="{Binding City}" Width="120"/>
+                <DataGridTextColumn Header="Land" Binding="{Binding Country}" Width="100"/>
+                <DataGridTextColumn Header="USt-ID / Steuernr." Binding="{Binding TaxId}" Width="140"/>
+                <DataGridTemplateColumn Header="Status" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Status}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <ComboBox SelectedItem="{Binding Status, UpdateSourceTrigger=PropertyChanged}" IsEditable="False">
+                                <sys:String>Aktiv</sys:String>
+                                <sys:String>Inaktiv</sys:String>
+                            </ComboBox>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Notizen" Binding="{Binding Notes}" Width="200"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

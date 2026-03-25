@@ -1,0 +1,91 @@
+<Window x:Class="CashFlowPlannerPro.Views.TodoEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Aufgabe bearbeiten" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="480"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <StackPanel>
+            <TextBlock Text="Aufgabe bearbeiten" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <TextBlock Text="Titel" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbTitle" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Beschreibung" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbDescription" Style="{StaticResource DarkTextBox}" TextWrapping="Wrap"
+                     AcceptsReturn="True" MinHeight="60" MaxHeight="100" Margin="0,0,0,12"/>
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Status" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbStatus" Style="{StaticResource DarkComboBox}">
+                        <ComboBoxItem Content="Offen"/>
+                        <ComboBoxItem Content="In Arbeit"/>
+                        <ComboBoxItem Content="Erledigt"/>
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Priorität" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbPriority" Style="{StaticResource DarkComboBox}">
+                        <ComboBoxItem Content="🔴 Hoch" Tag="1"/>
+                        <ComboBoxItem Content="🟡 Mittel" Tag="2"/>
+                        <ComboBoxItem Content="🟢 Niedrig" Tag="3"/>
+                    </ComboBox>
+                </StackPanel>
+            </Grid>
+
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Fälligkeitsdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <DatePicker x:Name="DpDueDate" Background="#1E1A40" Foreground="White" BorderBrush="#3D3670"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Projekt" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbProject" Style="{StaticResource DarkComboBox}"
+                              DisplayMemberPath="Name" SelectedValuePath="Id"/>
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                        Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                        Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="SaveBtn" Content="Speichern" Click="Save_Click" MinWidth="100"
+                        Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

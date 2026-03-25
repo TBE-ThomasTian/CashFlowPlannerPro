@@ -10,39 +10,75 @@
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
         </Border.Effect>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="700">
         <StackPanel>
-            <TextBlock Text="Mein Profil" FontSize="20" FontWeight="Bold"
+            <TextBlock x:Name="TitleText" Text="Mein Profil" FontSize="20" FontWeight="Bold"
                        Foreground="#BF247A" Margin="0,0,0,20"/>
 
+            <!-- Avatar Section -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,20" HorizontalAlignment="Center">
+                <Border Width="80" Height="80" CornerRadius="40" BorderBrush="#BF247A" BorderThickness="2"
+                        ClipToBounds="True" Cursor="Hand" MouseLeftButtonDown="Avatar_Click">
+                    <Image x:Name="AvatarImage" Width="76" Height="76" Stretch="UniformToFill"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Button x:Name="ChangeAvatarButton" Content="📷 Bild ändern" Click="ChangeAvatar_Click"
+                            Padding="10,6" FontSize="11" Cursor="Hand"
+                            Background="#3D3670" Foreground="White" BorderThickness="0" Margin="0,0,0,4">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button x:Name="RemoveAvatarButton" Content="🗑 Entfernen" Click="RemoveAvatar_Click"
+                            Padding="10,6" FontSize="11" Cursor="Hand"
+                            Background="#4A1A1A" Foreground="#FF6B6B" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+
             <!-- Current user info -->
-            <TextBlock Text="Angemeldet als" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBlock x:Name="LoggedInAsLabel" Text="Angemeldet als" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <TextBlock x:Name="TbCurrentUser" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,16"/>
 
             <!-- Full Name -->
-            <TextBlock Text="Anzeigename" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBlock x:Name="DisplayNameLabel" Text="Anzeigename" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <TextBox x:Name="TbFullName" Style="{StaticResource DarkTextBox}" Margin="0,0,0,16"/>
 
-            <!-- Change Password Section -->
-            <TextBlock Text="Passwort ändern" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
+            <TextBlock x:Name="LanguageLabel" Text="Sprache" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <ComboBox x:Name="LanguageCombo" Margin="0,0,0,16"/>
 
-            <TextBlock Text="Aktuelles Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <!-- Change Password Section -->
+            <TextBlock x:Name="ChangePasswordLabel" Text="Passwort ändern" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
+
+            <TextBlock x:Name="CurrentPasswordLabel" Text="Aktuelles Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="PbOldPassword" Margin="0,0,0,12"
                          Background="#1E1A40" Foreground="White" CaretBrush="White"
                          BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
 
-            <TextBlock Text="Neues Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBlock x:Name="NewPasswordLabel" Text="Neues Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="PbNewPassword" Margin="0,0,0,12"
                          Background="#1E1A40" Foreground="White" CaretBrush="White"
                          BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
 
-            <TextBlock Text="Neues Passwort bestätigen" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBlock x:Name="ConfirmPasswordLabel" Text="Neues Passwort bestätigen" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="PbConfirmPassword" Margin="0,0,0,20"
                          Background="#1E1A40" Foreground="White" CaretBrush="White"
                          BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
 
             <!-- Buttons -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                <Button x:Name="CancelButton" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
                         Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
                         Background="#3D3670" Foreground="White" BorderThickness="0">
                     <Button.Template>
@@ -53,7 +89,7 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <Button Content="Speichern" Click="Save_Click" MinWidth="100"
+                <Button x:Name="SaveButton" Content="Speichern" Click="Save_Click" MinWidth="100"
                         Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Background="#BF247A" Foreground="White" BorderThickness="0">
                     <Button.Template>
@@ -66,5 +102,6 @@
                 </Button>
             </StackPanel>
         </StackPanel>
+        </ScrollViewer>
     </Border>
 </Window>

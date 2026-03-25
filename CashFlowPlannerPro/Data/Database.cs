@@ -1,25 +1,49 @@
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
 using CashFlowPlannerPro.Models;
-using Microsoft.Data.Sqlite;
 
 namespace CashFlowPlannerPro.Data;
 
 public sealed class Database : IDisposable {
     static readonly Lazy<Database> _instance = new(() => new Database());
     public static Database Instance => _instance.Value;
-    SqliteConnection? _conn;
+    DbConnection? _conn;
+    IDbDialect _dialect = new SqliteDialect();
     Database() { }
 
-    public void Open(string path) {
+    public IDbDialect Dialect => _dialect;
+
+    public void Open(ConnectionConfig config) {
         Close();
-        _conn = new SqliteConnection($"Data Source={path}");
+        _dialect = config.Backend switch {
+            DatabaseBackend.MariaDB => new MariaDbDialect(),
+            _ => new SqliteDialect()
+        };
+
+        // MariaDB: auto-create database if it doesn't exist
+        if (config.Backend == DatabaseBackend.MariaDB && !string.IsNullOrEmpty(config.DatabaseName))
+        {
+            var bootstrapStr = $"Server={config.Host};Port={config.Port};User={config.DbUsername};Password={config.DbPassword};CharSet=utf8mb4";
+            using var bootstrapConn = _dialect.CreateConnection(bootstrapStr);
+            bootstrapConn.Open();
+            using var cmd = bootstrapConn.CreateCommand();
+            cmd.CommandText = $"CREATE DATABASE IF NOT EXISTS `{config.DatabaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+            cmd.ExecuteNonQuery();
+        }
+
+        var connStr = config.ToConnectionString();
+        _conn = _dialect.CreateConnection(connStr);
         _conn.Open();
-        Exec("PRAGMA journal_mode=WAL;");
-        Exec("PRAGMA foreign_keys=ON;");
+        _dialect.ConfigureConnection(_conn);
     }
+
+    public void Open(string path) => Open(new ConnectionConfig {
+        Backend = DatabaseBackend.SQLite,
+        FilePath = path
+    });
 
     public void Close() {
         if (_conn != null) { _conn.Close(); _conn.Dispose(); _conn = null; }
@@ -27,9 +51,36 @@ public sealed class Database : IDisposable {
 
     public void Dispose() => Close();
 
-    SqliteConnection Conn => _conn ?? throw new InvalidOperationException("Database not open");
+    public bool IsFirstRun { get; private set; }
+    DbConnection Conn => _conn ?? throw new InvalidOperationException("Database not open");
+    public DbConnection GetConnection() => Conn;
 
-    void Exec(string sql) { using var cmd = Conn.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+    private void TryMigrate(string sql) {
+        try { Exec(_dialect.RewriteDdl(sql)); }
+        catch (Exception ex) when (_dialect.IsMigrationError(ex)) { }
+        catch (Exception ex) {
+            System.Diagnostics.Debug.WriteLine($"[DB Migration Error] {sql}: {ex.Message}");
+            throw;
+        }
+    }
+
+    void Exec(string sql) {
+        try {
+            using var cmd = Conn.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery();
+        } catch (Exception ex) {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "db_debug.log"),
+                $"\n--- FAIL ---\nSQL: {sql}\nERR: {ex.Message}\n");
+            throw;
+        }
+    }
+    void ExecDdl(string sql) {
+        var rewritten = _dialect.RewriteDdl(sql);
+        System.IO.File.AppendAllText(
+            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "db_debug.log"),
+            $"\n--- DDL ---\n{rewritten}\n");
+        Exec(rewritten);
+    }
 
     static readonly string[] MonthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
     static string MonthLabel(int y, int m) => $"{MonthNames[m - 1]} {y % 100:D2}";
@@ -50,7 +101,7 @@ public sealed class Database : IDisposable {
     }
 
     public void EnsureSchema() {
-        Exec(@"CREATE TABLE IF NOT EXISTS users(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
@@ -59,46 +110,54 @@ public sealed class Database : IDisposable {
         using (var cmd = Conn.CreateCommand()) {
             cmd.CommandText = "SELECT COUNT(*) FROM users";
             if (Convert.ToInt64(cmd.ExecuteScalar()) == 0)
-                Exec("INSERT INTO users (username, password_hash, full_name) VALUES ('admin', 'admin', 'Administrator')");
+            {
+                // First-time setup: create admin with hashed default password
+                // The login dialog will detect legacy format and prompt for change
+                var hashedPw = Services.PasswordHasher.Hash("admin");
+                using var ins = Conn.CreateCommand();
+                ins.CommandText = "INSERT INTO users (username, password_hash, full_name) VALUES ('admin', @p, 'Administrator')";
+                ins.Parameters.AddWithValue("@p", hashedPw);
+                ins.ExecuteNonQuery();
+                IsFirstRun = true;
+            }
         }
-        Exec("CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
-        Exec("CREATE TABLE IF NOT EXISTS persons(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
-        Exec(@"CREATE TABLE IF NOT EXISTS transactions(
+        ExecDdl("CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
+        ExecDdl("CREATE TABLE IF NOT EXISTS persons(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS transactions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL, description TEXT, amount REAL NOT NULL,
             category_id INTEGER, person_id INTEGER, interval TEXT, notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT,
             FOREIGN KEY(category_id) REFERENCES categories(id),
             FOREIGN KEY(person_id) REFERENCES persons(id))");
-        Exec(@"CREATE TABLE IF NOT EXISTS offers(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS offers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             offer_number TEXT, offer_date TEXT, date_expected TEXT,
             customer TEXT, amount REAL, probability REAL, description TEXT, status TEXT,
             payment_delay INTEGER DEFAULT 30, pdf_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        Exec(@"CREATE TABLE IF NOT EXISTS invoices(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS invoices(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_date TEXT, due_date TEXT, customer TEXT, amount REAL,
             description TEXT, paid_date TEXT, paid_amount REAL, status TEXT,
             pdf_path TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        Exec(@"CREATE TABLE IF NOT EXISTS targets(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS targets(
             id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, month INTEGER, amount REAL)");
-        Exec("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
-        Exec(@"CREATE TABLE IF NOT EXISTS resources(
+        ExecDdl("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS resources(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role TEXT,
             availability REAL DEFAULT 1.0, hourly_rate REAL DEFAULT 0,
             work_start_hour INTEGER DEFAULT 8, work_end_hour INTEGER DEFAULT 17,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        try { Exec("ALTER TABLE resources ADD COLUMN work_start_hour INTEGER DEFAULT 8"); } catch { }
-        try { Exec("ALTER TABLE resources ADD COLUMN work_end_hour INTEGER DEFAULT 17"); } catch { }
-        Exec(@"CREATE TABLE IF NOT EXISTS projects(
+        TryMigrate("ALTER TABLE resources ADD COLUMN work_start_hour INTEGER DEFAULT 8");
+        TryMigrate("ALTER TABLE resources ADD COLUMN work_end_hour INTEGER DEFAULT 17");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS projects(
             id INTEGER PRIMARY KEY AUTOINCREMENT, project_number TEXT, name TEXT NOT NULL,
             client TEXT DEFAULT '', color TEXT DEFAULT '#3498db', start_date TEXT, end_date TEXT,
             budget REAL DEFAULT 0, status TEXT DEFAULT 'active',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        // Migration: add client column if missing
-        try { Exec("ALTER TABLE projects ADD COLUMN client TEXT DEFAULT ''"); } catch { }
-        Exec(@"CREATE TABLE IF NOT EXISTS resource_allocations(
+        TryMigrate("ALTER TABLE projects ADD COLUMN client TEXT DEFAULT ''");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS resource_allocations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             resource_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
             date TEXT NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
@@ -109,11 +168,11 @@ public sealed class Database : IDisposable {
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_resource ON resource_allocations(resource_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_project ON resource_allocations(project_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_allocations_date ON resource_allocations(date)");
-        Exec(@"CREATE TABLE IF NOT EXISTS hardware_resources(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS hardware_resources(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT,
             cost_per_hour REAL DEFAULT 0, color TEXT DEFAULT '#17a2b8', notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        Exec(@"CREATE TABLE IF NOT EXISTS hardware_allocations(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS hardware_allocations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             resource_id INTEGER NOT NULL, hardware_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
             date TEXT NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
@@ -125,7 +184,7 @@ public sealed class Database : IDisposable {
         Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_resource ON hardware_allocations(resource_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_hardware ON hardware_allocations(hardware_id)");
         Exec("CREATE INDEX IF NOT EXISTS idx_hw_alloc_date ON hardware_allocations(date)");
-        Exec(@"CREATE TABLE IF NOT EXISTS project_milestones(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS project_milestones(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL, name TEXT NOT NULL,
             status TEXT DEFAULT 'Offen', deadline TEXT, responsible TEXT,
@@ -136,38 +195,81 @@ public sealed class Database : IDisposable {
         Exec("CREATE INDEX IF NOT EXISTS idx_milestones_project ON project_milestones(project_id)");
 
         // Roles & permissions
-        Exec(@"CREATE TABLE IF NOT EXISTS roles(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS roles(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
             description TEXT DEFAULT '')");
-        Exec(@"CREATE TABLE IF NOT EXISTS role_permissions(
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS role_permissions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             role_id INTEGER NOT NULL, page_key TEXT NOT NULL,
             access_level TEXT DEFAULT 'none',
             FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE,
             UNIQUE(role_id, page_key))");
-        // Add role_id to users
-        try { Exec("ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)"); } catch { }
-        // Default roles
-        using (var cmd = Conn.CreateCommand()) {
-            cmd.CommandText = "SELECT COUNT(*) FROM roles";
-            if (Convert.ToInt64(cmd.ExecuteScalar()) == 0) {
-                Exec("INSERT INTO roles(name,description) VALUES('Admin','Vollzugriff auf alle Bereiche')");
-                long adminRoleId = LastInsertId();
-                Exec("INSERT INTO roles(name,description) VALUES('Mitarbeiter','Nur Ressourcen-Ansicht')");
-                long mitarbeiterRoleId = LastInsertId();
-                var pages = new[] { "dashboard","transactions","fixkosten","taxes","invoices","offers","resources","targets","admin" };
-                foreach (var p in pages)
-                    Exec($"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES({adminRoleId},'{p}','full')");
-                Exec($"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES({mitarbeiterRoleId},'resources','read')");
-                // Assign admin role to admin user
-                Exec($"UPDATE users SET role_id={adminRoleId} WHERE username='admin'");
-            }
-        }
+        TryMigrate("ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)");
+        TryMigrate("ALTER TABLE users ADD COLUMN avatar_data TEXT");
+        TryMigrate("ALTER TABLE resources ADD COLUMN avatar_data TEXT");
+        EnsureDefaultRoles();
+
+        // User ToDos
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS user_todos(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, title TEXT NOT NULL,
+            description TEXT, status TEXT DEFAULT 'Offen',
+            priority INTEGER DEFAULT 2, due_date TEXT,
+            project_id INTEGER, milestone_id INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL,
+            FOREIGN KEY(milestone_id) REFERENCES project_milestones(id) ON DELETE SET NULL)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_todos_user ON user_todos(user_id)");
+
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS user_settings(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            `key` TEXT NOT NULL,
+            value TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(user_id, `key`))");
+
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS time_entries(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL,
+            activity_type TEXT NOT NULL,
+            description TEXT,
+            entry_date TEXT NOT NULL,
+            start_time TEXT,
+            end_time TEXT,
+            duration_hours REAL DEFAULT 0,
+            is_running INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_time_entries_project ON time_entries(project_id)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_time_entries_running ON time_entries(user_id,is_running)");
+
+        // Customers / Adressbuch
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS customers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company TEXT, contact_name TEXT, email TEXT, phone TEXT,
+            street TEXT, zip_code TEXT, city TEXT, country TEXT DEFAULT 'Deutschland',
+            tax_id TEXT, status TEXT DEFAULT 'Aktiv', notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
+        TryMigrate("ALTER TABLE offers ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
+
+        // Migration: ensure "kunden" permission exists for all roles that have "invoices" access
+        try {
+            using var kcmd = Conn.CreateCommand();
+            kcmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO role_permissions(role_id,page_key,access_level)
+                SELECT role_id,'kunden',access_level FROM role_permissions WHERE page_key='invoices'");
+            kcmd.ExecuteNonQuery();
+        } catch { }
 
         var cats = new[] { "Lohn","Kapitalsteuer","Sozialversicherung","Lohnsteuer","Umsatzsteuer","Versicherung","Miete","Strom","Steuerberatung" };
         foreach (var c in cats) {
             using var cmd = Conn.CreateCommand();
-            cmd.CommandText = "INSERT OR IGNORE INTO categories(name) VALUES(@n)";
+            cmd.CommandText = _dialect.InsertOrIgnore("INSERT OR IGNORE INTO categories(name) VALUES(@n)");
             cmd.Parameters.AddWithValue("@n", c);
             cmd.ExecuteNonQuery();
         }
@@ -176,15 +278,69 @@ public sealed class Database : IDisposable {
     // Settings
     public double GetSettingStartBalance() {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT value FROM settings WHERE key='start_balance'";
+        cmd.CommandText = "SELECT value FROM settings WHERE `key`='start_balance'";
         var r = cmd.ExecuteScalar();
         return r != null ? Convert.ToDouble(r, CultureInfo.InvariantCulture) : 0.0;
     }
 
     public void SetSettingStartBalance(double v) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO settings(key,value) VALUES('start_balance',@v) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+        cmd.CommandText = _dialect.UpsertSettings("@v");
         cmd.Parameters.AddWithValue("@v", v.ToString(CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+    }
+
+    // Avatar methods
+    public void SaveUserAvatar(string username, string? base64Data) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE users SET avatar_data=@d WHERE username=@u";
+        cmd.Parameters.AddWithValue("@d", (object?)base64Data ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@u", username);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetUserAvatar(string username) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT avatar_data FROM users WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        var r = cmd.ExecuteScalar();
+        return r != null && r != DBNull.Value ? r.ToString() : null;
+    }
+
+    public void SaveResourceAvatar(long resourceId, string? base64Data) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE resources SET avatar_data=@d WHERE id=@id";
+        cmd.Parameters.AddWithValue("@d", (object?)base64Data ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@id", resourceId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetResourceAvatar(long resourceId) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT avatar_data FROM resources WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", resourceId);
+        var r = cmd.ExecuteScalar();
+        return r != null && r != DBNull.Value ? r.ToString() : null;
+    }
+
+    // Generic user settings (key-value per user)
+    public string? GetUserSetting(long userId, string settingKey) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM user_settings WHERE user_id=@uid AND `key`=@k";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        cmd.Parameters.AddWithValue("@k", settingKey);
+        var r = cmd.ExecuteScalar();
+        return r != null && r != DBNull.Value ? r.ToString() : null;
+    }
+
+    public void SaveUserSetting(long userId, string settingKey, string? value) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = _dialect is MariaDbDialect
+            ? "INSERT INTO user_settings(user_id,`key`,value) VALUES(@uid,@k,@v) ON DUPLICATE KEY UPDATE value=@v"
+            : "INSERT INTO user_settings(user_id,`key`,value) VALUES(@uid,@k,@v) ON CONFLICT(user_id,`key`) DO UPDATE SET value=@v";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        cmd.Parameters.AddWithValue("@k", settingKey);
+        cmd.Parameters.AddWithValue("@v", (object?)value ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -198,12 +354,15 @@ public sealed class Database : IDisposable {
         return map;
     }
 
-    // Monthly Cashflow
+    // Monthly Cashflow Forecast
+    // NOTE: Invoices and Transactions are separate data sources. To avoid double-counting,
+    // users should NOT create a transaction for an invoice payment AND mark the invoice as paid.
+    // The forecast uses: Transactions (actual + recurring) + unpaid Invoices + weighted Offers.
     public List<MonthRow> MonthlyCashflow(int horizonMonths, bool includeOffersOffen, bool includeOffersBeauftragt, bool includeUnpaidInvoices, bool includeRecurring) {
         var evs = new List<(DateTime d, double a)>();
         // Transactions
         using (var cmd = Conn.CreateCommand()) {
-            cmd.CommandText = "SELECT date,amount,COALESCE(interval,''),notes FROM transactions";
+            cmd.CommandText = "SELECT date,amount,COALESCE(`interval`,''),notes FROM transactions";
             using var r = cmd.ExecuteReader();
             while (r.Read()) {
                 var d = ParseDate(r.GetString(0));
@@ -283,21 +442,25 @@ public sealed class Database : IDisposable {
                 if (p > 1.0) p /= 100.0;
                 if (p > 0 && de.HasValue) {
                     var payDate = de.Value.AddDays(delay);
-                    evs.Add((payDate, amt));
+                    evs.Add((payDate, amt * p)); // Weighted by probability
                 }
             }
         }
-        // Sort and bucket
+        // Sort and bucket — use ordered list (not SortedDictionary which sorts alphabetically!)
         evs.Sort((a, b) => a.d.CompareTo(b.d));
-        var netMap = new SortedDictionary<string, double>();
-        var incMap = new SortedDictionary<string, double>();
-        var expMap = new SortedDictionary<string, double>();
+        var monthOrder = new List<string>();
+        var netMap = new Dictionary<string, double>();
+        var incMap = new Dictionary<string, double>();
+        var expMap = new Dictionary<string, double>();
         var today = DateTime.Today;
         var startOfMonth = new DateTime(today.Year, today.Month, 1);
         for (int i = 0; i < horizonMonths; i++) {
             var md = AddMonthsClamped(startOfMonth, i);
             var label = MonthLabel(md.Year, md.Month);
-            netMap[label] = 0; incMap[label] = 0; expMap[label] = 0;
+            if (!netMap.ContainsKey(label)) {
+                monthOrder.Add(label);
+                netMap[label] = 0; incMap[label] = 0; expMap[label] = 0;
+            }
         }
         foreach (var e in evs) {
             if (e.d < startOfMonth) continue;
@@ -306,9 +469,26 @@ public sealed class Database : IDisposable {
             netMap[label] += e.a;
             if (e.a > 0) incMap[label] += e.a; else expMap[label] += e.a;
         }
-        return netMap.Select(kv => new MonthRow {
-            Month = kv.Key, Net = kv.Value, Income = incMap[kv.Key], Expenses = expMap[kv.Key]
+        return monthOrder.Select(m => new MonthRow {
+            Month = m, Net = netMap[m], Income = incMap[m], Expenses = expMap[m]
         }).ToList();
+    }
+
+    /// <summary>
+    /// Returns actual balance = startBalance + all transactions up to today.
+    /// Only uses transactions (not invoices/offers) to avoid double-counting.
+    /// Invoices are tracked separately for forecasting; the actual payment
+    /// should be recorded as a transaction when it arrives.
+    /// </summary>
+    public double GetActualCashflowToDate(double startBalance) {
+        var today = DateTime.Today.ToString("yyyy-MM-dd");
+        double sum = startBalance;
+        // Actual transactions up to today (one-time only, no recurring projections)
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE date <= @d";
+        cmd.Parameters.AddWithValue("@d", today);
+        sum += Convert.ToDouble(cmd.ExecuteScalar());
+        return sum;
     }
 
     public double ActiveOffersSum() {
@@ -320,7 +500,7 @@ public sealed class Database : IDisposable {
             double amt = r.GetDouble(0);
             double p = r.IsDBNull(1) ? 0 : r.GetDouble(1);
             if (p > 1.0) p /= 100.0;
-            if (p > 0) sum += amt;
+            if (p > 0) sum += amt * p; // Weighted by probability
         }
         return sum;
     }
@@ -356,7 +536,7 @@ public sealed class Database : IDisposable {
     public List<Transaction> GetTransactions(string? notesFilter = null) {
         var list = new List<Transaction>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,date,description,amount,category_id,person_id,interval,notes,created_at,updated_at FROM transactions";
+        cmd.CommandText = "SELECT id,date,description,amount,category_id,person_id,`interval`,notes,created_at,updated_at FROM transactions";
         if (notesFilter != null) {
             cmd.CommandText += " WHERE notes LIKE @f";
             cmd.Parameters.AddWithValue("@f", notesFilter + "%");
@@ -381,7 +561,7 @@ public sealed class Database : IDisposable {
 
     public void AddTransaction(Transaction t) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO transactions(date,description,amount,category_id,person_id,interval,notes,created_at,updated_at)
+        cmd.CommandText = @"INSERT INTO transactions(date,description,amount,category_id,person_id,`interval`,notes,created_at,updated_at)
             VALUES(@date,@desc,@amt,@cat,@per,@intv,@notes,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)";
         cmd.Parameters.AddWithValue("@date", t.Date);
         cmd.Parameters.AddWithValue("@desc", (object?)t.Description ?? DBNull.Value);
@@ -397,7 +577,7 @@ public sealed class Database : IDisposable {
     public void UpdateTransaction(Transaction t) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = @"UPDATE transactions SET date=@date,description=@desc,amount=@amt,
-            category_id=@cat,person_id=@per,interval=@intv,notes=@notes,updated_at=CURRENT_TIMESTAMP WHERE id=@id";
+            category_id=@cat,person_id=@per,`interval`=@intv,notes=@notes,updated_at=CURRENT_TIMESTAMP WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", t.Id);
         cmd.Parameters.AddWithValue("@date", t.Date);
         cmd.Parameters.AddWithValue("@desc", (object?)t.Description ?? DBNull.Value);
@@ -783,8 +963,8 @@ public sealed class Database : IDisposable {
 
     public void AddHardwareAllocation(HardwareAllocation a) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO hardware_allocations(resource_id,hardware_id,project_id,date,hours,notes,created_at)
-            VALUES(@rid,@hid,@pid,@d,@h,@n,CURRENT_TIMESTAMP)";
+        cmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO hardware_allocations(resource_id,hardware_id,project_id,date,hours,notes,created_at)
+            VALUES(@rid,@hid,@pid,@d,@h,@n,CURRENT_TIMESTAMP)");
         cmd.Parameters.AddWithValue("@rid", a.ResourceId);
         cmd.Parameters.AddWithValue("@hid", a.HardwareId);
         cmd.Parameters.AddWithValue("@pid", a.ProjectId);
@@ -883,6 +1063,218 @@ public sealed class Database : IDisposable {
         return list;
     }
 
+    // CRUD: UserTodos
+    public List<UserTodo> GetTodos(long userId) {
+        var list = new List<UserTodo>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,user_id,title,description,status,priority,due_date,project_id,milestone_id,created_at FROM user_todos WHERE user_id=@uid ORDER BY priority,due_date,id";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(new UserTodo {
+            Id = r.GetInt64(0), UserId = r.GetInt64(1), Title = r.GetString(2),
+            Description = r.IsDBNull(3) ? null : r.GetString(3),
+            Status = r.IsDBNull(4) ? "Offen" : r.GetString(4),
+            Priority = r.IsDBNull(5) ? 2 : r.GetInt32(5),
+            DueDate = r.IsDBNull(6) ? null : r.GetString(6),
+            ProjectId = r.IsDBNull(7) ? null : r.GetInt64(7),
+            MilestoneId = r.IsDBNull(8) ? null : r.GetInt64(8),
+            CreatedAt = r.IsDBNull(9) ? null : r.GetString(9)
+        });
+        return list;
+    }
+
+    public List<UserTodo> GetAllTodos() {
+        var list = new List<UserTodo>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,user_id,title,description,status,priority,due_date,project_id,milestone_id,created_at FROM user_todos ORDER BY priority,due_date,id";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(new UserTodo {
+            Id = r.GetInt64(0), UserId = r.GetInt64(1), Title = r.GetString(2),
+            Description = r.IsDBNull(3) ? null : r.GetString(3),
+            Status = r.IsDBNull(4) ? "Offen" : r.GetString(4),
+            Priority = r.IsDBNull(5) ? 2 : r.GetInt32(5),
+            DueDate = r.IsDBNull(6) ? null : r.GetString(6),
+            ProjectId = r.IsDBNull(7) ? null : r.GetInt64(7),
+            MilestoneId = r.IsDBNull(8) ? null : r.GetInt64(8),
+            CreatedAt = r.IsDBNull(9) ? null : r.GetString(9)
+        });
+        return list;
+    }
+
+    public void AddTodo(UserTodo t) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO user_todos(user_id,title,description,status,priority,due_date,project_id,milestone_id) VALUES(@uid,@t,@d,@s,@p,@dd,@pid,@mid)";
+        cmd.Parameters.AddWithValue("@uid", t.UserId);
+        cmd.Parameters.AddWithValue("@t", t.Title);
+        cmd.Parameters.AddWithValue("@d", (object?)t.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@s", t.Status);
+        cmd.Parameters.AddWithValue("@p", t.Priority);
+        cmd.Parameters.AddWithValue("@dd", (object?)t.DueDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@pid", (object?)t.ProjectId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@mid", (object?)t.MilestoneId ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+        t.Id = LastInsertId();
+    }
+
+    public void UpdateTodo(UserTodo t) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"UPDATE user_todos SET title=@t,description=@d,status=@s,priority=@p,due_date=@dd,project_id=@pid,milestone_id=@mid WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", t.Id);
+        cmd.Parameters.AddWithValue("@t", t.Title);
+        cmd.Parameters.AddWithValue("@d", (object?)t.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@s", t.Status);
+        cmd.Parameters.AddWithValue("@p", t.Priority);
+        cmd.Parameters.AddWithValue("@dd", (object?)t.DueDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@pid", (object?)t.ProjectId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@mid", (object?)t.MilestoneId ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteTodo(long id) { ExecWithId("DELETE FROM user_todos WHERE id=@id", id); }
+
+    // Time Tracking
+    public TimeEntry? GetRunningTimeEntry(long userId) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT te.id,te.user_id,te.project_id,p.name,te.activity_type,te.description,
+            te.entry_date,te.start_time,te.end_time,te.duration_hours,te.is_running,te.created_at
+            FROM time_entries te
+            JOIN projects p ON p.id=te.project_id
+            WHERE te.user_id=@uid AND te.is_running=1
+            ORDER BY te.id DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new TimeEntry {
+            Id = r.GetInt64(0),
+            UserId = r.GetInt64(1),
+            ProjectId = r.GetInt64(2),
+            ProjectName = r.GetString(3),
+            ActivityType = r.GetString(4),
+            Description = r.IsDBNull(5) ? "" : r.GetString(5),
+            EntryDate = r.GetString(6),
+            StartTime = r.IsDBNull(7) ? null : r.GetString(7),
+            EndTime = r.IsDBNull(8) ? null : r.GetString(8),
+            DurationHours = r.IsDBNull(9) ? 0 : r.GetDouble(9),
+            IsRunning = !r.IsDBNull(10) && r.GetInt64(10) == 1,
+            CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+        };
+    }
+
+    public List<TimeEntry> GetTimeEntries(long userId, int limit = 50) {
+        var list = new List<TimeEntry>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT te.id,te.user_id,te.project_id,p.name,te.activity_type,te.description,
+            te.entry_date,te.start_time,te.end_time,te.duration_hours,te.is_running,te.created_at
+            FROM time_entries te
+            JOIN projects p ON p.id=te.project_id
+            WHERE te.user_id=@uid
+            ORDER BY te.entry_date DESC, te.id DESC
+            LIMIT @limit";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        cmd.Parameters.AddWithValue("@limit", limit);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new TimeEntry {
+                Id = r.GetInt64(0),
+                UserId = r.GetInt64(1),
+                ProjectId = r.GetInt64(2),
+                ProjectName = r.GetString(3),
+                ActivityType = r.GetString(4),
+                Description = r.IsDBNull(5) ? "" : r.GetString(5),
+                EntryDate = r.GetString(6),
+                StartTime = r.IsDBNull(7) ? null : r.GetString(7),
+                EndTime = r.IsDBNull(8) ? null : r.GetString(8),
+                DurationHours = r.IsDBNull(9) ? 0 : r.GetDouble(9),
+                IsRunning = !r.IsDBNull(10) && r.GetInt64(10) == 1,
+                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+            });
+        }
+        return list;
+    }
+
+    public List<TimeSummary> GetProjectTimeSummary(long userId) {
+        var list = new List<TimeSummary>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT p.name, COALESCE(SUM(te.duration_hours),0)
+            FROM time_entries te
+            JOIN projects p ON p.id=te.project_id
+            WHERE te.user_id=@uid AND te.is_running=0
+            GROUP BY te.project_id, p.name
+            ORDER BY SUM(te.duration_hours) DESC, p.name";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new TimeSummary {
+                Label = r.GetString(0),
+                Hours = r.IsDBNull(1) ? 0 : r.GetDouble(1)
+            });
+        }
+        return list;
+    }
+
+    public List<TimeSummary> GetActivityTimeSummary(long userId) {
+        var list = new List<TimeSummary>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT te.activity_type, COALESCE(SUM(te.duration_hours),0)
+            FROM time_entries te
+            WHERE te.user_id=@uid AND te.is_running=0
+            GROUP BY te.activity_type
+            ORDER BY SUM(te.duration_hours) DESC, te.activity_type";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new TimeSummary {
+                Label = r.GetString(0),
+                Hours = r.IsDBNull(1) ? 0 : r.GetDouble(1)
+            });
+        }
+        return list;
+    }
+
+    public long StartTimeEntry(long userId, long projectId, string activityType, string? description) {
+        using var tx = Conn.BeginTransaction();
+        using (var stopCmd = Conn.CreateCommand()) {
+            stopCmd.Transaction = tx;
+            stopCmd.CommandText = $@"UPDATE time_entries
+                SET is_running=0,
+                    end_time=@now,
+                    duration_hours={_dialect.DurationHoursExpr("start_time", "@now")}
+                WHERE user_id=@uid AND is_running=1";
+            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            stopCmd.Parameters.AddWithValue("@uid", userId);
+            stopCmd.Parameters.AddWithValue("@now", now);
+            stopCmd.ExecuteNonQuery();
+        }
+
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.Transaction = tx;
+            cmd.CommandText = @"INSERT INTO time_entries(user_id,project_id,activity_type,description,entry_date,start_time,is_running,created_at)
+                VALUES(@uid,@pid,@act,@desc,@date,@start,1,CURRENT_TIMESTAMP)";
+            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            cmd.Parameters.AddWithValue("@uid", userId);
+            cmd.Parameters.AddWithValue("@pid", projectId);
+            cmd.Parameters.AddWithValue("@act", activityType);
+            cmd.Parameters.AddWithValue("@desc", (object?)description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@date", DateTime.Today.ToString("yyyy-MM-dd"));
+            cmd.Parameters.AddWithValue("@start", now);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
+        return LastInsertId();
+    }
+
+    public void StopTimeEntry(long id) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = $@"UPDATE time_entries
+            SET is_running=0,
+                end_time=@now,
+                duration_hours={_dialect.DurationHoursExpr("start_time", "@now")}
+            WHERE id=@id AND is_running=1";
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@now", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.ExecuteNonQuery();
+    }
+
     // Categories
     public List<string> GetCategories() {
         var list = new List<string>();
@@ -896,10 +1288,24 @@ public sealed class Database : IDisposable {
     // Users
     public bool ValidateUser(string username, string password) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM users WHERE username=@u AND password_hash=@p";
+        cmd.CommandText = "SELECT password_hash FROM users WHERE username=@u";
         cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", password);
-        return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+        var result = cmd.ExecuteScalar();
+        if (result == null || result == DBNull.Value) return false;
+        var storedHash = result.ToString()!;
+        var valid = Services.PasswordHasher.Verify(password, storedHash);
+        // Auto-migrate legacy plaintext passwords to PBKDF2
+        if (valid && Services.PasswordHasher.IsLegacyFormat(storedHash))
+            ChangePassword(username, password);
+        return valid;
+    }
+
+    public long GetUserId(string username) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id FROM users WHERE username=@u";
+        cmd.Parameters.AddWithValue("@u", username);
+        var result = cmd.ExecuteScalar();
+        return result != null ? Convert.ToInt64(result) : 0;
     }
 
     public List<string> GetUsernames() {
@@ -915,7 +1321,7 @@ public sealed class Database : IDisposable {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "UPDATE users SET password_hash=@p WHERE username=@u";
         cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", newPassword);
+        cmd.Parameters.AddWithValue("@p", Services.PasswordHasher.Hash(newPassword));
         cmd.ExecuteNonQuery();
     }
 
@@ -923,7 +1329,7 @@ public sealed class Database : IDisposable {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "INSERT INTO users(username, password_hash, full_name) VALUES(@u, @p, @f)";
         cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", password);
+        cmd.Parameters.AddWithValue("@p", Services.PasswordHasher.Hash(password));
         cmd.Parameters.AddWithValue("@f", fullName);
         cmd.ExecuteNonQuery();
     }
@@ -950,11 +1356,11 @@ public sealed class Database : IDisposable {
         return cmd.ExecuteScalar() as string;
     }
 
-    public void SetUserRole(string username, long roleId) {
+    public void SetUserRole(string username, long? roleId) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "UPDATE users SET role_id=@r WHERE username=@u";
         cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@r", roleId);
+        cmd.Parameters.AddWithValue("@r", roleId.HasValue ? (object)roleId.Value : DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -1014,10 +1420,9 @@ public sealed class Database : IDisposable {
 
     public void SetRolePermission(long roleId, string pageKey, string accessLevel) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO role_permissions(role_id,page_key,access_level) VALUES(@r,@p,@a)
-            ON CONFLICT(role_id,page_key) DO UPDATE SET access_level=@a";
-        cmd.Parameters.AddWithValue("@r", roleId);
-        cmd.Parameters.AddWithValue("@p", pageKey);
+        cmd.CommandText = _dialect.UpsertRolePermission();
+        cmd.Parameters.AddWithValue("@rid", roleId);
+        cmd.Parameters.AddWithValue("@pk", pageKey);
         cmd.Parameters.AddWithValue("@a", accessLevel);
         cmd.ExecuteNonQuery();
     }
@@ -1045,10 +1450,76 @@ public sealed class Database : IDisposable {
         return perms;
     }
 
+    // CRUD: Customers
+    public List<Customer> GetCustomers() {
+        var list = new List<Customer>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id,company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at FROM customers ORDER BY company,contact_name";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) {
+            list.Add(new Customer {
+                Id = r.GetInt64(0),
+                Company = r.IsDBNull(1) ? "" : r.GetString(1),
+                ContactName = r.IsDBNull(2) ? "" : r.GetString(2),
+                Email = r.IsDBNull(3) ? "" : r.GetString(3),
+                Phone = r.IsDBNull(4) ? "" : r.GetString(4),
+                Street = r.IsDBNull(5) ? "" : r.GetString(5),
+                ZipCode = r.IsDBNull(6) ? "" : r.GetString(6),
+                City = r.IsDBNull(7) ? "" : r.GetString(7),
+                Country = r.IsDBNull(8) ? "" : r.GetString(8),
+                TaxId = r.IsDBNull(9) ? "" : r.GetString(9),
+                Status = r.IsDBNull(10) ? "Aktiv" : r.GetString(10),
+                Notes = r.IsDBNull(11) ? "" : r.GetString(11),
+                CreatedAt = r.IsDBNull(12) ? "" : r.GetString(12)
+            });
+        }
+        return list;
+    }
+
+    public void AddCustomer(Customer c) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO customers(company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at)
+            VALUES(@company,@contact,@email,@phone,@street,@zip,@city,@country,@tax,@status,@notes,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@company", (object?)c.Company ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contact", (object?)c.ContactName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@email", (object?)c.Email ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@phone", (object?)c.Phone ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@street", (object?)c.Street ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@zip", (object?)c.ZipCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@city", (object?)c.City ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@country", (object?)c.Country ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@tax", (object?)c.TaxId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@status", (object?)c.Status ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@notes", (object?)c.Notes ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+        c.Id = LastInsertId();
+    }
+
+    public void UpdateCustomer(Customer c) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"UPDATE customers SET company=@company,contact_name=@contact,email=@email,phone=@phone,
+            street=@street,zip_code=@zip,city=@city,country=@country,tax_id=@tax,status=@status,notes=@notes WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", c.Id);
+        cmd.Parameters.AddWithValue("@company", (object?)c.Company ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contact", (object?)c.ContactName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@email", (object?)c.Email ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@phone", (object?)c.Phone ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@street", (object?)c.Street ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@zip", (object?)c.ZipCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@city", (object?)c.City ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@country", (object?)c.Country ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@tax", (object?)c.TaxId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@status", (object?)c.Status ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@notes", (object?)c.Notes ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteCustomer(long id) { ExecWithId("DELETE FROM customers WHERE id=@id", id); }
+
     // Helpers
     long LastInsertId() {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT last_insert_rowid()";
+        cmd.CommandText = _dialect.LastInsertIdSql;
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
@@ -1056,6 +1527,74 @@ public sealed class Database : IDisposable {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.Parameters.AddWithValue("@id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    void EnsureDefaultRoles() {
+        var allPages = new[] { "dashboard", "transactions", "fixkosten", "taxes", "invoices", "offers", "resources", "targets", "todos", "timetracking", "admin" };
+
+        long adminRoleId = EnsureRole("Admin", "Vollzugriff auf alle Bereiche");
+        foreach (var page in allPages)
+            EnsureRolePermission(adminRoleId, page, "full");
+
+        long engineerRoleId = EnsureRole("Ingenieur", "Projekt-, Ressourcen- und Aufgabenbearbeitung");
+        EnsureRolePermission(engineerRoleId, "dashboard", "read");
+        EnsureRolePermission(engineerRoleId, "offers", "read");
+        EnsureRolePermission(engineerRoleId, "resources", "full");
+        EnsureRolePermission(engineerRoleId, "todos", "full");
+        EnsureRolePermission(engineerRoleId, "timetracking", "full");
+
+        long accountingRoleId = EnsureRole("Accounting", "Finanzen, Rechnungen, Angebote und Steuern");
+        EnsureRolePermission(accountingRoleId, "dashboard", "read");
+        EnsureRolePermission(accountingRoleId, "transactions", "full");
+        EnsureRolePermission(accountingRoleId, "fixkosten", "full");
+        EnsureRolePermission(accountingRoleId, "taxes", "full");
+        EnsureRolePermission(accountingRoleId, "invoices", "full");
+        EnsureRolePermission(accountingRoleId, "offers", "full");
+        EnsureRolePermission(accountingRoleId, "resources", "read");
+        EnsureRolePermission(accountingRoleId, "targets", "full");
+        EnsureRolePermission(accountingRoleId, "todos", "read");
+        EnsureRolePermission(accountingRoleId, "timetracking", "read");
+
+        long managementRoleId = EnsureRole("Management", "Lesender Zugriff auf relevante Bereiche");
+        EnsureRolePermission(managementRoleId, "dashboard", "read");
+        EnsureRolePermission(managementRoleId, "transactions", "read");
+        EnsureRolePermission(managementRoleId, "fixkosten", "read");
+        EnsureRolePermission(managementRoleId, "taxes", "read");
+        EnsureRolePermission(managementRoleId, "invoices", "read");
+        EnsureRolePermission(managementRoleId, "offers", "read");
+        EnsureRolePermission(managementRoleId, "resources", "read");
+        EnsureRolePermission(managementRoleId, "targets", "read");
+        EnsureRolePermission(managementRoleId, "todos", "read");
+        EnsureRolePermission(managementRoleId, "timetracking", "read");
+
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "UPDATE users SET role_id=@rid WHERE username='admin' AND (role_id IS NULL OR role_id=0)";
+        cmd.Parameters.AddWithValue("@rid", adminRoleId);
+        cmd.ExecuteNonQuery();
+    }
+
+    long EnsureRole(string name, string description) {
+        using (var insert = Conn.CreateCommand()) {
+            insert.CommandText = _dialect.InsertOrIgnore("INSERT OR IGNORE INTO roles(name,description) VALUES(@n,@d)");
+            insert.Parameters.AddWithValue("@n", name);
+            insert.Parameters.AddWithValue("@d", description);
+            insert.ExecuteNonQuery();
+        }
+
+        using var select = Conn.CreateCommand();
+        select.CommandText = "SELECT id FROM roles WHERE name=@n";
+        select.Parameters.AddWithValue("@n", name);
+        return Convert.ToInt64(select.ExecuteScalar());
+    }
+
+    void EnsureRolePermission(long roleId, string pageKey, string accessLevel) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO role_permissions(role_id,page_key,access_level)
+            VALUES(@r,@p,@a)");
+        cmd.Parameters.AddWithValue("@r", roleId);
+        cmd.Parameters.AddWithValue("@p", pageKey);
+        cmd.Parameters.AddWithValue("@a", accessLevel);
         cmd.ExecuteNonQuery();
     }
 }

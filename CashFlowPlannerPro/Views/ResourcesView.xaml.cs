@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
 
 namespace CashFlowPlannerPro.Views;
@@ -28,6 +29,7 @@ public partial class ResourcesView : UserControl
     // Resize state
     private Border? _resizeBar;
     private AllocationSpan? _resizeSpan;
+    private HwAllocationSpan? _resizeHwSpan;
     private long _resizeResourceId;
     private string _resizeEdge = ""; // "Left" or "Right"
     private int _resizeOrigCol;
@@ -42,6 +44,14 @@ public partial class ResourcesView : UserControl
         DataContext = _vm;
         _vm.CalendarChanged += () => { BuildCalendar(); BuildProjectList(); BuildHardwareList(); };
         _vm.Load();
+
+        PrevPeriodBtn.ToolTip = TooltipService.Get("Btn_PrevPeriod");
+        TodayBtn.ToolTip = TooltipService.Get("Btn_Today");
+        NextPeriodBtn.ToolTip = TooltipService.Get("Btn_NextPeriod");
+        AddResourceBtn.ToolTip = TooltipService.Get("Btn_AddResource");
+        AddProjectBtn.ToolTip = TooltipService.Get("Btn_AddProject");
+        AddHardwareBtn.ToolTip = TooltipService.Get("Btn_AddHardware");
+        KanbanBtn.ToolTip = TooltipService.Get("Btn_Kanban");
     }
 
     private void CalendarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -136,18 +146,33 @@ public partial class ResourcesView : UserControl
             var resource = resources[r];
 
             // Resource info — double-click to edit
-            var infoPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
+            var infoWrapper = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+
+            // Avatar circle
+            var avatarSize = Math.Max(32, Math.Min(48, _rowHeight * 0.6));
+            var avatarImg = new System.Windows.Controls.Image { Width = avatarSize, Height = avatarSize, Stretch = Stretch.UniformToFill };
+            var avatarSrc = Services.AvatarHelper.Base64ToImage(resource.AvatarData);
+            avatarImg.Source = avatarSrc ?? Services.AvatarHelper.GetDefaultAvatar(resource.Name);
+            var avatarBorder = new Border {
+                Width = avatarSize, Height = avatarSize, CornerRadius = new CornerRadius(avatarSize / 2),
+                ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0),
+                Child = avatarImg
+            };
+            infoWrapper.Children.Add(avatarBorder);
+
+            var infoPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             infoPanel.Children.Add(new TextBlock { Text = resource.Name, FontWeight = FontWeights.SemiBold, Foreground = Brushes.Black, FontSize = 13 });
             var roleText = resource.Role;
             if (!string.IsNullOrEmpty(roleText))
                 infoPanel.Children.Add(new TextBlock { Text = roleText, Foreground = Brushes.Gray, FontSize = 11 });
             var hoursText = $"{resource.WorkStartHour:00}:00 – {resource.WorkEndHour:00}:00";
             infoPanel.Children.Add(new TextBlock { Text = hoursText, Foreground = new SolidColorBrush(Color.FromRgb(0x81, 0x2B, 0x8C)), FontSize = 10 });
+            infoWrapper.Children.Add(infoPanel);
 
             int projectRow = r * 2 + 1;
             int hardwareRow = r * 2 + 2;
 
-            var infoBorder = new Border { Background = ResourceBg, BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1), Child = infoPanel, Cursor = Cursors.Hand };
+            var infoBorder = new Border { Background = ResourceBg, BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1), Child = infoWrapper, Cursor = Cursors.Hand };
             var capturedResource = resource;
             infoBorder.MouseLeftButtonDown += (s, e) => {
                 if (e.ClickCount == 2)
@@ -395,8 +420,20 @@ public partial class ResourcesView : UserControl
                 }
             }
 
-            // Hardware allocation bars in hardware row
+            // Hardware allocation bars in hardware row — stacked when multiple hardware overlap
             var hwSpans = GetHardwareAllocationSpans(resource.Id, start, days);
+
+            // Group by hardware to get separate span lists (like projects)
+            var hwSpansByHardware = hwSpans.GroupBy(s => (s.HardwareId, s.ProjectId)).ToList();
+            var hwSlot = new Dictionary<(long, long), int>();
+            int hwSlotIdx = 0;
+            foreach (var grp in hwSpansByHardware)
+                hwSlot[grp.Key] = hwSlotIdx++;
+
+            int totalHwSlots = Math.Max(hwSpansByHardware.Count, 1);
+            double hwRowHeight = Math.Max(30, _rowHeight * 0.5);
+            double hwBarHeight = Math.Max(14, (hwRowHeight - 4) / totalHwSlots - 2);
+
             foreach (var hwSpan in hwSpans)
             {
                 var hw = _vm.HardwareResources.FirstOrDefault(h => h.Id == hwSpan.HardwareId);
@@ -409,19 +446,24 @@ public partial class ResourcesView : UserControl
                 var project = _vm.Projects.FirstOrDefault(p => p.Id == hwSpan.ProjectId);
                 var projLabel = project?.Name ?? "";
 
+                int slot = hwSlot[(hwSpan.HardwareId, hwSpan.ProjectId)];
+                double topMargin = 2 + slot * (hwBarHeight + 2);
+
                 var hwTextPanel = new StackPanel {
                     Orientation = Orientation.Horizontal,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(4, 0, 4, 0)
                 };
+                double hwFontSize = hwBarHeight > 22 ? 11 : hwBarHeight > 18 ? 9 : 8;
+                double hwSubFontSize = hwBarHeight > 22 ? 9 : hwBarHeight > 18 ? 8 : 7;
                 hwTextPanel.Children.Add(new TextBlock {
                     Text = $"🖥 {hwBarText}", Foreground = Brushes.White,
-                    FontSize = 9, FontWeight = FontWeights.SemiBold,
+                    FontSize = hwFontSize, FontWeight = FontWeights.SemiBold,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
                 if (!string.IsNullOrEmpty(projLabel))
                     hwTextPanel.Children.Add(new TextBlock {
-                        Text = $"  ({projLabel})", FontSize = 8,
+                        Text = $"  ({projLabel})", FontSize = hwSubFontSize,
                         Foreground = new SolidColorBrush(Color.FromArgb(0xBB, 0xFF, 0xFF, 0xFF)),
                         TextTrimming = TextTrimming.CharacterEllipsis
                     });
@@ -429,16 +471,41 @@ public partial class ResourcesView : UserControl
                 var hwBar = new Border {
                     Background = new SolidColorBrush(hwBarColor),
                     CornerRadius = new CornerRadius(3),
-                    Height = Math.Max(16, Math.Max(30, _rowHeight * 0.5) - 6),
-                    Margin = new Thickness(2, 2, 2, 2),
+                    Height = hwBarHeight,
+                    Margin = new Thickness(2, topMargin, 2, 2),
                     VerticalAlignment = VerticalAlignment.Top,
                     Child = hwTextPanel,
                     ToolTip = $"{hwBarText}\nProjekt: {projLabel}\n{hwSpan.StartDate:dd.MM} - {hwSpan.EndDate:dd.MM}",
-                    Effect = new DropShadowEffect { BlurRadius = 2, ShadowDepth = 1, Opacity = 0.08 }
+                    Effect = new DropShadowEffect { BlurRadius = 2, ShadowDepth = 1, Opacity = 0.08 },
+                    AllowDrop = true
                 };
 
-                // Right-click to delete
+                // Allow dropping additional hardware onto existing bars
+                var hwBarResId = resource.Id;
+                var hwBarStartDate = hwSpan.StartDate;
+                hwBar.DragEnter += (s, e) => { e.Effects = DragDropEffects.Copy; e.Handled = true; };
+                hwBar.DragOver += (_, e) => { e.Effects = DragDropEffects.Copy; e.Handled = true; };
+                hwBar.Drop += (s, e) => {
+                    if (e.Data.GetDataPresent("HardwareId"))
+                    {
+                        var droppedHwId = (long)e.Data.GetData("HardwareId")!;
+                        var projAllocs = _vm.GetAllocations(hwBarResId, hwBarStartDate);
+                        if (projAllocs.Count == 1)
+                            _vm.AddHardwareAllocation(hwBarResId, droppedHwId, projAllocs[0].ProjectId, hwBarStartDate);
+                        else if (projAllocs.Count > 1)
+                            ShowHardwareProjectMenu(hwBarResId, droppedHwId, hwBarStartDate, projAllocs);
+                    }
+                    e.Handled = true;
+                };
+
+                // Resize support — same as project bars
                 var capturedHwSpan = hwSpan;
+                var capturedHwResId = resource.Id;
+                hwBar.Cursor = Cursors.SizeWE;
+                hwBar.MouseLeftButtonDown += (s, e) => HwBar_MouseLeftButtonDown(s, e, capturedHwSpan, capturedHwResId);
+                hwBar.MouseLeftButtonUp += HwBar_MouseLeftButtonUp;
+
+                // Right-click to delete
                 hwBar.MouseRightButtonUp += (_, _) => {
                     if (ModernMessageBox.ShowConfirm($"Hardware \"{hwBarText}\" Zuordnung löschen?", "Hardware entfernen"))
                         foreach (var id in capturedHwSpan.AllocationIds)
@@ -484,15 +551,21 @@ public partial class ResourcesView : UserControl
 
     private void CalendarGrid_ResizePreview(object sender, MouseEventArgs e)
     {
-        if (_resizeBar == null || _resizeSpan == null) return;
+        if (_resizeBar == null) return;
+
+        // Determine span info from either project or hardware span
+        int spanStartCol, spanColSpan;
+        if (_resizeSpan != null) { spanStartCol = _resizeSpan.StartCol; spanColSpan = _resizeSpan.ColSpan; }
+        else if (_resizeHwSpan != null) { spanStartCol = _resizeHwSpan.StartCol; spanColSpan = _resizeHwSpan.ColSpan; }
+        else return;
 
         var posInGrid = e.GetPosition(CalendarGrid);
         int targetCol = GetColumnAtPosition(posInGrid.X);
         if (targetCol < 1) targetCol = 1;
         if (targetCol > _totalDays) targetCol = _totalDays;
 
-        var origStartCol0 = _resizeSpan.StartCol; // 0-based
-        var origEndCol0 = _resizeSpan.StartCol + _resizeSpan.ColSpan - 1; // 0-based
+        var origStartCol0 = spanStartCol; // 0-based
+        var origEndCol0 = spanStartCol + spanColSpan - 1; // 0-based
 
         int newGridCol, newColSpan;
 
@@ -577,6 +650,86 @@ public partial class ResourcesView : UserControl
 
         _resizeBar = null;
         _resizeSpan = null;
+        e.Handled = true;
+    }
+
+    // --- Hardware Resize logic ---
+    private void HwBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e, HwAllocationSpan span, long resourceId)
+    {
+        var bar = (Border)sender;
+        var pos = e.GetPosition(bar);
+        if (pos.X < 8)
+            _resizeEdge = "Left";
+        else if (pos.X > bar.ActualWidth - 8)
+            _resizeEdge = "Right";
+        else return;
+
+        _resizeBar = bar;
+        _resizeHwSpan = span;
+        _resizeSpan = null; // clear project span
+        _resizeResourceId = resourceId;
+        bar.Opacity = 0.7;
+        bar.CaptureMouse();
+        CalendarGrid.MouseMove += CalendarGrid_ResizePreview;
+        e.Handled = true;
+    }
+
+    private void HwBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_resizeBar == null || _resizeHwSpan == null) return;
+
+        CalendarGrid.MouseMove -= CalendarGrid_ResizePreview;
+
+        var bar = _resizeBar;
+        bar.ReleaseMouseCapture();
+        bar.Opacity = 1.0;
+
+        var posInGrid = e.GetPosition(CalendarGrid);
+        int targetCol = GetColumnAtPosition(posInGrid.X);
+        if (targetCol < 1) targetCol = 1;
+        if (targetCol > _totalDays) targetCol = _totalDays;
+
+        var span = _resizeHwSpan;
+        var origStartCol = span.StartCol;
+        var origEndCol = span.StartCol + span.ColSpan - 1;
+
+        if (_resizeEdge == "Right")
+        {
+            int newEndCol = targetCol - 1;
+            if (newEndCol < origStartCol) newEndCol = origStartCol;
+            if (newEndCol > origEndCol)
+            {
+                var from = _startDate.AddDays(origEndCol + 1);
+                var to = _startDate.AddDays(newEndCol);
+                _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+            }
+            else if (newEndCol < origEndCol)
+            {
+                var from = _startDate.AddDays(newEndCol + 1);
+                var to = _startDate.AddDays(origEndCol);
+                _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+            }
+        }
+        else // Left
+        {
+            int newStartCol = targetCol - 1;
+            if (newStartCol > origEndCol) newStartCol = origEndCol;
+            if (newStartCol < origStartCol)
+            {
+                var from = _startDate.AddDays(newStartCol);
+                var to = _startDate.AddDays(origStartCol - 1);
+                _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+            }
+            else if (newStartCol > origStartCol)
+            {
+                var from = _startDate.AddDays(origStartCol);
+                var to = _startDate.AddDays(newStartCol - 1);
+                _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+            }
+        }
+
+        _resizeBar = null;
+        _resizeHwSpan = null;
         e.Handled = true;
     }
 
@@ -700,14 +853,28 @@ public partial class ResourcesView : UserControl
             var resource = resources[r];
 
             // Resource info (same as week/month view)
-            var infoPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
+            var dayInfoWrapper = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+
+            var dayAvatarSize = Math.Max(32, Math.Min(48, _rowHeight * 0.6));
+            var dayAvatarImg = new System.Windows.Controls.Image { Width = dayAvatarSize, Height = dayAvatarSize, Stretch = Stretch.UniformToFill };
+            var dayAvatarSrc = Services.AvatarHelper.Base64ToImage(resource.AvatarData);
+            dayAvatarImg.Source = dayAvatarSrc ?? Services.AvatarHelper.GetDefaultAvatar(resource.Name);
+            var dayAvatarBorder = new Border {
+                Width = dayAvatarSize, Height = dayAvatarSize, CornerRadius = new CornerRadius(dayAvatarSize / 2),
+                ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0),
+                Child = dayAvatarImg
+            };
+            dayInfoWrapper.Children.Add(dayAvatarBorder);
+
+            var infoPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             infoPanel.Children.Add(new TextBlock { Text = resource.Name, FontWeight = FontWeights.SemiBold, Foreground = Brushes.Black, FontSize = 13 });
             if (!string.IsNullOrEmpty(resource.Role))
                 infoPanel.Children.Add(new TextBlock { Text = resource.Role, Foreground = Brushes.Gray, FontSize = 11 });
             var hoursLabel = $"{resource.WorkStartHour:00}:00 – {resource.WorkEndHour:00}:00";
             infoPanel.Children.Add(new TextBlock { Text = hoursLabel, Foreground = new SolidColorBrush(Color.FromRgb(0x81, 0x2B, 0x8C)), FontSize = 10 });
+            dayInfoWrapper.Children.Add(infoPanel);
 
-            var infoBorder = new Border { Background = ResourceBg, BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1), Child = infoPanel, Cursor = Cursors.Hand };
+            var infoBorder = new Border { Background = ResourceBg, BorderBrush = GridLine, BorderThickness = new Thickness(0, 0, 1, 1), Child = dayInfoWrapper, Cursor = Cursors.Hand };
             var capturedResource = resource;
             infoBorder.MouseLeftButtonDown += (s, e) => {
                 if (e.ClickCount == 2)

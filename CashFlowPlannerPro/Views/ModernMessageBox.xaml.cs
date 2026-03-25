@@ -86,24 +86,52 @@ public partial class ModernMessageBox : Window
 
     public static void Show(string message, string title = "Information")
     {
-        new ModernMessageBox(message, title, MessageBoxType.Info, false).ShowDialog();
+        try
+        {
+            new ModernMessageBox(message, title, MessageBoxType.Info, false).ShowDialog();
+        }
+        catch
+        {
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 
     public static void ShowError(string message, string title = "Fehler")
     {
-        new ModernMessageBox(message, title, MessageBoxType.Error, false).ShowDialog();
+        try
+        {
+            new ModernMessageBox(message, title, MessageBoxType.Error, false).ShowDialog();
+        }
+        catch
+        {
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     public static void ShowSuccess(string message, string title = "Erfolg")
     {
-        new ModernMessageBox(message, title, MessageBoxType.Success, false).ShowDialog();
+        try
+        {
+            new ModernMessageBox(message, title, MessageBoxType.Success, false).ShowDialog();
+        }
+        catch
+        {
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 
     public static bool ShowConfirm(string message, string title = "Bestätigen")
     {
-        var dlg = new ModernMessageBox(message, title, MessageBoxType.Question, true);
-        dlg.ShowDialog();
-        return dlg.Result;
+        try
+        {
+            var dlg = new ModernMessageBox(message, title, MessageBoxType.Question, true);
+            dlg.ShowDialog();
+            return dlg.Result;
+        }
+        catch
+        {
+            return MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        }
     }
 
     public enum MessageBoxType { Info, Success, Warning, Error, Question }

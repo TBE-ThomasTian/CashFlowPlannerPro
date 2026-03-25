@@ -1,15 +1,21 @@
 using System.Windows;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro;
 
 public partial class App : Application
 {
     public static string CurrentUsername { get; set; } = string.Empty;
+    public static long CurrentUserId { get; set; }
     public static string DatabasePath { get; set; } = string.Empty;
     public static Dictionary<string, string> Permissions { get; set; } = [];
 
-    public static string GetAccess(string pageKey) =>
-        Permissions.GetValueOrDefault(pageKey, "none");
+    public static string GetAccess(string pageKey)
+    {
+        if (CurrentUsername.Equals("admin", System.StringComparison.OrdinalIgnoreCase))
+            return "full";
+        return Permissions.GetValueOrDefault(pageKey, "none");
+    }
 
     public static bool CanView(string pageKey) =>
         GetAccess(pageKey) is "read" or "full";
@@ -20,24 +26,16 @@ public partial class App : Application
     public static void LoadPermissions()
     {
         Permissions = Data.Database.Instance.GetUserPermissions(CurrentUsername);
-        // Fallback: if no permissions found (e.g. no role assigned), admin gets full access
-        if (Permissions.Count == 0 && CurrentUsername.Equals("admin", System.StringComparison.OrdinalIgnoreCase))
-        {
-            Permissions = new() {
-                ["dashboard"] = "full", ["transactions"] = "full", ["fixkosten"] = "full",
-                ["taxes"] = "full", ["invoices"] = "full", ["offers"] = "full",
-                ["resources"] = "full", ["targets"] = "full", ["admin"] = "full"
-            };
-        }
     }
 
     private void Application_Startup(object sender, StartupEventArgs e)
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        LocalizationManager.LoadSavedLanguage();
 
         DispatcherUnhandledException += (s, ex) =>
         {
-            Views.ModernMessageBox.ShowError(ex.Exception.Message, "Fehler");
+            Views.ModernMessageBox.ShowError(ex.Exception.Message, LocalizationManager.Get("AppErrorTitle"));
             ex.Handled = true;
         };
 
@@ -46,6 +44,7 @@ public partial class App : Application
         if (result == true)
         {
             CurrentUsername = loginDialog.SelectedUsername;
+            CurrentUserId = Data.Database.Instance.GetUserId(CurrentUsername);
             DatabasePath = loginDialog.SelectedDatabasePath;
             LoadPermissions();
             var mainWindow = new Views.MainWindow();

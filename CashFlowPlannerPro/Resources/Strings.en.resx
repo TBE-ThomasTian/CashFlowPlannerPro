@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AppErrorTitle" xml:space="preserve"><value>Error</value></data>
+  <data name="AppInfoTitle" xml:space="preserve"><value>Information</value></data>
+  <data name="MainTitle" xml:space="preserve"><value>CashFlow Planner Pro</value></data>
+  <data name="SystemSection" xml:space="preserve"><value>SYSTEM</value></data>
+  <data name="NavigationSection" xml:space="preserve"><value>NAVIGATION</value></data>
+  <data name="NavDashboard" xml:space="preserve"><value>📊  Dashboard</value></data>
+  <data name="NavTransactions" xml:space="preserve"><value>💰  Transactions</value></data>
+  <data name="NavFixkosten" xml:space="preserve"><value>📋  Fixed Costs</value></data>
+  <data name="NavTaxes" xml:space="preserve"><value>🏛  Taxes</value></data>
+  <data name="NavInvoices" xml:space="preserve"><value>📄  Invoices</value></data>
+  <data name="NavOffers" xml:space="preserve"><value>📝  Offers</value></data>
+  <data name="NavResources" xml:space="preserve"><value>👥  Resources</value></data>
+  <data name="NavTargets" xml:space="preserve"><value>🎯  Targets</value></data>
+  <data name="NavTodos" xml:space="preserve"><value>✅  Tasks</value></data>
+  <data name="NavTimeTracking" xml:space="preserve"><value>⏱  Time Tracking</value></data>
+  <data name="NavAddressBook" xml:space="preserve"><value>📇  Address Book</value></data>
+  <data name="NavAdmin" xml:space="preserve"><value>🔐  Administration</value></data>
+  <data name="ProfileButton" xml:space="preserve"><value>👤  My Profile</value></data>
+  <data name="SwitchDatabaseButton" xml:space="preserve"><value>⚙  Switch Database</value></data>
+  <data name="AboutButton" xml:space="preserve"><value>ℹ  About</value></data>
+  <data name="AboutText" xml:space="preserve"><value>CashFlow Planner Pro
+Version 2.0
+
+Financial planning made easy.</value></data>
+  <data name="AboutTitle" xml:space="preserve"><value>About CashFlow Planner Pro</value></data>
+  <data name="LoginWindowTitle" xml:space="preserve"><value>CashFlow Planner Pro - Sign In</value></data>
+  <data name="LoginSubtitle" xml:space="preserve"><value>Sign in to your account</value></data>
+  <data name="LoginStepDatabase" xml:space="preserve"><value>1. Choose database</value></data>
+  <data name="LoginNoDatabaseSelected" xml:space="preserve"><value>No database selected</value></data>
+  <data name="LoginLastDatabase" xml:space="preserve"><value>Last database: {0}</value></data>
+  <data name="LoginOpen" xml:space="preserve"><value>Open</value></data>
+  <data name="LoginNew" xml:space="preserve"><value>New</value></data>
+  <data name="LoginStepSignIn" xml:space="preserve"><value>2. Sign in</value></data>
+  <data name="LoginUsernamePlaceholder" xml:space="preserve"><value>Username</value></data>
+  <data name="LoginButton" xml:space="preserve"><value>Sign In</value></data>
+  <data name="LoginOpenDbTitle" xml:space="preserve"><value>Open database</value></data>
+  <data name="LoginOpenDbFilter" xml:space="preserve"><value>SQLite Database (*.db)|*.db|All files (*.*)|*.*</value></data>
+  <data name="LoginNewDbTitle" xml:space="preserve"><value>Create new database</value></data>
+  <data name="LoginNewDbFilter" xml:space="preserve"><value>SQLite Database (*.db)|*.db</value></data>
+  <data name="LoginSelectDatabaseError" xml:space="preserve"><value>Please select a database first.</value></data>
+  <data name="LoginUsernameRequired" xml:space="preserve"><value>Please enter a username.</value></data>
+  <data name="LoginPasswordRequired" xml:space="preserve"><value>Please enter a password.</value></data>
+  <data name="LoginInvalidCredentials" xml:space="preserve"><value>Invalid username or password.</value></data>
+  <data name="LoginDatabaseError" xml:space="preserve"><value>Database error: {0}</value></data>
+  <data name="LoginCreateError" xml:space="preserve"><value>Error creating database: {0}</value></data>
+  <data name="LoginError" xml:space="preserve"><value>Sign-in error: {0}</value></data>
+  <data name="FirstRunSecurityTitle" xml:space="preserve"><value>Security</value></data>
+  <data name="FirstRunPasswordPrompt" xml:space="preserve"><value>First start! You must change the default password now.</value></data>
+  <data name="NewPasswordDialogTitle" xml:space="preserve"><value>Set new password</value></data>
+  <data name="NewPasswordDialogLabel" xml:space="preserve"><value>New password:</value></data>
+  <data name="PasswordCannotBeAdmin" xml:space="preserve"><value>The password must not be 'admin'.</value></data>
+  <data name="PasswordChangedSuccess" xml:space="preserve"><value>Password changed successfully.</value></data>
+  <data name="DoneTitle" xml:space="preserve"><value>Done</value></data>
+  <data name="PasswordChangeRequired" xml:space="preserve"><value>Password change is required on first start.</value></data>
+  <data name="ProfileTitle" xml:space="preserve"><value>My Profile</value></data>
+  <data name="ProfileLoggedInAs" xml:space="preserve"><value>Signed in as</value></data>
+  <data name="ProfileDisplayName" xml:space="preserve"><value>Display name</value></data>
+  <data name="ProfileLanguage" xml:space="preserve"><value>Language</value></data>
+  <data name="ProfileChangePassword" xml:space="preserve"><value>Change password</value></data>
+  <data name="ProfileCurrentPassword" xml:space="preserve"><value>Current password</value></data>
+  <data name="ProfileNewPassword" xml:space="preserve"><value>New password</value></data>
+  <data name="ProfileConfirmPassword" xml:space="preserve"><value>Confirm new password</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="Save" xml:space="preserve"><value>Save</value></data>
+  <data name="LanguageGerman" xml:space="preserve"><value>German</value></data>
+  <data name="LanguageEnglish" xml:space="preserve"><value>English</value></data>
+  <data name="PasswordTitle" xml:space="preserve"><value>Password</value></data>
+  <data name="CurrentPasswordRequired" xml:space="preserve"><value>Please enter your current password.</value></data>
+  <data name="CurrentPasswordWrong" xml:space="preserve"><value>The current password is incorrect.</value></data>
+  <data name="NewPasswordRequired" xml:space="preserve"><value>Please enter a new password.</value></data>
+  <data name="PasswordsDoNotMatch" xml:space="preserve"><value>The new passwords do not match.</value></data>
+  <data name="PasswordChanged" xml:space="preserve"><value>Password changed successfully.</value></data>
+  <data name="DashboardBalance" xml:space="preserve"><value>Balance €</value></data>
+  <data name="DashboardForecastMonths" xml:space="preserve"><value>Forecast Months</value></data>
+  <data name="DashboardInvoices" xml:space="preserve"><value>Invoices</value></data>
+  <data name="DashboardOpenOffers" xml:space="preserve"><value>Open Offers</value></data>
+  <data name="DashboardAssignedOffers" xml:space="preserve"><value>Assigned</value></data>
+  <data name="DashboardRecurring" xml:space="preserve"><value>Recurring</value></data>
+  <data name="DashboardRefresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="DashboardSaveBalance" xml:space="preserve"><value>Save Balance</value></data>
+  <data name="DashboardCurrentBalance" xml:space="preserve"><value>Current Balance</value></data>
+  <data name="DashboardForecastEnd" xml:space="preserve"><value>Forecast End</value></data>
+  <data name="DashboardMonthlyCashflow" xml:space="preserve"><value>Monthly Cashflow</value></data>
+  <data name="DashboardActiveOffers" xml:space="preserve"><value>Active Offers</value></data>
+  <data name="DashboardOpenInvoices" xml:space="preserve"><value>Open Invoices</value></data>
+  <data name="DashboardBurnRate" xml:space="preserve"><value>Burn Rate</value></data>
+  <data name="DashboardRunway" xml:space="preserve"><value>Runway</value></data>
+  <data name="DashboardChartTitle" xml:space="preserve"><value>Cashflow Forecast</value></data>
+  <data name="DashboardChartSubtitle" xml:space="preserve"><value>Net per month and cumulative trend</value></data>
+  <data name="DashboardMonth" xml:space="preserve"><value>Month</value></data>
+  <data name="DashboardIncome" xml:space="preserve"><value>Income</value></data>
+  <data name="DashboardExpenses" xml:space="preserve"><value>Expenses</value></data>
+  <data name="DashboardNet" xml:space="preserve"><value>Net</value></data>
+  <data name="DashboardCumulative" xml:space="preserve"><value>Cumulative</value></data>
+  <data name="DashboardTarget" xml:space="preserve"><value>Target</value></data>
+  <data name="DashboardVariance" xml:space="preserve"><value>Variance</value></data>
+  <data name="DashboardInvoiceAmount" xml:space="preserve"><value>Invoices</value></data>
+  <data name="TimeTrackingTitle" xml:space="preserve"><value>⏱  Time Tracking</value></data>
+  <data name="TimeTrackingSubtitle" xml:space="preserve"><value>Active user: {0}</value></data>
+  <data name="TimeTrackingSubtitleWithName" xml:space="preserve"><value>Active user: {0} ({1})</value></data>
+  <data name="TimeTrackingProject" xml:space="preserve"><value>Project</value></data>
+  <data name="TimeTrackingActivity" xml:space="preserve"><value>Activity</value></data>
+  <data name="TimeTrackingDescription" xml:space="preserve"><value>Note</value></data>
+  <data name="TimeTrackingStart" xml:space="preserve"><value>Start</value></data>
+  <data name="TimeTrackingStop" xml:space="preserve"><value>Stop</value></data>
+  <data name="TimeTrackingNoRunning" xml:space="preserve"><value>No timer running. Select a project and activity to start tracking.</value></data>
+  <data name="TimeTrackingRunningSince" xml:space="preserve"><value>Running since {0}: {1} · {2}{3}</value></data>
+  <data name="TimeTrackingRecentEntries" xml:space="preserve"><value>Recent Entries</value></data>
+  <data name="TimeTrackingHoursByProject" xml:space="preserve"><value>Hours by Project</value></data>
+  <data name="TimeTrackingHoursByActivity" xml:space="preserve"><value>Hours by Activity</value></data>
+  <data name="TimeTrackingDate" xml:space="preserve"><value>Date</value></data>
+  <data name="TimeTrackingFrom" xml:space="preserve"><value>From</value></data>
+  <data name="TimeTrackingTo" xml:space="preserve"><value>To</value></data>
+  <data name="TimeTrackingHours" xml:space="preserve"><value>Hours</value></data>
+  <data name="TimeTrackingAccessDenied" xml:space="preserve"><value>No permission for time tracking.</value></data>
+  <data name="AccessDeniedTitle" xml:space="preserve"><value>Access denied</value></data>
+  <data name="TimeTrackingSelectProject" xml:space="preserve"><value>Please select a project first.</value></data>
+  <data name="TimeTrackingSelectActivity" xml:space="preserve"><value>Please select an activity.</value></data>
+  <data name="TimeTrackingTitleShort" xml:space="preserve"><value>Time Tracking</value></data>
+  <data name="ActivityPlanning" xml:space="preserve"><value>Planning</value></data>
+  <data name="ActivityEngineering" xml:space="preserve"><value>Engineering</value></data>
+  <data name="ActivityCad" xml:space="preserve"><value>CAD</value></data>
+  <data name="ActivityMeeting" xml:space="preserve"><value>Meeting</value></data>
+  <data name="ActivityDocumentation" xml:space="preserve"><value>Documentation</value></data>
+  <data name="ActivityCoordination" xml:space="preserve"><value>Coordination</value></data>
+  <data name="ActivityOnSite" xml:space="preserve"><value>On Site</value></data>
+  <data name="ActivitySupport" xml:space="preserve"><value>Support</value></data>
+  <data name="DashboardYAxisEuro" xml:space="preserve"><value>Euro (€)</value></data>
+  <data name="ExitButton" xml:space="preserve"><value>🚪  Exit</value></data>
+  <data name="TooltipDashboard" xml:space="preserve"><value>Financial overview and cashflow forecast</value></data>
+  <data name="TooltipTransactions" xml:space="preserve"><value>Manage income and expenses</value></data>
+  <data name="TooltipFixkosten" xml:space="preserve"><value>Manage recurring fixed costs</value></data>
+  <data name="TooltipTaxes" xml:space="preserve"><value>Tax overview and calculation</value></data>
+  <data name="TooltipInvoices" xml:space="preserve"><value>Create and manage invoices</value></data>
+  <data name="TooltipOffers" xml:space="preserve"><value>Create and manage offers</value></data>
+  <data name="TooltipResources" xml:space="preserve"><value>Manage employees and resources</value></data>
+  <data name="TooltipTargets" xml:space="preserve"><value>Set and track financial targets</value></data>
+  <data name="TooltipTodos" xml:space="preserve"><value>Manage tasks and to-do lists</value></data>
+  <data name="TooltipTimeTracking" xml:space="preserve"><value>Track and analyze working hours</value></data>
+  <data name="TooltipAddressBook" xml:space="preserve"><value>Manage customers and contacts</value></data>
+  <data name="TooltipAdmin" xml:space="preserve"><value>Manage users, roles and permissions</value></data>
+  <data name="TooltipProfile" xml:space="preserve"><value>Change profile and password</value></data>
+  <data name="TooltipSwitchDatabase" xml:space="preserve"><value>Switch to a different database</value></data>
+  <data name="TooltipAbout" xml:space="preserve"><value>Information about CashFlow Planner Pro</value></data>
+  <data name="TooltipExit" xml:space="preserve"><value>Close the application</value></data>
+</root>

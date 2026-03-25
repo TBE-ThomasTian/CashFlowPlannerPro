@@ -21,31 +21,47 @@
             <TextBox x:Name="TbName" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
 
             <TextBlock Text="Auftraggeber" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="TbClient" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+            <ComboBox x:Name="CbClient" IsEditable="True" Margin="0,0,0,12"
+                      Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
+                      FontSize="14" Padding="8,6"/>
 
             <TextBlock Text="Farbe" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-            <WrapPanel x:Name="ColorPicker" Margin="0,0,0,12"/>
+            <WrapPanel x:Name="ColorPicker" Margin="0,0,0,6"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                <Border x:Name="ColorPreview" Width="28" Height="28" CornerRadius="4" Margin="0,0,8,0"
+                        BorderBrush="#3D3670" BorderThickness="1"/>
+                <TextBox x:Name="TbCustomColor" Style="{StaticResource DarkTextBox}" Width="120"
+                         TextChanged="TbCustomColor_TextChanged" ToolTip="Hex-Farbcode z.B. #FF5733"/>
+                <TextBlock Text="  eigene Farbe (Hex)" Foreground="#667788" FontSize="11"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
 
             <TextBlock Text="Budget (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <TextBox x:Name="TbBudget" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
 
-            <TextBlock Text="Startdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-            <DatePicker x:Name="DpStart" Margin="0,0,0,12" Background="#1E1A40" Foreground="White"
-                        BorderBrush="#3D3670" BorderThickness="1"/>
-
-            <TextBlock Text="Enddatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-            <DatePicker x:Name="DpEnd" Margin="0,0,0,12" Background="#1E1A40" Foreground="White"
-                        BorderBrush="#3D3670" BorderThickness="1"/>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Startdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Enddatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <DatePicker x:Name="DpStart" Grid.Row="1" Grid.Column="0" Loaded="DatePicker_FixStyle"
+                            Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="4"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="–" Foreground="White" FontSize="18"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <DatePicker x:Name="DpEnd" Grid.Row="1" Grid.Column="2" Loaded="DatePicker_FixStyle"
+                            Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="4"/>
+            </Grid>
 
             <TextBlock Text="Status" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <ComboBox x:Name="CbStatus" Margin="0,0,0,20" Background="#1E1A40" Foreground="White"
                       BorderBrush="#3D3670" BorderThickness="1">
-                <ComboBox.ItemContainerStyle>
-                    <Style TargetType="ComboBoxItem">
-                        <Setter Property="Foreground" Value="Black"/>
-                        <Setter Property="Background" Value="White"/>
-                    </Style>
-                </ComboBox.ItemContainerStyle>
                 <ComboBoxItem Content="active"/>
                 <ComboBoxItem Content="paused"/>
                 <ComboBoxItem Content="completed"/>
@@ -53,7 +69,7 @@
             </ComboBox>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
                         Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
                         Background="#3D3670" Foreground="White" BorderThickness="0">
                     <Button.Template>
@@ -64,7 +80,7 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <Button Content="Speichern" Click="Save_Click" MinWidth="100"
+                <Button x:Name="SaveBtn" Content="Speichern" Click="Save_Click" MinWidth="100"
                         Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Background="#BF247A" Foreground="White" BorderThickness="0">
                     <Button.Template>

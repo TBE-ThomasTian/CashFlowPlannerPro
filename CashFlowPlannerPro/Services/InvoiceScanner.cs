@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Text.RegularExpressions;
 using UglyToad.PdfPig;
 
@@ -154,11 +155,14 @@ public static class InvoiceScanner
             var sb = new System.Text.StringBuilder();
             foreach (var page in document.GetPages())
                 sb.AppendLine(page.Text);
-            return sb.ToString();
+            var text = sb.ToString();
+            if (string.IsNullOrWhiteSpace(text))
+                throw new InvalidOperationException("PDF enthält keinen extrahierbaren Text. Möglicherweise ist es ein gescanntes Bild-PDF.");
+            return text;
         }
-        catch
+        catch (IOException ex)
         {
-            return "";
+            throw new InvalidOperationException($"PDF konnte nicht gelesen werden: {ex.Message}", ex);
         }
     }
 

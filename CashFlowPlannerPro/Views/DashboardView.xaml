@@ -15,16 +15,20 @@
         <!-- Top Controls -->
         <Border Grid.Row="0" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
         <StackPanel Orientation="Horizontal">
-            <Label Content="Kontostand €" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <Label x:Name="BalanceLabel" Content="Kontostand €" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <TextBox Text="{Binding StartBalance, StringFormat={}{0:N2}, UpdateSourceTrigger=PropertyChanged}" Width="120" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <Label Content="Prognose Monate" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <Label x:Name="ForecastMonthsLabel" Content="Prognose Monate" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <TextBox Text="{Binding HorizonMonths, UpdateSourceTrigger=PropertyChanged}" Width="60" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <CheckBox Content="Rechnungen" IsChecked="{Binding IncludeInvoices}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Offene Angebote" IsChecked="{Binding IncludeOffersOffen}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Beauftragte" IsChecked="{Binding IncludeOffersBeauftragt}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <CheckBox Content="Wiederkehrend" IsChecked="{Binding IncludeRecurring}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <Button Content="Aktualisieren" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
-            <Button Content="Kontostand speichern" Command="{Binding SaveBalanceCommand}"/>
+            <CheckBox x:Name="InvoicesCheckBox" Content="Rechnungen" IsChecked="{Binding IncludeInvoices}" VerticalAlignment="Center" Margin="0,0,10,0"
+                      ToolTip="Rechnungen in die Prognose einbeziehen"/>
+            <CheckBox x:Name="OpenOffersCheckBox" Content="Offene Angebote" IsChecked="{Binding IncludeOffersOffen}" VerticalAlignment="Center" Margin="0,0,10,0"
+                      ToolTip="Offene Angebote in die Prognose einbeziehen"/>
+            <CheckBox x:Name="AssignedOffersCheckBox" Content="Beauftragte" IsChecked="{Binding IncludeOffersBeauftragt}" VerticalAlignment="Center" Margin="0,0,10,0"
+                      ToolTip="Beauftragte Angebote in die Prognose einbeziehen"/>
+            <CheckBox x:Name="RecurringCheckBox" Content="Wiederkehrend" IsChecked="{Binding IncludeRecurring}" VerticalAlignment="Center" Margin="0,0,12,0"
+                      ToolTip="Wiederkehrende Buchungen in die Prognose einbeziehen"/>
+            <Button x:Name="RefreshButton" Content="Aktualisieren" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
+            <Button x:Name="SaveBalanceButton" Content="Kontostand speichern" Command="{Binding SaveBalanceCommand}"/>
         </StackPanel>
         </Border>
 
@@ -32,50 +36,69 @@
         <UniformGrid Grid.Row="1" Columns="7" Margin="0,0,0,10">
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Kontostand Heute" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="CurrentBalanceLabel" Text="Kontostand Heute" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding CurrentBalance}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Prognose Ende" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="ForecastEndLabel" Text="Prognose Ende" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding ForecastEnd}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Monatl. Cashflow" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="MonthlyCashflowLabel" Text="Monatl. Cashflow" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding MonthlyCashflow}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Aktive Angebote" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="ActiveOffersLabel" Text="Aktive Angebote" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding ActiveOffers}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Offene Rechnungen" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="OpenInvoicesLabel" Text="Offene Rechnungen" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding OpenInvoices}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Burn Rate" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="BurnRateLabel" Text="Burn Rate" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding BurnRate}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource KpiCard}" Margin="4">
                 <StackPanel>
-                    <TextBlock Text="Runway" Style="{StaticResource KpiLabel}"/>
+                    <TextBlock x:Name="RunwayLabel" Text="Runway" Style="{StaticResource KpiLabel}"/>
                     <TextBlock Text="{Binding Runway}" Style="{StaticResource KpiValue}"/>
                 </StackPanel>
             </Border>
         </UniformGrid>
 
         <!-- Chart -->
-        <scottplot:WpfPlot x:Name="Chart" Grid.Row="2" Margin="0,0,0,0"/>
+        <Border Grid.Row="2" Margin="0,0,0,0"
+                Background="{StaticResource CardBackgroundBrush}"
+                CornerRadius="10"
+                Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock x:Name="ChartTitleText" Text="Cashflow Prognose" FontSize="16" FontWeight="Bold"
+                               Foreground="{StaticResource ForegroundBrush}"/>
+                    <TextBlock x:Name="ChartSubtitleText" Text="Netto pro Monat und kumulierte Entwicklung"
+                               FontSize="11" Foreground="{StaticResource GrayBrush}"/>
+                </StackPanel>
+
+                <scottplot:WpfPlot x:Name="Chart" Grid.Row="1"/>
+            </Grid>
+        </Border>
 
         <!-- Splitter -->
         <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch"
@@ -86,14 +109,14 @@
         <!-- Monthly Table -->
         <DataGrid Grid.Row="4" ItemsSource="{Binding MonthRows}" IsReadOnly="True">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Monat" Binding="{Binding Month}" Width="100"/>
-                <DataGridTextColumn Header="Einnahmen" Binding="{Binding Income, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Ausgaben" Binding="{Binding Expenses, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Netto" Binding="{Binding Net, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Kumuliert" Binding="{Binding Cumulative, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Ziel" Binding="{Binding Target, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Abweichung" Binding="{Binding Variance, StringFormat={}{0:N2}}" Width="120"/>
-                <DataGridTextColumn Header="Rechnungen" Binding="{Binding InvoiceAmount, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="MonthColumn" Header="Monat" Binding="{Binding Month}" Width="100"/>
+                <DataGridTextColumn x:Name="IncomeColumn" Header="Einnahmen" Binding="{Binding Income, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="ExpensesColumn" Header="Ausgaben" Binding="{Binding Expenses, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="NetColumn" Header="Netto" Binding="{Binding Net, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="CumulativeColumn" Header="Kumuliert" Binding="{Binding Cumulative, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="TargetColumn" Header="Ziel" Binding="{Binding Target, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="VarianceColumn" Header="Abweichung" Binding="{Binding Variance, StringFormat={}{0:N2}}" Width="120"/>
+                <DataGridTextColumn x:Name="InvoiceAmountColumn" Header="Rechnungen" Binding="{Binding InvoiceAmount, StringFormat={}{0:N2}}" Width="120"/>
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

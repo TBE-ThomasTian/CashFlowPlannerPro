@@ -31,7 +31,7 @@
                          BorderBrush="#3D3670" BorderThickness="1" Padding="10,8" FontSize="13"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
                         Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
                         Background="#3D3670" Foreground="White" BorderThickness="0">
                     <Button.Template>
@@ -42,7 +42,7 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <Button Content="Erstellen" Click="Create_Click" MinWidth="100"
+                <Button x:Name="CreateBtn" Content="Erstellen" Click="Create_Click" MinWidth="100"
                         Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Background="#BF247A" Foreground="White" BorderThickness="0">
                     <Button.Template>

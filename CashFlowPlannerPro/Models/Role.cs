@@ -25,6 +25,9 @@ public static class PageKeys
     public const string Offers = "offers";
     public const string Resources = "resources";
     public const string Targets = "targets";
+    public const string Todos = "todos";
+    public const string TimeTracking = "timetracking";
+    public const string Kunden = "kunden";
     public const string Admin = "admin";
 
     public static readonly (string key, string label)[] All = [
@@ -36,6 +39,9 @@ public static class PageKeys
         (Offers, "📝 Angebote"),
         (Resources, "👥 Ressourcen"),
         (Targets, "🎯 Ziele"),
+        (Todos, "✅ Aufgaben"),
+        (TimeTracking, "⏱ Zeiterfassung"),
+        (Kunden, "📇 Adressbuch"),
         (Admin, "🔐 Benutzerverwaltung")
     ];
 }

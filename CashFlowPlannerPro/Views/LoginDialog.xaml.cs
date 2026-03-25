@@ -2,7 +2,9 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using CashFlowPlannerPro.Data;
+using CashFlowPlannerPro.Services;
 using Microsoft.Win32;
 
 namespace CashFlowPlannerPro.Views;
@@ -15,14 +17,28 @@ public partial class LoginDialog : Window
     private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
 
     private List<string> _usernames = [];
+    private string _lastDatabasePath = string.Empty;
+    private DatabaseBackend _selectedBackend = DatabaseBackend.SQLite;
 
     public string SelectedDatabasePath { get; private set; } = string.Empty;
     public string SelectedUsername { get; private set; } = string.Empty;
+    public ConnectionConfig? ActiveConnectionConfig { get; private set; }
 
     public LoginDialog()
     {
         InitializeComponent();
+        LocalizationManager.LanguageChanged += OnLanguageChanged;
         LoadSettings();
+        ApplyLocalization();
+
+        OpenDbButton.ToolTip = TooltipService.Get("Btn_OpenDb");
+        NewDbButton.ToolTip = TooltipService.Get("Btn_NewDb");
+        TestConnectionBtn.ToolTip = TooltipService.Get("Btn_TestConnection");
+        ImportLocalBtn.ToolTip = TooltipService.Get("Btn_ImportLocal");
+        ImportServerBtn.ToolTip = TooltipService.Get("Btn_ImportServer");
+        LoginButton.ToolTip = TooltipService.Get("Btn_Login");
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
         UsernameTextBox.TextChanged += (_, _) => {
             UsernamePlaceholder.Visibility = string.IsNullOrEmpty(UsernameTextBox.Text)
                 ? Visibility.Visible : Visibility.Collapsed;
@@ -30,6 +46,13 @@ public partial class LoginDialog : Window
         UsernameTextBox.GotFocus += (_, _) => {
             if (_usernames.Count > 0) UsernamePopup.IsOpen = true;
         };
+        Closed += (_, _) => LocalizationManager.LanguageChanged -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ApplyLocalization();
+        UpdateDatabasePathDisplay();
     }
 
     private void UsernameListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -46,13 +69,60 @@ public partial class LoginDialog : Window
     {
         try
         {
+            // Try loading encrypted settings first
+            var secure = SecureConnectionStore.Load();
+            if (secure != null && secure.RememberSettings)
+            {
+                ChkRememberSettings.IsChecked = true;
+
+                if (secure.Backend == "MariaDB")
+                {
+                    _selectedBackend = DatabaseBackend.MariaDB;
+                    RbMariaDb.IsChecked = true;
+                    TbMariaHost.Text = secure.Host ?? "localhost";
+                    TbMariaPort.Text = (secure.Port > 0 ? secure.Port : 3306).ToString();
+                    TbMariaDatabase.Text = secure.DatabaseName ?? "cashflow";
+                    TbMariaUser.Text = secure.DbUsername ?? "root";
+                    PbMariaPassword.Password = secure.DbPassword ?? "";
+                }
+                else if (!string.IsNullOrEmpty(secure.LastDatabasePath)
+                         && File.Exists(secure.LastDatabasePath))
+                {
+                    _lastDatabasePath = secure.LastDatabasePath;
+                    SelectedDatabasePath = _lastDatabasePath;
+                    UpdateDatabasePathDisplay();
+                }
+
+                if (!string.IsNullOrEmpty(secure.AppUsername))
+                    UsernameTextBox.Text = secure.AppUsername;
+
+                return;
+            }
+
+            // Fallback: load legacy unencrypted settings
             if (File.Exists(SettingsFile))
             {
                 var json = File.ReadAllText(SettingsFile);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                if (settings != null && !string.IsNullOrEmpty(settings.LastDatabasePath)
-                    && File.Exists(settings.LastDatabasePath))
-                    SetDatabasePath(settings.LastDatabasePath);
+                if (settings != null)
+                {
+                    if (settings.Backend == "MariaDB")
+                    {
+                        _selectedBackend = DatabaseBackend.MariaDB;
+                        RbMariaDb.IsChecked = true;
+                        TbMariaHost.Text = settings.MariaDbHost ?? "localhost";
+                        TbMariaPort.Text = (settings.MariaDbPort > 0 ? settings.MariaDbPort : 3306).ToString();
+                        TbMariaDatabase.Text = settings.MariaDbDatabase ?? "cashflow";
+                        TbMariaUser.Text = settings.MariaDbUsername ?? "root";
+                    }
+                    else if (!string.IsNullOrEmpty(settings.LastDatabasePath)
+                             && File.Exists(settings.LastDatabasePath))
+                    {
+                        _lastDatabasePath = settings.LastDatabasePath;
+                        SelectedDatabasePath = _lastDatabasePath;
+                        UpdateDatabasePathDisplay();
+                    }
+                }
             }
         }
         catch { }
@@ -62,9 +132,59 @@ public partial class LoginDialog : Window
     {
         try
         {
-            Directory.CreateDirectory(SettingsDir);
-            var json = JsonSerializer.Serialize(new AppSettings { LastDatabasePath = SelectedDatabasePath });
-            File.WriteAllText(SettingsFile, json);
+            if (ChkRememberSettings.IsChecked == true)
+            {
+                // Save encrypted via DPAPI
+                int.TryParse(TbMariaPort.Text, out var port);
+                var secure = new SecureConnectionData
+                {
+                    Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite",
+                    RememberSettings = true,
+                    AppUsername = UsernameTextBox.Text?.Trim()
+                };
+
+                if (_selectedBackend == DatabaseBackend.SQLite)
+                {
+                    secure.LastDatabasePath = SelectedDatabasePath;
+                }
+                else
+                {
+                    secure.Host = TbMariaHost.Text;
+                    secure.Port = port > 0 ? port : 3306;
+                    secure.DatabaseName = TbMariaDatabase.Text;
+                    secure.DbUsername = TbMariaUser.Text;
+                    secure.DbPassword = PbMariaPassword.Password;
+                }
+
+                SecureConnectionStore.Save(secure);
+
+                // Delete legacy unencrypted settings if they exist
+                if (File.Exists(SettingsFile))
+                    File.Delete(SettingsFile);
+            }
+            else
+            {
+                // Remove encrypted data when unchecked
+                SecureConnectionStore.Delete();
+
+                // Save basic settings without password (legacy format)
+                Directory.CreateDirectory(SettingsDir);
+                var settings = new AppSettings { Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite" };
+                if (_selectedBackend == DatabaseBackend.SQLite)
+                {
+                    settings.LastDatabasePath = SelectedDatabasePath;
+                }
+                else
+                {
+                    settings.MariaDbHost = TbMariaHost.Text;
+                    int.TryParse(TbMariaPort.Text, out var port2);
+                    settings.MariaDbPort = port2 > 0 ? port2 : 3306;
+                    settings.MariaDbDatabase = TbMariaDatabase.Text;
+                    settings.MariaDbUsername = TbMariaUser.Text;
+                }
+                var json = JsonSerializer.Serialize(settings);
+                File.WriteAllText(SettingsFile, json);
+            }
         }
         catch { }
     }
@@ -72,16 +192,72 @@ public partial class LoginDialog : Window
     private void SetDatabasePath(string path)
     {
         SelectedDatabasePath = path;
-        DbPathText.Text = path;
-        DbPathText.ToolTip = path;
+        UpdateDatabasePathDisplay();
         LoadUsernames();
+    }
+
+    private void ApplyLocalization()
+    {
+        Title = LocalizationManager.Get("LoginWindowTitle");
+        TitleText.Text = LocalizationManager.Get("MainTitle");
+        SubtitleText.Text = LocalizationManager.Get("LoginSubtitle");
+        DatabaseStepText.Text = LocalizationManager.Get("LoginStepDatabase");
+        SignInStepText.Text = LocalizationManager.Get("LoginStepSignIn");
+        OpenDbButton.Content = LocalizationManager.Get("LoginOpen");
+        NewDbButton.Content = LocalizationManager.Get("LoginNew");
+        LoginButton.Content = LocalizationManager.Get("LoginButton");
+        UsernamePlaceholder.Text = LocalizationManager.Get("LoginUsernamePlaceholder");
+        if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
+            UpdateDatabasePathDisplay();
+    }
+
+    private void UpdateDatabasePathDisplay()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
+        {
+            DbPathText.Text = LocalizationManager.Get("LoginNoDatabaseSelected");
+            DbPathText.ToolTip = null;
+            return;
+        }
+
+        var isLast = !string.IsNullOrWhiteSpace(_lastDatabasePath)
+            && string.Equals(SelectedDatabasePath, _lastDatabasePath, StringComparison.OrdinalIgnoreCase);
+
+        DbPathText.Text = isLast
+            ? string.Format(LocalizationManager.Get("LoginLastDatabase"), SelectedDatabasePath)
+            : SelectedDatabasePath;
+        DbPathText.ToolTip = SelectedDatabasePath;
+    }
+
+    private ConnectionConfig BuildConnectionConfig()
+    {
+        if (_selectedBackend == DatabaseBackend.MariaDB)
+        {
+            int.TryParse(TbMariaPort.Text, out var port);
+            return new ConnectionConfig
+            {
+                Backend = DatabaseBackend.MariaDB,
+                Host = TbMariaHost.Text.Trim(),
+                Port = port > 0 ? port : 3306,
+                DatabaseName = TbMariaDatabase.Text.Trim(),
+                DbUsername = TbMariaUser.Text.Trim(),
+                DbPassword = PbMariaPassword.Password
+            };
+        }
+        return new ConnectionConfig
+        {
+            Backend = DatabaseBackend.SQLite,
+            FilePath = SelectedDatabasePath
+        };
     }
 
     private void LoadUsernames()
     {
         try
         {
-            Database.Instance.Open(SelectedDatabasePath);
+            var config = BuildConnectionConfig();
+            ActiveConnectionConfig = config;
+            Database.Instance.Open(config);
             Database.Instance.EnsureSchema();
             _usernames = Database.Instance.GetUsernames();
             UsernameListBox.Items.Clear();
@@ -90,15 +266,27 @@ public partial class LoginDialog : Window
         }
         catch (Exception ex)
         {
-            ShowError($"Datenbankfehler: {ex.Message}");
+            ShowError(string.Format(LocalizationManager.Get("LoginDatabaseError"), ex.Message));
         }
+    }
+
+    private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left) DragMove();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) Close();
     }
 
     private void OpenDbButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog {
-            Title = "Datenbank öffnen",
-            Filter = "SQLite Datenbank (*.db)|*.db|Alle Dateien (*.*)|*.*",
+            Title = LocalizationManager.Get("LoginOpenDbTitle"),
+            Filter = LocalizationManager.Get("LoginOpenDbFilter"),
             DefaultExt = ".db"
         };
         if (dialog.ShowDialog() == true) { SetDatabasePath(dialog.FileName); ClearError(); }
@@ -107,39 +295,231 @@ public partial class LoginDialog : Window
     private void NewDbButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog {
-            Title = "Neue Datenbank erstellen",
-            Filter = "SQLite Datenbank (*.db)|*.db",
+            Title = LocalizationManager.Get("LoginNewDbTitle"),
+            Filter = LocalizationManager.Get("LoginNewDbFilter"),
             DefaultExt = ".db", FileName = "cashflow.db"
         };
         if (dialog.ShowDialog() == true)
         {
-            try { SetDatabasePath(dialog.FileName); ClearError(); }
-            catch (Exception ex) { ShowError($"Fehler beim Erstellen: {ex.Message}"); }
+            try
+            {
+                CreateFreshDatabase(dialog.FileName);
+                SetDatabasePath(dialog.FileName);
+                ClearError();
+            }
+            catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginCreateError"), ex.Message)); }
         }
+    }
+
+    private static void CreateFreshDatabase(string path)
+    {
+        Database.Instance.Close();
+        DeleteIfExists(path);
+        DeleteIfExists(path + "-wal");
+        DeleteIfExists(path + "-shm");
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+            File.Delete(path);
     }
 
     private void LoginButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(SelectedDatabasePath))
-        { ShowError("Bitte wählen Sie zuerst eine Datenbank aus."); return; }
+        if (_selectedBackend == DatabaseBackend.SQLite && string.IsNullOrEmpty(SelectedDatabasePath))
+        { ShowError(LocalizationManager.Get("LoginSelectDatabaseError")); return; }
+        if (_selectedBackend == DatabaseBackend.MariaDB && string.IsNullOrWhiteSpace(TbMariaHost.Text))
+        { ShowError("Bitte einen Server-Host eingeben."); return; }
         var username = UsernameTextBox.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(username))
-        { ShowError("Bitte geben Sie einen Benutzernamen ein."); return; }
+        { ShowError(LocalizationManager.Get("LoginUsernameRequired")); return; }
         var password = PasswordBox.Password;
         if (string.IsNullOrEmpty(password))
-        { ShowError("Bitte geben Sie ein Passwort ein."); return; }
+        { ShowError(LocalizationManager.Get("LoginPasswordRequired")); return; }
         try
         {
+            var config = BuildConnectionConfig();
+            ActiveConnectionConfig = config;
+            Database.Instance.Open(config);
+            Database.Instance.EnsureSchema();
             if (Database.Instance.ValidateUser(username, password))
-            { SelectedUsername = username; SaveSettings(); DialogResult = true; }
+            {
+                SelectedUsername = username;
+                SaveSettings();
+                // Force password change on first run with default credentials
+                if (Database.Instance.IsFirstRun && username == "admin" && password == "admin")
+                {
+                    ModernMessageBox.Show(
+                        LocalizationManager.Get("FirstRunPasswordPrompt"),
+                        LocalizationManager.Get("FirstRunSecurityTitle"));
+                    var pwDlg = new InputDialog(
+                        LocalizationManager.Get("NewPasswordDialogTitle"),
+                        LocalizationManager.Get("NewPasswordDialogLabel"),
+                        isPassword: true);
+                    if (pwDlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(pwDlg.ResultText))
+                    {
+                        if (pwDlg.ResultText == "admin")
+                        {
+                            ShowError(LocalizationManager.Get("PasswordCannotBeAdmin"));
+                            return;
+                        }
+                        Database.Instance.ChangePassword(username, pwDlg.ResultText);
+                        ModernMessageBox.Show(
+                            LocalizationManager.Get("PasswordChangedSuccess"),
+                            LocalizationManager.Get("DoneTitle"));
+                    }
+                    else
+                    {
+                        ShowError(LocalizationManager.Get("PasswordChangeRequired"));
+                        return;
+                    }
+                }
+                DialogResult = true;
+            }
             else
-                ShowError("Ungültiger Benutzername oder Passwort.");
+                ShowError(LocalizationManager.Get("LoginInvalidCredentials"));
         }
-        catch (Exception ex) { ShowError($"Anmeldefehler: {ex.Message}"); }
+        catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginError"), ex.Message)); }
+    }
+
+    private void BackendToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (PanelSqlite == null || PanelMariaDb == null) return; // not yet initialized
+        if (RbMariaDb.IsChecked == true)
+        {
+            _selectedBackend = DatabaseBackend.MariaDB;
+            PanelSqlite.Visibility = Visibility.Collapsed;
+            PanelMariaDb.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _selectedBackend = DatabaseBackend.SQLite;
+            PanelSqlite.Visibility = Visibility.Visible;
+            PanelMariaDb.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void TestMariaDbConnection_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var config = BuildConnectionConfig();
+            Database.Instance.Open(config);
+            Database.Instance.EnsureSchema();
+            _usernames = Database.Instance.GetUsernames();
+            UsernameListBox.Items.Clear();
+            foreach (var u in _usernames)
+                UsernameListBox.Items.Add(u);
+            TbMariaStatus.Text = "✅ Verbindung erfolgreich!";
+            TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x2E, 0xCC, 0x71));
+        }
+        catch (Exception ex)
+        {
+            TbMariaStatus.Text = $"❌ Fehler: {ex.Message}";
+            TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+        }
+    }
+
+    private void ImportFromSqlite_Click(object sender, RoutedEventArgs e)
+    {
+        // Current connection must be MariaDB
+        if (_selectedBackend != DatabaseBackend.MariaDB)
+        {
+            ShowError("Bitte zuerst mit dem MariaDB-Server verbinden.");
+            return;
+        }
+
+        var dialog = new OpenFileDialog
+        {
+            Title = "Lokale SQLite-Datenbank auswählen",
+            Filter = "SQLite Datenbank (*.db)|*.db|Alle Dateien (*.*)|*.*",
+            DefaultExt = ".db"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        if (!ModernMessageBox.ShowConfirm(
+            "Alle Daten vom Server werden durch die lokale Datenbank ersetzt.\n\nFortfahren?",
+            "Daten importieren"))
+            return;
+
+        try
+        {
+            // Ensure target (MariaDB) is open
+            var targetConfig = BuildConnectionConfig();
+            Database.Instance.Open(targetConfig);
+            Database.Instance.EnsureSchema();
+
+            var sourceConfig = new ConnectionConfig
+            {
+                Backend = DatabaseBackend.SQLite,
+                FilePath = dialog.FileName
+            };
+
+            var result = DatabaseMigrator.Migrate(sourceConfig);
+            if (result.Success)
+                ModernMessageBox.Show($"Import erfolgreich!\n{result.Summary()}", "Migration abgeschlossen");
+            else
+                ModernMessageBox.ShowError($"Import mit Fehlern:\n{result.Summary()}", "Migration");
+
+            LoadUsernames();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Import fehlgeschlagen: {ex.Message}");
+        }
+    }
+
+    private void ImportFromMariaDb_Click(object sender, RoutedEventArgs e)
+    {
+        // Current connection must be SQLite
+        if (_selectedBackend != DatabaseBackend.SQLite || string.IsNullOrEmpty(SelectedDatabasePath))
+        {
+            ShowError("Bitte zuerst eine lokale Datenbank öffnen oder erstellen.");
+            return;
+        }
+
+        // Ask for MariaDB credentials
+        var connDlg = new MariaDbConnectDialog();
+        if (connDlg.ShowDialog() != true) return;
+
+        if (!ModernMessageBox.ShowConfirm(
+            "Alle lokalen Daten werden durch die Server-Datenbank ersetzt.\n\nFortfahren?",
+            "Daten importieren"))
+            return;
+
+        try
+        {
+            // Ensure target (SQLite) is open
+            Database.Instance.Open(SelectedDatabasePath);
+            Database.Instance.EnsureSchema();
+
+            var result = DatabaseMigrator.Migrate(connDlg.Config);
+            if (result.Success)
+                ModernMessageBox.Show($"Import erfolgreich!\n{result.Summary()}", "Migration abgeschlossen");
+            else
+                ModernMessageBox.ShowError($"Import mit Fehlern:\n{result.Summary()}", "Migration");
+
+            LoadUsernames();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Import fehlgeschlagen: {ex.Message}");
+        }
     }
 
     private void ShowError(string msg) { ErrorText.Text = msg; ErrorText.Visibility = Visibility.Visible; }
     private void ClearError() { ErrorText.Text = ""; ErrorText.Visibility = Visibility.Collapsed; }
 
-    private class AppSettings { public string LastDatabasePath { get; set; } = ""; }
+    private class AppSettings
+    {
+        public string LastDatabasePath { get; set; } = "";
+        public string Backend { get; set; } = "SQLite";
+        public string? MariaDbHost { get; set; }
+        public int MariaDbPort { get; set; } = 3306;
+        public string? MariaDbDatabase { get; set; }
+        public string? MariaDbUsername { get; set; }
+    }
 }

@@ -6,28 +6,30 @@
         <!-- Header -->
         <Border DockPanel.Dock="Top" Background="{StaticResource SidebarBrush}" Padding="12,10">
             <StackPanel Orientation="Horizontal">
-                <Button Content="◀" Command="{Binding NavigatePreviousCommand}" Padding="10,4" Margin="0,0,4,0"
-                        Style="{StaticResource NavButton}" ToolTip="Zurück"/>
-                <Button Content="Heute" Command="{Binding NavigateTodayCommand}" Padding="10,4" Margin="0,0,4,0"
+                <Button x:Name="PrevPeriodBtn" Content="◀" Command="{Binding NavigatePreviousCommand}" Padding="10,4" Margin="0,0,4,0"
                         Style="{StaticResource NavButton}"/>
-                <Button Content="▶" Command="{Binding NavigateNextCommand}" Padding="10,4" Margin="0,0,16,0"
-                        Style="{StaticResource NavButton}" ToolTip="Vorwärts"/>
+                <Button x:Name="TodayBtn" Content="Heute" Command="{Binding NavigateTodayCommand}" Padding="10,4" Margin="0,0,4,0"
+                        Style="{StaticResource NavButton}"/>
+                <Button x:Name="NextPeriodBtn" Content="▶" Command="{Binding NavigateNextCommand}" Padding="10,4" Margin="0,0,16,0"
+                        Style="{StaticResource NavButton}"/>
                 <TextBlock Text="{Binding DateRangeText}" VerticalAlignment="Center" FontSize="16" FontWeight="Bold"
                            Foreground="White" Margin="0,0,20,0"/>
                 <RadioButton x:Name="RbDay" Content="  Tag" GroupName="ViewMode" Foreground="White"
-                             VerticalAlignment="Center" Margin="0,0,8,0" Checked="ViewMode_Checked"/>
+                             VerticalAlignment="Center" Margin="0,0,8,0" Checked="ViewMode_Checked"
+                             ToolTip="Tagesansicht"/>
                 <RadioButton x:Name="RbWeek" Content="  Woche" GroupName="ViewMode" IsChecked="True"
                              Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"
-                             Checked="ViewMode_Checked"/>
+                             Checked="ViewMode_Checked" ToolTip="Wochenansicht"/>
                 <RadioButton x:Name="RbMonth" Content="  Monat" GroupName="ViewMode" Foreground="White"
-                             VerticalAlignment="Center" Margin="0,0,16,0" Checked="ViewMode_Checked"/>
-                <Button Content="➕ Mitarbeiter" Click="AddResource_Click"
+                             VerticalAlignment="Center" Margin="0,0,16,0" Checked="ViewMode_Checked"
+                             ToolTip="Monatsansicht"/>
+                <Button x:Name="AddResourceBtn" Content="➕ Mitarbeiter" Click="AddResource_Click"
                         Style="{StaticResource AddButton}" Margin="0,0,8,0" Padding="8,4"/>
-                <Button Content="➕ Projekt" Click="AddProject_Click"
+                <Button x:Name="AddProjectBtn" Content="➕ Projekt" Click="AddProject_Click"
                         Style="{StaticResource AddButton}" Padding="8,4" Margin="0,0,8,0"/>
-                <Button Content="➕ Hardware" Click="AddHardware_Click"
+                <Button x:Name="AddHardwareBtn" Content="➕ Hardware" Click="AddHardware_Click"
                         Style="{StaticResource AddButton}" Padding="8,4" Margin="0,0,8,0"/>
-                <Button Content="📋 Kanban" Click="OpenKanban_Click"
+                <Button x:Name="KanbanBtn" Content="📋 Kanban" Click="OpenKanban_Click"
                         Style="{StaticResource NavButton}" Padding="10,4"/>
 
                 <TextBlock Text="   Ctrl+Scroll: Zoom  |  Shift+Scroll: Zeilenhöhe"

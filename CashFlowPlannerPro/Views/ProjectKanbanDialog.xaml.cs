@@ -5,10 +5,26 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
 public partial class ProjectKanbanDialog : Window
+{
+    private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left) DragMove();
+    }
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) Close();
+    }
+}
+
+public partial class ProjectKanbanDialog
 {
     private readonly Project? _project;
     private readonly bool _globalMode;
@@ -36,6 +52,8 @@ public partial class ProjectKanbanDialog : Window
         TbProjectName.Text = project.Name;
         TbProjectInfo.Text = $"{(string.IsNullOrEmpty(project.ProjectNumber) ? "" : $"#{project.ProjectNumber}  •  ")}{project.Client}  •  Status: {project.Status}";
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
+        CloseBtn.ToolTip = TooltipService.Get("Btn_Close");
+        AddMilestoneBtn.ToolTip = TooltipService.Get("Btn_AddMilestone");
         LoadMilestones();
     }
 
@@ -48,6 +66,8 @@ public partial class ProjectKanbanDialog : Window
         TbProjectName.Text = "Alle Projekte — Meilensteine";
         TbProjectInfo.Text = "Globale Übersicht aller Simulationsfälle und Meilensteine";
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
+        CloseBtn.ToolTip = TooltipService.Get("Btn_Close");
+        AddMilestoneBtn.ToolTip = TooltipService.Get("Btn_AddMilestone");
         LoadMilestones();
     }
 
@@ -175,14 +195,25 @@ public partial class ProjectKanbanDialog : Window
         };
 
         // Drag to move between columns
+        Point? dragStart = null;
+        card.MouseLeftButtonDown += (s, e) => {
+            if (e.ClickCount == 1)
+                dragStart = e.GetPosition(card);
+        };
         card.MouseMove += (s, e) => {
-            if (e.LeftButton == MouseButtonState.Pressed)
+            if (e.LeftButton == MouseButtonState.Pressed && dragStart.HasValue)
             {
-                var data = new DataObject();
-                data.SetData("MilestoneId", m.Id);
-                DragDrop.DoDragDrop(card, data, DragDropEffects.Move);
+                var pos = e.GetPosition(card);
+                if (Math.Abs(pos.X - dragStart.Value.X) > 10 || Math.Abs(pos.Y - dragStart.Value.Y) > 10)
+                {
+                    dragStart = null;
+                    var data = new DataObject();
+                    data.SetData("MilestoneId", m.Id);
+                    DragDrop.DoDragDrop(card, data, DragDropEffects.Move);
+                }
             }
         };
+        card.MouseLeftButtonUp += (s, e) => { dragStart = null; };
 
         // Double-click to edit
         card.MouseLeftButtonDown += (s, e) => {
@@ -246,10 +277,14 @@ public partial class ProjectKanbanDialog : Window
         var m = _milestones.FirstOrDefault(x => x.Id == milestoneId);
         if (m == null) return;
 
-        string newStatus = sender == ColOffen ? "Offen"
-            : sender == ColAktiv ? "Aktiv"
-            : sender == ColReview ? "Review"
-            : "Abgeschlossen";
+        string newStatus;
+        if (sender is FrameworkElement fe && fe.Tag is string tag)
+            newStatus = tag;
+        else
+            newStatus = sender == ColOffen ? "Offen"
+                : sender == ColAktiv ? "Aktiv"
+                : sender == ColReview ? "Review"
+                : "Abgeschlossen";
 
         if (m.Status != newStatus)
         {

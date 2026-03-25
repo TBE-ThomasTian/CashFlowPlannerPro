@@ -6,6 +6,7 @@ public class Invoice
     public string IssueDate { get; set; } = "";
     public string DueDate { get; set; } = "";
     public string Customer { get; set; } = "";
+    public long CustomerId { get; set; }
     public double Amount { get; set; }
     public string Description { get; set; } = "";
     public string? PaidDate { get; set; }

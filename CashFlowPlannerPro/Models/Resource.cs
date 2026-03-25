@@ -10,6 +10,7 @@ public class Resource
     public int WorkStartHour { get; set; } = 8;
     public int WorkEndHour { get; set; } = 17;
     public string? CreatedAt { get; set; }
+    public string? AvatarData { get; set; }
 
     public int WorkHoursPerDay => WorkEndHour - WorkStartHour;
 }

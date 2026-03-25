@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -13,6 +14,8 @@ public partial class NewUserDialog : Window
     public NewUserDialog()
     {
         InitializeComponent();
+        CreateBtn.ToolTip = TooltipService.Get("Btn_Create");
+        CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
     }
 
     private void Create_Click(object sender, RoutedEventArgs e)

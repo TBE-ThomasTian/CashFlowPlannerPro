@@ -243,6 +243,35 @@ public partial class ResourcesViewModel : ObservableObject
         Load();
     }
 
+    public void AddHardwareAllocationsRange(long resourceId, long hardwareId, long projectId, DateTime from, DateTime to)
+    {
+        for (var d = from; d <= to; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            if (!HardwareAllocations.Any(a => a.ResourceId == resourceId && a.HardwareId == hardwareId
+                && a.ProjectId == projectId && a.Date == ds))
+            {
+                Database.Instance.AddHardwareAllocation(new HardwareAllocation {
+                    ResourceId = resourceId, HardwareId = hardwareId,
+                    ProjectId = projectId, Date = ds, Hours = 8.0
+                });
+            }
+        }
+        Load();
+    }
+
+    public void DeleteHardwareAllocationsRange(long resourceId, long hardwareId, long projectId, DateTime from, DateTime to)
+    {
+        for (var d = from; d <= to; d = d.AddDays(1))
+        {
+            var ds = d.ToString("yyyy-MM-dd");
+            var alloc = HardwareAllocations.FirstOrDefault(a => a.ResourceId == resourceId
+                && a.HardwareId == hardwareId && a.ProjectId == projectId && a.Date == ds);
+            if (alloc != null) Database.Instance.DeleteHardwareAllocation(alloc.Id);
+        }
+        Load();
+    }
+
     public List<HardwareAllocation> GetHardwareAllocationsForResource(long resourceId, DateTime date)
     {
         var ds = date.ToString("yyyy-MM-dd");

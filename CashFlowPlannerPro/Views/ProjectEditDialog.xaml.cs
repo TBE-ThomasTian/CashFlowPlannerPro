@@ -1,10 +1,13 @@
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -24,15 +27,44 @@ public partial class ProjectEditDialog : Window
         InitializeComponent();
         Project = project;
         _selectedColor = project.Color ?? "#3498db";
+        LoadClientCombo();
         LoadData();
+        TbCustomColor.Text = _selectedColor;
         BuildColorPicker();
+        SaveBtn.ToolTip = TooltipService.Get("Btn_Save");
+        CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
+
+        Loaded += (_, _) => FixEditableComboBoxes();
+    }
+
+    private void FixEditableComboBoxes()
+    {
+        foreach (var cb in new[] { CbClient })
+        {
+            if (cb.Template.FindName("PART_EditableTextBox", cb) is System.Windows.Controls.TextBox tb)
+            {
+                tb.Foreground = Brushes.White;
+                tb.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1A, 0x40));
+                tb.CaretBrush = Brushes.White;
+            }
+        }
+    }
+
+    private void LoadClientCombo()
+    {
+        var customers = Database.Instance.GetCustomers()
+            .Select(c => c.DisplayName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .OrderBy(n => n);
+        foreach (var name in customers)
+            CbClient.Items.Add(name);
     }
 
     private void LoadData()
     {
         TbProjectNumber.Text = Project.ProjectNumber;
         TbName.Text = Project.Name;
-        TbClient.Text = Project.Client;
+        CbClient.Text = Project.Client;
         TbBudget.Text = Project.Budget.ToString("F2");
 
         if (DateTime.TryParse(Project.StartDate, out var sd)) DpStart.SelectedDate = sd;
@@ -66,9 +98,42 @@ public partial class ProjectEditDialog : Window
             var capturedHex = hex;
             circle.MouseLeftButtonDown += (_, _) => {
                 _selectedColor = capturedHex;
+                TbCustomColor.Text = capturedHex;
+                UpdateColorPreview();
                 BuildColorPicker(); // refresh selection
             };
             ColorPicker.Children.Add(circle);
+        }
+        UpdateColorPreview();
+    }
+
+    private void TbCustomColor_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var text = TbCustomColor.Text.Trim();
+        if (!text.StartsWith("#")) text = "#" + text;
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(text);
+            _selectedColor = text;
+            UpdateColorPreview();
+            // Deselect palette circles
+            foreach (var child in ColorPicker.Children)
+                if (child is Ellipse el)
+                    el.Stroke = Brushes.Transparent;
+        }
+        catch { }
+    }
+
+    private void UpdateColorPreview()
+    {
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(_selectedColor);
+            ColorPreview.Background = new SolidColorBrush(c);
+        }
+        catch
+        {
+            ColorPreview.Background = Brushes.Gray;
         }
     }
 
@@ -82,7 +147,7 @@ public partial class ProjectEditDialog : Window
 
         Project.ProjectNumber = TbProjectNumber.Text.Trim();
         Project.Name = TbName.Text.Trim();
-        Project.Client = TbClient.Text.Trim();
+        Project.Client = CbClient.Text.Trim();
         Project.Color = _selectedColor;
         if (double.TryParse(TbBudget.Text, NumberStyles.Any, CultureInfo.CurrentCulture, out var budget))
             Project.Budget = budget;
@@ -92,6 +157,24 @@ public partial class ProjectEditDialog : Window
 
         Saved = true;
         Close();
+    }
+
+    private void DatePicker_FixStyle(object sender, RoutedEventArgs e)
+    {
+        if (sender is DatePicker dp)
+        {
+            var textBox = dp.Template.FindName("PART_TextBox", dp) as System.Windows.Controls.Primitives.DatePickerTextBox;
+            if (textBox != null)
+            {
+                textBox.Foreground = Brushes.White;
+                textBox.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1A, 0x40));
+                textBox.BorderThickness = new Thickness(0);
+
+                // Remove the watermark
+                var wm = textBox.Template?.FindName("PART_Watermark", textBox) as ContentControl;
+                if (wm != null) wm.Visibility = Visibility.Collapsed;
+            }
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();

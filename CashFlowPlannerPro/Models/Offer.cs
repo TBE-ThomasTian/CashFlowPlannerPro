@@ -7,6 +7,7 @@ public class Offer
     public string OfferDate { get; set; } = "";
     public string DateExpected { get; set; } = "";
     public string Customer { get; set; } = "";
+    public long CustomerId { get; set; }
     public double Amount { get; set; }
     public double Probability { get; set; } = 50;
     public string Description { get; set; } = "";

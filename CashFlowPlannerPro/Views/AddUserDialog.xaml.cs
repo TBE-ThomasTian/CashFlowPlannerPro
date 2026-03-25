@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Input;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -12,6 +14,8 @@ public partial class AddUserDialog : Window
     {
         InitializeComponent();
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
+        CreateBtn.ToolTip = TooltipService.Get("Btn_Create");
+        CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
         TbUsername.Focus();
     }
 
@@ -31,4 +35,9 @@ public partial class AddUserDialog : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) DialogResult = false;
+    }
 }

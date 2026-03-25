@@ -3,14 +3,20 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
+using PDFtoImage;
 
 namespace CashFlowPlannerPro.Views;
 
 public partial class OfferScanPreviewDialog : Window
 {
     private readonly string _pdfPath;
+    private readonly List<BitmapSource> _pageImages = [];
+    private int _currentPage;
+    private int _totalPages;
+    private double _zoom = 1.0;
     public Offer? ResultOffer { get; private set; }
 
     public OfferScanPreviewDialog(ScannedOffer scanned, string pdfPath)
@@ -19,18 +25,81 @@ public partial class OfferScanPreviewDialog : Window
         _pdfPath = pdfPath;
         TbFileName.Text = Path.GetFileName(pdfPath);
         PopulateFields(scanned);
-        Loaded += async (_, _) => await LoadPdfPreview();
+
+        CloseBtn.ToolTip = TooltipService.Get("Btn_Close");
+        PrevPageBtn.ToolTip = TooltipService.Get("Btn_PrevPage");
+        NextPageBtn.ToolTip = TooltipService.Get("Btn_NextPage");
+        ZoomInBtn.ToolTip = TooltipService.Get("Btn_ZoomIn");
+        ZoomOutBtn.ToolTip = TooltipService.Get("Btn_ZoomOut");
+        CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
+        AcceptBtn.ToolTip = TooltipService.Get("Btn_AcceptOffer");
+
+        Loaded += (_, _) => RenderPdf();
     }
 
-    private async Task LoadPdfPreview()
+    private void RenderPdf()
     {
         try
         {
             if (!File.Exists(_pdfPath)) return;
-            await PdfViewer.EnsureCoreWebView2Async();
-            PdfViewer.CoreWebView2.Navigate(new Uri(_pdfPath).AbsoluteUri);
+            var pdfBytes = File.ReadAllBytes(_pdfPath);
+            _totalPages = Conversion.GetPageCount(pdfBytes);
+            _pageImages.Clear();
+
+            for (int i = 0; i < _totalPages; i++)
+            {
+                using var stream = new MemoryStream();
+                Conversion.SavePng(stream, pdfBytes, page: i, options: new PDFtoImage.RenderOptions { Dpi = 150 });
+                stream.Position = 0;
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.StreamSource = stream;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                _pageImages.Add(bitmap);
+            }
+
+            _currentPage = 0;
+            ShowPage();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            PdfImage.Source = null;
+            TbPageInfo.Text = $"Fehler: {ex.Message}";
+        }
+    }
+
+    private void ShowPage()
+    {
+        if (_pageImages.Count == 0) return;
+        var img = _pageImages[_currentPage];
+        PdfImage.Source = img;
+        PdfImage.Width = img.PixelWidth * _zoom;
+        PdfImage.Height = img.PixelHeight * _zoom;
+        TbPageInfo.Text = $"Seite {_currentPage + 1}/{_totalPages}";
+    }
+
+    private void PrevPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentPage > 0) { _currentPage--; ShowPage(); }
+    }
+
+    private void NextPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentPage < _totalPages - 1) { _currentPage++; ShowPage(); }
+    }
+
+    private void ZoomIn_Click(object sender, RoutedEventArgs e)
+    {
+        _zoom = Math.Min(_zoom + 0.25, 4.0);
+        ShowPage();
+    }
+
+    private void ZoomOut_Click(object sender, RoutedEventArgs e)
+    {
+        _zoom = Math.Max(_zoom - 0.25, 0.25);
+        ShowPage();
     }
 
     private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)

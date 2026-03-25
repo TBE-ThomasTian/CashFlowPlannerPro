@@ -17,6 +17,10 @@ public partial class OffersView : UserControl
         _vm = new OffersViewModel();
         DataContext = _vm;
         _vm.Load();
+
+        AddBtn.ToolTip = TooltipService.Get("Btn_AddOffer");
+        DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteOffer");
+        ScanPdfBtn.ToolTip = TooltipService.Get("Btn_ScanOfferPdf");
     }
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)

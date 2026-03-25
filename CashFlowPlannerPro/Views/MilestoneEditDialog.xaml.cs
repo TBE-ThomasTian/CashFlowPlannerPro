@@ -1,7 +1,11 @@
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -16,6 +20,10 @@ public partial class MilestoneEditDialog : Window
         _original = milestone;
 
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
+
+        // Mitarbeiter laden
+        foreach (var res in Database.Instance.GetResources().OrderBy(r => r.Name))
+            CbResponsible.Items.Add(res.Name);
 
         TbName.Text = milestone.Name;
 
@@ -42,11 +50,13 @@ public partial class MilestoneEditDialog : Window
                 DpDeadline.SelectedDate = d;
         }
 
-        TbResponsible.Text = milestone.Responsible ?? "";
+        CbResponsible.Text = milestone.Responsible ?? "";
         TbHours.Text = milestone.HoursBudget > 0 ? milestone.HoursBudget.ToString("0.#") : "";
         TbNotes.Text = milestone.Notes ?? "";
 
-        Title = milestone.Id == 0 ? "Neuer Meilenstein" : $"Meilenstein: {milestone.Name}";
+        DialogTitle.Text = milestone.Id == 0 ? "Neuer Meilenstein" : $"Meilenstein: {milestone.Name}";
+        SaveBtn.ToolTip = TooltipService.Get("Btn_Save");
+        CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
         TbName.Focus();
     }
 
@@ -54,7 +64,7 @@ public partial class MilestoneEditDialog : Window
     {
         if (string.IsNullOrWhiteSpace(TbName.Text))
         {
-            MessageBox.Show("Bitte einen Namen eingeben.", "Pflichtfeld", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModernMessageBox.Show("Bitte einen Namen eingeben.", "Pflichtfeld");
             return;
         }
 
@@ -69,7 +79,7 @@ public partial class MilestoneEditDialog : Window
             Status = status,
             Priority = priority,
             Deadline = DpDeadline.SelectedDate?.ToString("yyyy-MM-dd"),
-            Responsible = string.IsNullOrWhiteSpace(TbResponsible.Text) ? null : TbResponsible.Text.Trim(),
+            Responsible = string.IsNullOrWhiteSpace(CbResponsible.Text) ? null : CbResponsible.Text.Trim(),
             HoursBudget = hours,
             Notes = string.IsNullOrWhiteSpace(TbNotes.Text) ? null : TbNotes.Text.Trim(),
             SortOrder = _original.SortOrder,
@@ -78,5 +88,12 @@ public partial class MilestoneEditDialog : Window
 
         DialogResult = true;
         Close();
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) DialogResult = false;
     }
 }

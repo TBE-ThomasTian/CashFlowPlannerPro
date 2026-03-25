@@ -55,8 +55,9 @@ public partial class DashboardViewModel : ObservableObject
 
         MonthRows = new ObservableCollection<MonthRow>(rows);
 
-        // KPIs
-        CurrentBalance = Eur(StartBalance + (rows.Count > 0 ? rows[0].Net : 0));
+        // KPIs — CurrentBalance = StartBalance + actual past cashflow (not future forecast)
+        double actualPastCashflow = Database.Instance.GetActualCashflowToDate(StartBalance);
+        CurrentBalance = Eur(actualPastCashflow);
         bool anyNegative = rows.Any(r => r.Cumulative < 0);
         ForecastEnd = anyNegative ? "Geld reicht nicht!" : Eur(rows.Count > 0 ? rows[^1].Cumulative : StartBalance);
         MonthlyCashflow = rows.Count > 0 ? Eur(rows.Average(r => r.Net)) : Eur(0);

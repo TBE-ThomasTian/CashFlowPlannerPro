@@ -1,0 +1,70 @@
+<Window x:Class="CashFlowPlannerPro.Views.MariaDbConnectDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MariaDB Verbindung" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="400"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <StackPanel>
+            <TextBlock Text="MariaDB Verbindung" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Host" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbHost" Text="localhost" Style="{StaticResource DarkTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Port" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbPort" Text="3306" Style="{StaticResource DarkTextBox}"/>
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Datenbank" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbDatabase" Text="cashflow" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Benutzer" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <TextBox x:Name="TbUser" Text="root" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="PbPassword" Padding="10,8" FontSize="14"
+                         Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
+                         CaretBrush="White" Margin="0,0,0,20"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                        Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                        Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="ConnectBtn" Content="Verbinden" Click="Connect_Click" MinWidth="100"
+                        Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
