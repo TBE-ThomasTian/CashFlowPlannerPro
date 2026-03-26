@@ -25,6 +25,11 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string openInvoices = "";
     [ObservableProperty] private string burnRate = "";
     [ObservableProperty] private string runway = "";
+    [ObservableProperty] private string openTodos = "";
+    [ObservableProperty] private string overdueTodos = "";
+    [ObservableProperty] private string teamUtilization = "";
+    [ObservableProperty] private string hoursThisMonth = "";
+    [ObservableProperty] private string runningTimers = "";
 
     [ObservableProperty] private ObservableCollection<MonthRow> monthRows = [];
 
@@ -63,6 +68,8 @@ public partial class DashboardViewModel : ObservableObject
         MonthlyCashflow = rows.Count > 0 ? Eur(rows.Average(r => r.Net)) : Eur(0);
         ActiveOffers = Eur(Database.Instance.ActiveOffersSum());
         OpenInvoices = Eur(Database.Instance.OpenInvoicesSum());
+        HoursThisMonth = Database.Instance.GetHoursBookedThisMonth().ToString("N1", De) + " h";
+        RunningTimers = Database.Instance.CountRunningTimeEntries().ToString("N0", De);
 
         double avgExpenses = rows.Count > 0 ? rows.Average(r => Math.Abs(r.Expenses)) : 0;
         BurnRate = Eur(avgExpenses);
@@ -72,6 +79,18 @@ public partial class DashboardViewModel : ObservableObject
             Runway = Math.Ceiling(StartBalance / Math.Abs(avgNet)).ToString("N0", De) + " Monate";
         else
             Runway = "\u221e";
+
+        var todos = Database.Instance.GetAllTodos();
+        OpenTodos = todos.Count(t => !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)).ToString("N0", De);
+        OverdueTodos = todos.Count(t =>
+            !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)
+            && DateTime.TryParse(t.DueDate, out var due)
+            && due.Date < DateTime.Today).ToString("N0", De);
+
+        var resources = Database.Instance.GetResources();
+        TeamUtilization = resources.Count == 0
+            ? "0 %"
+            : Math.Round(resources.Average(r => r.Availability) * 100).ToString("N0", De) + " %";
     }
 
     [RelayCommand]

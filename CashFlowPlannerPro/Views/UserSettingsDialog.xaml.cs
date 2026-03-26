@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Services;
@@ -53,6 +55,7 @@ public partial class UserSettingsDialog : Window
         LoggedInAsLabel.Text = LocalizationManager.Get("ProfileLoggedInAs");
         DisplayNameLabel.Text = LocalizationManager.Get("ProfileDisplayName");
         LanguageLabel.Text = LocalizationManager.Get("ProfileLanguage");
+        CompanyProfileButton.Content = LocalizationManager.Get("CompanyProfileButton");
         ChangePasswordLabel.Text = LocalizationManager.Get("ProfileChangePassword");
         CurrentPasswordLabel.Text = LocalizationManager.Get("ProfileCurrentPassword");
         NewPasswordLabel.Text = LocalizationManager.Get("ProfileNewPassword");
@@ -60,6 +63,11 @@ public partial class UserSettingsDialog : Window
         CancelButton.Content = LocalizationManager.Get("Cancel");
         SaveButton.Content = LocalizationManager.Get("Save");
         BuildLanguageOptions();
+    }
+
+    private void CompanyProfile_Click(object sender, RoutedEventArgs e)
+    {
+        CompanyProfileDialog.ShowDialogWindow();
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -156,6 +164,29 @@ public partial class UserSettingsDialog : Window
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape) Close();
+    }
+
+    private void Chrome_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source &&
+            FindParent<TextBoxBase>(source) == null &&
+            FindParent<PasswordBox>(source) == null &&
+            FindParent<Button>(source) == null &&
+            FindParent<ComboBox>(source) == null &&
+            FindParent<ScrollBar>(source) == null)
+        {
+            try { DragMove(); } catch { }
+        }
+    }
+
+    private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject
+    {
+        while (child != null)
+        {
+            if (child is T match) return match;
+            child = System.Windows.Media.VisualTreeHelper.GetParent(child);
+        }
+        return null;
     }
 
     public static void Show(string currentUser)

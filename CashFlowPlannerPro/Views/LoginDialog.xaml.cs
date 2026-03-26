@@ -15,6 +15,8 @@ public partial class LoginDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CashFlowPlannerPro");
     private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
+    private static readonly string DemoDir = Path.Combine(SettingsDir, "Demo");
+    private static readonly string DemoDatabasePath = Path.Combine(DemoDir, "cashflow-demo.db");
 
     private List<string> _usernames = [];
     private string _lastDatabasePath = string.Empty;
@@ -23,6 +25,7 @@ public partial class LoginDialog : Window
     public string SelectedDatabasePath { get; private set; } = string.Empty;
     public string SelectedUsername { get; private set; } = string.Empty;
     public ConnectionConfig? ActiveConnectionConfig { get; private set; }
+    public bool IsDemoSession { get; private set; }
 
     public LoginDialog()
     {
@@ -30,6 +33,7 @@ public partial class LoginDialog : Window
         LocalizationManager.LanguageChanged += OnLanguageChanged;
         LoadSettings();
         ApplyLocalization();
+        UpdateConnectionExpanderState();
 
         OpenDbButton.ToolTip = TooltipService.Get("Btn_OpenDb");
         NewDbButton.ToolTip = TooltipService.Get("Btn_NewDb");
@@ -37,6 +41,7 @@ public partial class LoginDialog : Window
         ImportLocalBtn.ToolTip = TooltipService.Get("Btn_ImportLocal");
         ImportServerBtn.ToolTip = TooltipService.Get("Btn_ImportServer");
         LoginButton.ToolTip = TooltipService.Get("Btn_Login");
+        DemoButton.ToolTip = LocalizationManager.Get("LoginDemoButton");
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
         UsernameTextBox.TextChanged += (_, _) => {
@@ -130,6 +135,9 @@ public partial class LoginDialog : Window
 
     private void SaveSettings()
     {
+        if (IsDemoSession)
+            return;
+
         try
         {
             if (ChkRememberSettings.IsChecked == true)
@@ -206,6 +214,7 @@ public partial class LoginDialog : Window
         OpenDbButton.Content = LocalizationManager.Get("LoginOpen");
         NewDbButton.Content = LocalizationManager.Get("LoginNew");
         LoginButton.Content = LocalizationManager.Get("LoginButton");
+        DemoButton.Content = LocalizationManager.Get("LoginDemoButton");
         UsernamePlaceholder.Text = LocalizationManager.Get("LoginUsernamePlaceholder");
         if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
             UpdateDatabasePathDisplay();
@@ -217,6 +226,7 @@ public partial class LoginDialog : Window
         {
             DbPathText.Text = LocalizationManager.Get("LoginNoDatabaseSelected");
             DbPathText.ToolTip = null;
+            UpdateConnectionExpanderState();
             return;
         }
 
@@ -227,6 +237,15 @@ public partial class LoginDialog : Window
             ? string.Format(LocalizationManager.Get("LoginLastDatabase"), SelectedDatabasePath)
             : SelectedDatabasePath;
         DbPathText.ToolTip = SelectedDatabasePath;
+        UpdateConnectionExpanderState();
+    }
+
+    private void UpdateConnectionExpanderState()
+    {
+        if (DatabaseExpander == null)
+            return;
+
+        DatabaseExpander.IsExpanded = false;
     }
 
     private ConnectionConfig BuildConnectionConfig()
@@ -327,6 +346,7 @@ public partial class LoginDialog : Window
 
     private void LoginButton_Click(object sender, RoutedEventArgs e)
     {
+        IsDemoSession = false;
         if (_selectedBackend == DatabaseBackend.SQLite && string.IsNullOrEmpty(SelectedDatabasePath))
         { ShowError(LocalizationManager.Get("LoginSelectDatabaseError")); return; }
         if (_selectedBackend == DatabaseBackend.MariaDB && string.IsNullOrWhiteSpace(TbMariaHost.Text))
@@ -383,6 +403,35 @@ public partial class LoginDialog : Window
         catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginError"), ex.Message)); }
     }
 
+    private void DemoButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(DemoDir);
+            CreateFreshDatabase(DemoDatabasePath);
+
+            var config = new ConnectionConfig
+            {
+                Backend = DatabaseBackend.SQLite,
+                FilePath = DemoDatabasePath
+            };
+
+            Database.Instance.Open(config);
+            Database.Instance.EnsureSchema();
+            Database.Instance.SeedDemoData();
+
+            ActiveConnectionConfig = config;
+            SelectedDatabasePath = DemoDatabasePath;
+            SelectedUsername = "demo";
+            IsDemoSession = true;
+            DialogResult = true;
+        }
+        catch (Exception ex)
+        {
+            ShowError(string.Format(LocalizationManager.Get("LoginCreateError"), ex.Message));
+        }
+    }
+
     private void BackendToggle_Changed(object sender, RoutedEventArgs e)
     {
         if (PanelSqlite == null || PanelMariaDb == null) return; // not yet initialized
@@ -398,6 +447,8 @@ public partial class LoginDialog : Window
             PanelSqlite.Visibility = Visibility.Visible;
             PanelMariaDb.Visibility = Visibility.Collapsed;
         }
+
+        UpdateConnectionExpanderState();
     }
 
     private void TestMariaDbConnection_Click(object sender, RoutedEventArgs e)

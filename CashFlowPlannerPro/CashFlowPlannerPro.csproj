@@ -23,6 +23,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CashFlowPlannerPro.Updater\CashFlowPlannerPro.Updater.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Resources\CashFlowIcon.ico" />
     <Resource Include="Resources\CashFlowIcon.png" />
     <Resource Include="Resources\CashFlowLoginIcon.png" />

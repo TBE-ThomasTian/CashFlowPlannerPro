@@ -53,98 +53,105 @@
                            Margin="0,0,0,30" />
 
                 <!-- Section 1: Database -->
-                <TextBlock x:Name="DatabaseStepText" Text="1. Datenbank wählen"
-                           FontSize="16" FontWeight="SemiBold"
-                           Foreground="#CBD5E1" Margin="0,0,0,10" />
+                <Expander x:Name="DatabaseExpander"
+                          IsExpanded="False"
+                          Margin="0,0,0,18"
+                          Foreground="White">
+                    <Expander.Header>
+                        <TextBlock x:Name="DatabaseStepText" Text="1. Datenbank wählen"
+                                   FontSize="16" FontWeight="SemiBold"
+                                   Foreground="#CBD5E1"/>
+                    </Expander.Header>
+                    <StackPanel Margin="0,12,0,0">
+                        <!-- Backend Toggle -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <RadioButton x:Name="RbSqlite" Grid.Column="0" Content="  Lokale Datei"
+                                         GroupName="Backend" IsChecked="True" Foreground="White" FontSize="13"
+                                         VerticalContentAlignment="Center" Cursor="Hand"
+                                         Checked="BackendToggle_Changed"/>
+                            <RadioButton x:Name="RbMariaDb" Grid.Column="2" Content="  Server (MariaDB)"
+                                         GroupName="Backend" Foreground="White" FontSize="13"
+                                         VerticalContentAlignment="Center" Cursor="Hand"
+                                         Checked="BackendToggle_Changed"/>
+                        </Grid>
 
-                <!-- Backend Toggle -->
-                <Grid Margin="0,0,0,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="8"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <RadioButton x:Name="RbSqlite" Grid.Column="0" Content="  Lokale Datei"
-                                 GroupName="Backend" IsChecked="True" Foreground="White" FontSize="13"
-                                 VerticalContentAlignment="Center" Cursor="Hand"
-                                 Checked="BackendToggle_Changed"/>
-                    <RadioButton x:Name="RbMariaDb" Grid.Column="2" Content="  Server (MariaDB)"
-                                 GroupName="Backend" Foreground="White" FontSize="13"
-                                 VerticalContentAlignment="Center" Cursor="Hand"
-                                 Checked="BackendToggle_Changed"/>
-                </Grid>
-
-                <!-- SQLite Panel -->
-                <StackPanel x:Name="PanelSqlite">
-                    <Border Background="#3A3370" CornerRadius="6"
-                            Padding="12,10" Margin="0,0,0,10">
-                        <TextBlock x:Name="DbPathText"
-                                   Text="Keine Datenbank ausgewählt"
-                                   Foreground="#94A3B8" FontSize="12"
-                                   TextTrimming="CharacterEllipsis"
-                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
-                    </Border>
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="10" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Button x:Name="OpenDbButton" Grid.Column="0"
-                                Content="Öffnen" Height="36"
-                                Background="#3A3370" Foreground="White"
-                                BorderBrush="#4A4380" BorderThickness="1"
-                                Cursor="Hand" Click="OpenDbButton_Click"/>
-                        <Button x:Name="NewDbButton" Grid.Column="2"
-                                Content="Neu" Height="36"
-                                Background="#3A3370" Foreground="White"
-                                BorderBrush="#4A4380" BorderThickness="1"
-                                Cursor="Hand" Click="NewDbButton_Click"/>
-                    </Grid>
-                    <Button x:Name="ImportServerBtn" Content="📥 Von Server importieren" Click="ImportFromMariaDb_Click" Height="30"
-                            Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
-                            Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
-                </StackPanel>
-
-                <!-- MariaDB Panel -->
-                <StackPanel x:Name="PanelMariaDb" Visibility="Collapsed">
-                    <Grid Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="3*"/>
-                            <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Host" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                            <TextBox x:Name="TbMariaHost" Text="localhost" FontSize="13" Foreground="White" CaretBrush="White"
-                                     Background="#3A3370" BorderBrush="#4A4380" Padding="10,8"/>
+                        <!-- SQLite Panel -->
+                        <StackPanel x:Name="PanelSqlite">
+                            <Border Background="#3A3370" CornerRadius="6"
+                                    Padding="12,10" Margin="0,0,0,10">
+                                <TextBlock x:Name="DbPathText"
+                                           Text="Keine Datenbank ausgewählt"
+                                           Foreground="#94A3B8" FontSize="12"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                            </Border>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="10" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="OpenDbButton" Grid.Column="0"
+                                        Content="Öffnen" Height="36"
+                                        Background="#3A3370" Foreground="White"
+                                        BorderBrush="#4A4380" BorderThickness="1"
+                                        Cursor="Hand" Click="OpenDbButton_Click"/>
+                                <Button x:Name="NewDbButton" Grid.Column="2"
+                                        Content="Neu" Height="36"
+                                        Background="#3A3370" Foreground="White"
+                                        BorderBrush="#4A4380" BorderThickness="1"
+                                        Cursor="Hand" Click="NewDbButton_Click"/>
+                            </Grid>
+                            <Button x:Name="ImportServerBtn" Content="📥 Von Server importieren" Click="ImportFromMariaDb_Click" Height="30"
+                                    Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
+                                    Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="Port" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                            <TextBox x:Name="TbMariaPort" Text="3306" FontSize="13" Foreground="White" CaretBrush="White"
-                                     Background="#3A3370" BorderBrush="#4A4380" Padding="10,8"/>
-                        </StackPanel>
-                    </Grid>
-                    <TextBlock Text="Datenbank" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                    <TextBox x:Name="TbMariaDatabase" Text="cashflow" FontSize="13" Foreground="White" CaretBrush="White"
-                             Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
-                    <TextBlock Text="DB-Benutzer" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                    <TextBox x:Name="TbMariaUser" Text="root" FontSize="13" Foreground="White" CaretBrush="White"
-                             Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
-                    <TextBlock Text="DB-Passwort" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                    <PasswordBox x:Name="PbMariaPassword" FontSize="13" Foreground="White" CaretBrush="White"
-                                 Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" MinHeight="38" Margin="0,0,0,6"/>
-                    <Button x:Name="TestConnectionBtn" Content="Verbindung testen" Click="TestMariaDbConnection_Click" Height="32"
-                            Background="#3A3370" Foreground="White" BorderBrush="#4A4380" BorderThickness="1"
-                            Cursor="Hand" Margin="0,0,0,6" FontSize="12"/>
-                    <TextBlock x:Name="TbMariaStatus" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
-                    <Button x:Name="ImportLocalBtn" Content="📥 Lokale DB importieren" Click="ImportFromSqlite_Click" Height="30"
-                            Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
-                            Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
-                </StackPanel>
 
+                        <!-- MariaDB Panel -->
+                        <StackPanel x:Name="PanelMariaDb" Visibility="Collapsed">
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Host" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
+                                    <TextBox x:Name="TbMariaHost" Text="localhost" FontSize="13" Foreground="White" CaretBrush="White"
+                                             Background="#3A3370" BorderBrush="#4A4380" Padding="10,8"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Port" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
+                                    <TextBox x:Name="TbMariaPort" Text="3306" FontSize="13" Foreground="White" CaretBrush="White"
+                                             Background="#3A3370" BorderBrush="#4A4380" Padding="10,8"/>
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="Datenbank" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox x:Name="TbMariaDatabase" Text="cashflow" FontSize="13" Foreground="White" CaretBrush="White"
+                                     Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
+                            <TextBlock Text="DB-Benutzer" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
+                            <TextBox x:Name="TbMariaUser" Text="root" FontSize="13" Foreground="White" CaretBrush="White"
+                                     Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
+                            <TextBlock Text="DB-Passwort" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
+                            <PasswordBox x:Name="PbMariaPassword" FontSize="13" Foreground="White" CaretBrush="White"
+                                         Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" MinHeight="38" Margin="0,0,0,6"/>
+                            <Button x:Name="TestConnectionBtn" Content="Verbindung testen" Click="TestMariaDbConnection_Click" Height="42"
+                                    Background="#3A3370" Foreground="White" BorderBrush="#4A4380" BorderThickness="1"
+                                    Cursor="Hand" Margin="0,0,0,6" FontSize="15" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="TbMariaStatus" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"/>
+                            <Button x:Name="ImportLocalBtn" Content="📥 Lokale DB importieren" Click="ImportFromSqlite_Click" Height="30"
+                                    Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
+                                    Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
                 <!-- Spacer before login section -->
-                <Border Height="15"/>
+                <Border Height="4"/>
 
                 <!-- Section 2: Login -->
                 <TextBlock x:Name="SignInStepText" Text="2. Anmelden"
@@ -256,6 +263,14 @@
                         BorderThickness="0" Cursor="Hand"
                         Margin="0,5,0,0"
                         Click="LoginButton_Click" />
+                <Button x:Name="DemoButton"
+                        Content="Demo starten" Height="42"
+                        FontSize="14" FontWeight="SemiBold"
+                        Background="#3A3370" Foreground="White"
+                        BorderBrush="#4A4380" BorderThickness="1"
+                        Cursor="Hand"
+                        Margin="0,10,0,0"
+                        Click="DemoButton_Click" />
 
                 <TextBlock x:Name="VersionText" Text="v2.0.0"
                            Foreground="#4A4380" FontSize="11"

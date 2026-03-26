@@ -1,0 +1,85 @@
+<Window x:Class="CashFlowPlannerPro.Views.CompanyProfileDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Firmenprofil" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="520"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="760" PreviewMouseLeftButtonDown="Chrome_PreviewMouseLeftButtonDown">
+            <StackPanel>
+                <TextBlock x:Name="TitleText" Text="Firmenprofil" FontSize="20" FontWeight="Bold"
+                           Foreground="#BF247A" Margin="0,0,0,20"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,20" HorizontalAlignment="Center">
+                    <Border Width="100" Height="100" CornerRadius="18" BorderBrush="#BF247A" BorderThickness="2"
+                            ClipToBounds="True" Background="#1E1A40">
+                        <Image x:Name="LogoImage" Stretch="UniformToFill"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Margin="16,0,0,0">
+                        <Button x:Name="ChangeLogoButton" Content="📷 Logo ändern" Click="ChangeLogo_Click"
+                                Padding="10,6" FontSize="11" Cursor="Hand"
+                                Background="#3D3670" Foreground="White" BorderThickness="0" Margin="0,0,0,4"/>
+                        <Button x:Name="RemoveLogoButton" Content="🗑 Entfernen" Click="RemoveLogo_Click"
+                                Padding="10,6" FontSize="11" Cursor="Hand"
+                                Background="#4A1A1A" Foreground="#FF6B6B" BorderThickness="0"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock x:Name="CompanyNameLabel" Text="Firmenname" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBox x:Name="TbCompanyName" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+                <TextBlock x:Name="Address1Label" Text="Adresse Zeile 1" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBox x:Name="TbAddress1" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+                <TextBlock x:Name="Address2Label" Text="Adresse Zeile 2" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBox x:Name="TbAddress2" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="EmailLabel" Text="E-Mail" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbEmail" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock x:Name="PhoneLabel" Text="Telefon" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbPhone" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="WebsiteLabel" Text="Website" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbWebsite" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock x:Name="TaxIdLabel" Text="USt-Id / Steuernummer" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbTaxId" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                            Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                            Background="#3D3670" Foreground="White" BorderThickness="0"/>
+                    <Button x:Name="SaveButton" Content="Speichern" Click="Save_Click" MinWidth="100"
+                            Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                            Background="#BF247A" Foreground="White" BorderThickness="0"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</Window>

@@ -31,7 +31,42 @@
   <data name="NavAdmin" xml:space="preserve"><value>🔐  Verwaltung</value></data>
   <data name="ProfileButton" xml:space="preserve"><value>👤  Mein Profil</value></data>
   <data name="SwitchDatabaseButton" xml:space="preserve"><value>⚙  Datenbank wechseln</value></data>
+  <data name="BackupButton" xml:space="preserve"><value>💾  Backup erstellen</value></data>
+  <data name="RestoreButton" xml:space="preserve"><value>♻  Backup wiederherstellen</value></data>
+  <data name="CheckUpdatesButton" xml:space="preserve"><value>⬇  Nach Updates suchen</value></data>
   <data name="AboutButton" xml:space="preserve"><value>ℹ  Über</value></data>
+  <data name="UpdateTitle" xml:space="preserve"><value>Update</value></data>
+  <data name="UpdateAvailableTitle" xml:space="preserve"><value>Update verfügbar</value></data>
+  <data name="UpdateAvailableMessage" xml:space="preserve"><value>Aktuelle Version: {0}
+
+Neue Version: {1}
+
+Release Notes:
+{2}
+
+Jetzt Download-Seite öffnen?</value></data>
+  <data name="UpdateUpToDate" xml:space="preserve"><value>Sie verwenden bereits die aktuelle Version ({0}).</value></data>
+  <data name="UpdateNoNotes" xml:space="preserve"><value>Keine Release Notes verfügbar.</value></data>
+  <data name="UpdateCheckFailed" xml:space="preserve"><value>Update-Prüfung fehlgeschlagen: {0}</value></data>
+  <data name="UpdateInvalidResponse" xml:space="preserve"><value>Die Update-Informationen konnten nicht verarbeitet werden.</value></data>
+  <data name="UpdateInvalidVersion" xml:space="preserve"><value>Die Versionsnummer aus dem Update-Feed ist ungültig.</value></data>
+  <data name="UpdateDownloadStarted" xml:space="preserve"><value>Update wird heruntergeladen und danach automatisch installiert.</value></data>
+  <data name="UpdateDownloadFailed" xml:space="preserve"><value>Update-Download fehlgeschlagen: {0}</value></data>
+  <data name="UpdateExecutableNotFound" xml:space="preserve"><value>Die laufende Anwendung konnte nicht ermittelt werden.</value></data>
+  <data name="UpdateUpdaterMissing" xml:space="preserve"><value>Der Updater wurde nicht gefunden:
+{0}</value></data>
+  <data name="BackupTitle" xml:space="preserve"><value>Backup</value></data>
+  <data name="BackupDialogTitle" xml:space="preserve"><value>Backup speichern unter</value></data>
+  <data name="BackupDialogFilter" xml:space="preserve"><value>Datenbankdateien (*.db)|*.db|Alle Dateien (*.*)|*.*</value></data>
+  <data name="BackupSuccess" xml:space="preserve"><value>Backup wurde erstellt:
+{0}</value></data>
+  <data name="BackupFailed" xml:space="preserve"><value>Backup fehlgeschlagen: {0}</value></data>
+  <data name="BackupSQLiteOnly" xml:space="preserve"><value>Backup und Restore sind aktuell nur fuer lokale SQLite-Datenbanken verfuegbar.</value></data>
+  <data name="RestoreTitle" xml:space="preserve"><value>Restore</value></data>
+  <data name="RestoreDialogTitle" xml:space="preserve"><value>Backup-Datei auswaehlen</value></data>
+  <data name="RestoreConfirm" xml:space="preserve"><value>Das aktuelle Datenbankfile wird durch das Backup "{0}" ersetzt. Vorher wird automatisch eine Sicherheitskopie angelegt. Fortfahren?</value></data>
+  <data name="RestoreSuccessRestart" xml:space="preserve"><value>Backup wurde wiederhergestellt. Die App startet jetzt neu.</value></data>
+  <data name="RestoreFailed" xml:space="preserve"><value>Restore fehlgeschlagen: {0}</value></data>
   <data name="AboutText" xml:space="preserve"><value>CashFlow Planner Pro
 Version 2.0
 
@@ -47,6 +82,7 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="LoginStepSignIn" xml:space="preserve"><value>2. Anmelden</value></data>
   <data name="LoginUsernamePlaceholder" xml:space="preserve"><value>Benutzername</value></data>
   <data name="LoginButton" xml:space="preserve"><value>Anmelden</value></data>
+  <data name="LoginDemoButton" xml:space="preserve"><value>Demo starten</value></data>
   <data name="LoginOpenDbTitle" xml:space="preserve"><value>Datenbank öffnen</value></data>
   <data name="LoginOpenDbFilter" xml:space="preserve"><value>SQLite Datenbank (*.db)|*.db|Alle Dateien (*.*)|*.*</value></data>
   <data name="LoginNewDbTitle" xml:space="preserve"><value>Neue Datenbank erstellen</value></data>
@@ -70,6 +106,18 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="ProfileLoggedInAs" xml:space="preserve"><value>Angemeldet als</value></data>
   <data name="ProfileDisplayName" xml:space="preserve"><value>Anzeigename</value></data>
   <data name="ProfileLanguage" xml:space="preserve"><value>Sprache</value></data>
+  <data name="CompanyProfileButton" xml:space="preserve"><value>🏢 Firmenprofil</value></data>
+  <data name="CompanyProfileTitle" xml:space="preserve"><value>Firmenprofil</value></data>
+  <data name="CompanyProfileName" xml:space="preserve"><value>Firmenname</value></data>
+  <data name="CompanyProfileAddress1" xml:space="preserve"><value>Adresse Zeile 1</value></data>
+  <data name="CompanyProfileAddress2" xml:space="preserve"><value>Adresse Zeile 2</value></data>
+  <data name="CompanyProfileEmail" xml:space="preserve"><value>E-Mail</value></data>
+  <data name="CompanyProfilePhone" xml:space="preserve"><value>Telefon</value></data>
+  <data name="CompanyProfileWebsite" xml:space="preserve"><value>Website</value></data>
+  <data name="CompanyProfileTaxId" xml:space="preserve"><value>USt-Id / Steuernummer</value></data>
+  <data name="CompanyProfileChangeLogo" xml:space="preserve"><value>📷 Logo ändern</value></data>
+  <data name="CompanyProfileRemoveLogo" xml:space="preserve"><value>🗑 Entfernen</value></data>
+  <data name="CompanyProfileLogoDialog" xml:space="preserve"><value>Firmenlogo auswählen</value></data>
   <data name="ProfileChangePassword" xml:space="preserve"><value>Passwort ändern</value></data>
   <data name="ProfileCurrentPassword" xml:space="preserve"><value>Aktuelles Passwort</value></data>
   <data name="ProfileNewPassword" xml:space="preserve"><value>Neues Passwort</value></data>
@@ -92,6 +140,8 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="DashboardRecurring" xml:space="preserve"><value>Wiederkehrend</value></data>
   <data name="DashboardRefresh" xml:space="preserve"><value>Aktualisieren</value></data>
   <data name="DashboardSaveBalance" xml:space="preserve"><value>Kontostand speichern</value></data>
+  <data name="DashboardPreviewPdf" xml:space="preserve"><value>Vorschau</value></data>
+  <data name="DashboardExportPdf" xml:space="preserve"><value>PDF-Report</value></data>
   <data name="DashboardCurrentBalance" xml:space="preserve"><value>Kontostand Heute</value></data>
   <data name="DashboardForecastEnd" xml:space="preserve"><value>Prognose Ende</value></data>
   <data name="DashboardMonthlyCashflow" xml:space="preserve"><value>Monatl. Cashflow</value></data>
@@ -99,8 +149,14 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="DashboardOpenInvoices" xml:space="preserve"><value>Offene Rechnungen</value></data>
   <data name="DashboardBurnRate" xml:space="preserve"><value>Burn Rate</value></data>
   <data name="DashboardRunway" xml:space="preserve"><value>Runway</value></data>
+  <data name="DashboardOpenTodos" xml:space="preserve"><value>Offene ToDos</value></data>
+  <data name="DashboardOverdueTodos" xml:space="preserve"><value>Überfällige ToDos</value></data>
+  <data name="DashboardTeamUtilization" xml:space="preserve"><value>Team-Auslastung</value></data>
+  <data name="DashboardHoursThisMonth" xml:space="preserve"><value>Stunden diesen Monat</value></data>
+  <data name="DashboardRunningTimers" xml:space="preserve"><value>Laufende Timer</value></data>
   <data name="DashboardChartTitle" xml:space="preserve"><value>Cashflow Prognose</value></data>
   <data name="DashboardChartSubtitle" xml:space="preserve"><value>Netto pro Monat und kumulierte Entwicklung</value></data>
+  <data name="DashboardLiveFinance" xml:space="preserve"><value>Live-Finanzbild</value></data>
   <data name="DashboardMonth" xml:space="preserve"><value>Monat</value></data>
   <data name="DashboardIncome" xml:space="preserve"><value>Einnahmen</value></data>
   <data name="DashboardExpenses" xml:space="preserve"><value>Ausgaben</value></data>
@@ -140,7 +196,16 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="ActivityOnSite" xml:space="preserve"><value>Baustelle</value></data>
   <data name="ActivitySupport" xml:space="preserve"><value>Support</value></data>
   <data name="DashboardYAxisEuro" xml:space="preserve"><value>Euro (€)</value></data>
+  <data name="DashboardPdfTitle" xml:space="preserve"><value>PDF-Report</value></data>
+  <data name="DashboardPreviewTitle" xml:space="preserve"><value>Report-Vorschau</value></data>
+  <data name="DashboardPreviewSubtitle" xml:space="preserve"><value>Inhalt des PDF-Monatsreports</value></data>
+  <data name="DashboardPdfDialogTitle" xml:space="preserve"><value>PDF-Report speichern unter</value></data>
+  <data name="DashboardPdfDialogFilter" xml:space="preserve"><value>PDF-Dateien (*.pdf)|*.pdf</value></data>
+  <data name="DashboardPdfSuccess" xml:space="preserve"><value>PDF-Report wurde erstellt:
+{0}</value></data>
+  <data name="DashboardPdfFailed" xml:space="preserve"><value>PDF-Report konnte nicht erstellt werden: {0}</value></data>
   <data name="ExitButton" xml:space="preserve"><value>🚪  Beenden</value></data>
+  <data name="DemoMode" xml:space="preserve"><value>Demo</value></data>
   <data name="TooltipDashboard" xml:space="preserve"><value>Finanzübersicht und Cashflow-Prognose</value></data>
   <data name="TooltipTransactions" xml:space="preserve"><value>Einnahmen und Ausgaben verwalten</value></data>
   <data name="TooltipFixkosten" xml:space="preserve"><value>Wiederkehrende Fixkosten verwalten</value></data>

@@ -35,6 +35,8 @@ public static class TooltipService
 
         // === Dashboard ===
         ["Btn_SaveBalance"] = ("Aktuellen Kontostand speichern", "Save current account balance"),
+        ["Btn_PreviewDashboardPdf"] = ("PDF-Report zuerst in der Vorschau ansehen", "Preview the PDF report first"),
+        ["Btn_ExportDashboardPdf"] = ("PDF-Monatsreport exportieren", "Export monthly PDF report"),
 
         // === Transactions ===
         ["Btn_AddTransaction"] = ("Neue Buchung hinzufügen", "Add new transaction"),

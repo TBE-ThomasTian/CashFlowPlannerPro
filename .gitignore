@@ -5,3 +5,6 @@ obj/
 *.user
 *.suo
 *.db
+publish/
+*.zip
+installer/output/

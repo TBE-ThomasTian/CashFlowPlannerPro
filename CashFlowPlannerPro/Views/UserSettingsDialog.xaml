@@ -7,10 +7,13 @@
         SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
     <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="450"
             BorderBrush="#812B8C" BorderThickness="2">
+        <Border.InputBindings>
+            <MouseBinding MouseAction="LeftClick" Command="{x:Static ApplicationCommands.NotACommand}"/>
+        </Border.InputBindings>
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
         </Border.Effect>
-        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="700">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="700" PreviewMouseLeftButtonDown="Chrome_PreviewMouseLeftButtonDown">
         <StackPanel>
             <TextBlock x:Name="TitleText" Text="Mein Profil" FontSize="20" FontWeight="Bold"
                        Foreground="#BF247A" Margin="0,0,0,20"/>
@@ -57,6 +60,10 @@
 
             <TextBlock x:Name="LanguageLabel" Text="Sprache" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <ComboBox x:Name="LanguageCombo" Margin="0,0,0,16"/>
+
+            <Button x:Name="CompanyProfileButton" Content="🏢 Firmenprofil" Click="CompanyProfile_Click"
+                    Margin="0,0,0,18" Padding="12,8" FontSize="13" Cursor="Hand"
+                    Background="#3D3670" Foreground="White" BorderThickness="0"/>
 
             <!-- Change Password Section -->
             <TextBlock x:Name="ChangePasswordLabel" Text="Passwort ändern" Foreground="#BF247A" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>

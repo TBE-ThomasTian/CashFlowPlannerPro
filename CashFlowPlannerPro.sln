@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CashFlowPlannerPro", "CashFlowPlannerPro\CashFlowPlannerPro.csproj", "{445132D7-7F7E-4555-BA51-49E0F012EA6F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CashFlowPlannerPro.Updater", "CashFlowPlannerPro.Updater\CashFlowPlannerPro.Updater.csproj", "{DC85B0D8-7F53-47E3-8D82-C100F2A16279}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{445132D7-7F7E-4555-BA51-49E0F012EA6F}.Release|x64.Build.0 = Release|Any CPU
 		{445132D7-7F7E-4555-BA51-49E0F012EA6F}.Release|x86.ActiveCfg = Release|Any CPU
 		{445132D7-7F7E-4555-BA51-49E0F012EA6F}.Release|x86.Build.0 = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|x64.Build.0 = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Debug|x86.Build.0 = Debug|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|x64.ActiveCfg = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|x64.Build.0 = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|x86.ActiveCfg = Release|Any CPU
+		{DC85B0D8-7F53-47E3-8D82-C100F2A16279}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

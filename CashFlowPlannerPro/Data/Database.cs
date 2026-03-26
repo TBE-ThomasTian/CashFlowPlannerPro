@@ -65,20 +65,12 @@ public sealed class Database : IDisposable {
     }
 
     void Exec(string sql) {
-        try {
-            using var cmd = Conn.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery();
-        } catch (Exception ex) {
-            System.IO.File.AppendAllText(
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "db_debug.log"),
-                $"\n--- FAIL ---\nSQL: {sql}\nERR: {ex.Message}\n");
-            throw;
-        }
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
     }
     void ExecDdl(string sql) {
         var rewritten = _dialect.RewriteDdl(sql);
-        System.IO.File.AppendAllText(
-            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "db_debug.log"),
-            $"\n--- DDL ---\n{rewritten}\n");
         Exec(rewritten);
     }
 
@@ -287,6 +279,24 @@ public sealed class Database : IDisposable {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = _dialect.UpsertSettings("@v");
         cmd.Parameters.AddWithValue("@v", v.ToString(CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetSetting(string key) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM settings WHERE `key`=@k";
+        cmd.Parameters.AddWithValue("@k", key);
+        var r = cmd.ExecuteScalar();
+        return r != null && r != DBNull.Value ? r.ToString() : null;
+    }
+
+    public void SaveSetting(string key, string? value) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = _dialect is MariaDbDialect
+            ? "INSERT INTO settings(`key`,value) VALUES(@k,@v) ON DUPLICATE KEY UPDATE value=@v"
+            : "INSERT INTO settings(`key`,value) VALUES(@k,@v) ON CONFLICT(`key`) DO UPDATE SET value=excluded.value";
+        cmd.Parameters.AddWithValue("@k", key);
+        cmd.Parameters.AddWithValue("@v", (object?)value ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -1231,6 +1241,29 @@ public sealed class Database : IDisposable {
         return list;
     }
 
+    public double GetHoursBookedThisMonth() {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT COALESCE(SUM(duration_hours),0)
+            FROM time_entries
+            WHERE is_running=0
+              AND entry_date >= @start
+              AND entry_date <= @end";
+        var now = DateTime.Today;
+        var start = new DateTime(now.Year, now.Month, 1).ToString("yyyy-MM-dd");
+        var end = new DateTime(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)).ToString("yyyy-MM-dd");
+        cmd.Parameters.AddWithValue("@start", start);
+        cmd.Parameters.AddWithValue("@end", end);
+        var result = cmd.ExecuteScalar();
+        return result != null ? Convert.ToDouble(result, CultureInfo.InvariantCulture) : 0;
+    }
+
+    public int CountRunningTimeEntries() {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM time_entries WHERE is_running=1";
+        var result = cmd.ExecuteScalar();
+        return result != null ? Convert.ToInt32(result) : 0;
+    }
+
     public long StartTimeEntry(long userId, long projectId, string activityType, string? description) {
         using var tx = Conn.BeginTransaction();
         using (var stopCmd = Conn.CreateCommand()) {
@@ -1516,6 +1549,604 @@ public sealed class Database : IDisposable {
 
     public void DeleteCustomer(long id) { ExecWithId("DELETE FROM customers WHERE id=@id", id); }
 
+    public void SeedDemoData() {
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = "SELECT COUNT(*) FROM customers";
+            if (Convert.ToInt64(cmd.ExecuteScalar()) > 0)
+                return;
+        }
+
+        var adminRoleId = EnsureRole("Admin", "Vollzugriff auf alle Bereiche");
+
+        AddUser("demo", "demo", "Demo Benutzer");
+        SetUserRole("demo", adminRoleId);
+        AddUser("anna", "demo", "Anna Weber");
+        SetUserRole("anna", EnsureRole("Accounting", "Finanzen, Rechnungen, Angebote und Steuern"));
+        AddUser("mika", "demo", "Mika Schneider");
+        SetUserRole("mika", EnsureRole("Ingenieur", "Projekt-, Ressourcen- und Aufgabenbearbeitung"));
+
+        SetSettingStartBalance(19531.47);
+        SaveSetting("company_name", "Building Engineering GmbH");
+        SaveSetting("company_address_1", "Musterstrasse 12, 70173 Stuttgart");
+        SaveSetting("company_address_2", "Abteilung Cashflow & Projektsteuerung");
+        SaveSetting("company_email", "info@building-engineering.de");
+        SaveSetting("company_phone", "+49 711 555 120");
+        SaveSetting("company_website", "www.building-engineering.de");
+        SaveSetting("company_tax_id", "DE123456789");
+
+        var customer1 = new Customer {
+            Company = "Musterbau GmbH",
+            ContactName = "Sarah Klein",
+            Email = "s.klein@musterbau.de",
+            Phone = "+49 30 555 100",
+            City = "Berlin",
+            Notes = "Stammkunde mit laufendem Hallenprojekt"
+        };
+        AddCustomer(customer1);
+
+        var customer2 = new Customer {
+            Company = "Nordkraft Engineering",
+            ContactName = "Jan Voigt",
+            Email = "j.voigt@nordkraft.de",
+            Phone = "+49 40 555 210",
+            City = "Hamburg",
+            Notes = "Energie- und TGA-Projekte"
+        };
+        AddCustomer(customer2);
+
+        var customer3 = new Customer {
+            Company = "GreenSteel AG",
+            ContactName = "Elena Kurz",
+            Email = "e.kurz@greensteel.de",
+            Phone = "+49 211 555 310",
+            City = "Dusseldorf",
+            Notes = "Produktionsstandort im Ausbau"
+        };
+        AddCustomer(customer3);
+
+        var customer4 = new Customer {
+            Company = "Skyline Quartier GmbH",
+            ContactName = "Lars Meier",
+            Email = "l.meier@skyline-quartier.de",
+            Phone = "+49 69 555 410",
+            City = "Frankfurt",
+            Notes = "Mixed-use Quartier mit enger Terminlage"
+        };
+        AddCustomer(customer4);
+
+        var customer5 = new Customer {
+            Company = "AeroLogistik Süd",
+            ContactName = "Clara Stein",
+            Email = "c.stein@aerologistik.de",
+            Phone = "+49 89 555 515",
+            City = "Muenchen",
+            Notes = "Logistikzentrum und Bueroflaechen"
+        };
+        AddCustomer(customer5);
+
+        var project1 = new Project {
+            ProjectNumber = "P-2026-001",
+            Name = "Werkhalle Nord",
+            Client = customer1.DisplayName,
+            Color = "#812B8C",
+            StartDate = DateTime.Today.AddDays(-45).ToString("yyyy-MM-dd"),
+            EndDate = DateTime.Today.AddMonths(4).ToString("yyyy-MM-dd"),
+            Budget = 420,
+            Status = "active"
+        };
+        AddProject(project1);
+
+        var project2 = new Project {
+            ProjectNumber = "P-2026-002",
+            Name = "Campus Retrofit",
+            Client = customer2.DisplayName,
+            Color = "#BF247A",
+            StartDate = DateTime.Today.AddDays(-20).ToString("yyyy-MM-dd"),
+            EndDate = DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"),
+            Budget = 280,
+            Status = "active"
+        };
+        AddProject(project2);
+
+        var project3 = new Project {
+            ProjectNumber = "P-2026-003",
+            Name = "Produktionslinie Ost",
+            Client = customer3.DisplayName,
+            Color = "#D9731A",
+            StartDate = DateTime.Today.AddDays(-10).ToString("yyyy-MM-dd"),
+            EndDate = DateTime.Today.AddMonths(6).ToString("yyyy-MM-dd"),
+            Budget = 520,
+            Status = "active"
+        };
+        AddProject(project3);
+
+        var project4 = new Project {
+            ProjectNumber = "P-2026-004",
+            Name = "Skyline Suedfluegel",
+            Client = customer4.DisplayName,
+            Color = "#6C5CE7",
+            StartDate = DateTime.Today.AddDays(-60).ToString("yyyy-MM-dd"),
+            EndDate = DateTime.Today.AddMonths(2).ToString("yyyy-MM-dd"),
+            Budget = 360,
+            Status = "active"
+        };
+        AddProject(project4);
+
+        var project5 = new Project {
+            ProjectNumber = "P-2026-005",
+            Name = "Logistikzentrum West",
+            Client = customer5.DisplayName,
+            Color = "#00A896",
+            StartDate = DateTime.Today.AddDays(-8).ToString("yyyy-MM-dd"),
+            EndDate = DateTime.Today.AddMonths(5).ToString("yyyy-MM-dd"),
+            Budget = 610,
+            Status = "active"
+        };
+        AddProject(project5);
+
+        var resource1 = new Resource { Name = "Mika Schneider", Role = "Projektleitung", Availability = 0.95, HourlyRate = 88, WorkStartHour = 8, WorkEndHour = 17 };
+        AddResource(resource1);
+        var resource2 = new Resource { Name = "Nina Bauer", Role = "CAD", Availability = 0.85, HourlyRate = 72, WorkStartHour = 8, WorkEndHour = 16 };
+        AddResource(resource2);
+        var resource3 = new Resource { Name = "Leon Hoffmann", Role = "Bauleitung", Availability = 0.9, HourlyRate = 79, WorkStartHour = 7, WorkEndHour = 16 };
+        AddResource(resource3);
+        var resource4 = new Resource { Name = "Sofia Kramer", Role = "TGA Planung", Availability = 0.8, HourlyRate = 84, WorkStartHour = 8, WorkEndHour = 17 };
+        AddResource(resource4);
+        var resource5 = new Resource { Name = "Jonas Richter", Role = "Einkauf", Availability = 0.7, HourlyRate = 68, WorkStartHour = 8, WorkEndHour = 16 };
+        AddResource(resource5);
+        var resource6 = new Resource { Name = "Paula Winter", Role = "Controlling", Availability = 0.75, HourlyRate = 77, WorkStartHour = 8, WorkEndHour = 17 };
+        AddResource(resource6);
+
+        var hardware1 = new HardwareResource { Name = "Workstation CAD-01", Type = "GPU Workstation", CostPerHour = 9.5, Color = "#812B8C", Notes = "Rendering und Revit" };
+        AddHardwareResource(hardware1);
+        var hardware2 = new HardwareResource { Name = "Laserscanner Faro", Type = "Laserscanner", CostPerHour = 24, Color = "#D9731A", Notes = "Bestandsaufnahmen vor Ort" };
+        AddHardwareResource(hardware2);
+        var hardware3 = new HardwareResource { Name = "Plotter HP DesignJet", Type = "Plotter", CostPerHour = 6, Color = "#2F80ED", Notes = "Großformat Plaene und Uebersichten" };
+        AddHardwareResource(hardware3);
+        var hardware4 = new HardwareResource { Name = "BIM Server Node A", Type = "Server", CostPerHour = 12, Color = "#00A896", Notes = "Zentrale Modellkoordination" };
+        AddHardwareResource(hardware4);
+
+        var milestone1 = new ProjectMilestone {
+            ProjectId = project1.Id,
+            Name = "Ausfuehrungsplanung finalisieren",
+            Status = "In Arbeit",
+            Deadline = DateTime.Today.AddDays(5).ToString("yyyy-MM-dd"),
+            Responsible = "Mika Schneider",
+            HoursBudget = 120,
+            Priority = 1
+        };
+        AddMilestone(milestone1);
+
+        var milestone2 = new ProjectMilestone {
+            ProjectId = project2.Id,
+            Name = "Kostenfreigabe Bauherr",
+            Status = "Offen",
+            Deadline = DateTime.Today.AddDays(-2).ToString("yyyy-MM-dd"),
+            Responsible = "Anna Weber",
+            HoursBudget = 40,
+            Priority = 1
+        };
+        AddMilestone(milestone2);
+
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project3.Id,
+            Name = "Medienplanung abstimmen",
+            Status = "Review",
+            Deadline = DateTime.Today.AddDays(9).ToString("yyyy-MM-dd"),
+            Responsible = "Sofia Kramer",
+            HoursBudget = 84,
+            Priority = 2
+        });
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project4.Id,
+            Name = "Revisionslauf Brandschutz",
+            Status = "In Arbeit",
+            Deadline = DateTime.Today.AddDays(3).ToString("yyyy-MM-dd"),
+            Responsible = "Leon Hoffmann",
+            HoursBudget = 56,
+            Priority = 1
+        });
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project5.Id,
+            Name = "BIM Modell an Einkauf uebergeben",
+            Status = "Abgeschlossen",
+            Deadline = DateTime.Today.AddDays(14).ToString("yyyy-MM-dd"),
+            Responsible = "Jonas Richter",
+            HoursBudget = 72,
+            Priority = 2
+        });
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project1.Id,
+            Name = "Technikfreigabe Bauherr",
+            Status = "Aktiv",
+            Deadline = DateTime.Today.AddDays(7).ToString("yyyy-MM-dd"),
+            Responsible = "Anna Weber",
+            HoursBudget = 32,
+            Priority = 2
+        });
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project2.Id,
+            Name = "Bestandsmodell validieren",
+            Status = "Review",
+            Deadline = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
+            Responsible = "Nina Bauer",
+            HoursBudget = 28,
+            Priority = 1
+        });
+        AddMilestone(new ProjectMilestone {
+            ProjectId = project4.Id,
+            Name = "Brandschutzpaket final abgegeben",
+            Status = "Abgeschlossen",
+            Deadline = DateTime.Today.AddDays(-6).ToString("yyyy-MM-dd"),
+            Responsible = "Leon Hoffmann",
+            HoursBudget = 44,
+            Priority = 2
+        });
+
+        var demoUserId = GetUserId("demo");
+
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Offene Rechnung Werkhalle nachfassen",
+            Description = "Kunden rueckmelden lassen wegen Teilzahlung.",
+            Status = "Offen",
+            Priority = 1,
+            DueDate = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd"),
+            ProjectId = project1.Id,
+            MilestoneId = milestone1.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Angebot GreenSteel final pruefen",
+            Description = "Wahrscheinlichkeit und Zahlungsziel abstimmen.",
+            Status = "In Arbeit",
+            Priority = 2,
+            DueDate = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd"),
+            ProjectId = project3.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Teammeeting vorbereiten",
+            Description = "Kapazitaet und naechste Meilensteine mitbringen.",
+            Status = "Offen",
+            Priority = 3,
+            DueDate = DateTime.Today.AddDays(4).ToString("yyyy-MM-dd"),
+            ProjectId = project2.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Fixkosten fuer Q2 pruefen",
+            Description = "Cloud, Versicherung und Miete gegen Budget spiegeln.",
+            Status = "In Arbeit",
+            Priority = 2,
+            DueDate = DateTime.Today.AddDays(6).ToString("yyyy-MM-dd"),
+            ProjectId = project4.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Laserscan fuer Logistikzentrum einplanen",
+            Description = "Geraet und Baustellentermin mit Kunde abstimmen.",
+            Status = "Offen",
+            Priority = 1,
+            DueDate = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
+            ProjectId = project5.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Revisionspläne an Kunden senden",
+            Description = "Skyline-Stand als PDF exportieren und verschicken.",
+            Status = "Erledigt",
+            Priority = 2,
+            DueDate = DateTime.Today.AddDays(-2).ToString("yyyy-MM-dd"),
+            ProjectId = project4.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Zeiterfassung der Woche kontrollieren",
+            Description = "Offene Timer und fehlende Buchungen nachziehen.",
+            Status = "In Arbeit",
+            Priority = 2,
+            DueDate = DateTime.Today.ToString("yyyy-MM-dd"),
+            ProjectId = project1.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Bauherr-Feedback in Angebot uebernehmen",
+            Description = "Kommentar zur Medienversorgung in Version 3 einfliessen lassen.",
+            Status = "Offen",
+            Priority = 1,
+            DueDate = DateTime.Today.AddDays(3).ToString("yyyy-MM-dd"),
+            ProjectId = project3.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Monatsreport fuer Management vorbereiten",
+            Description = "Forecast, offene Rechnungen und Teamlast zusammenfassen.",
+            Status = "Erledigt",
+            Priority = 3,
+            DueDate = DateTime.Today.AddDays(-4).ToString("yyyy-MM-dd"),
+            ProjectId = project2.Id
+        });
+        AddTodo(new UserTodo {
+            UserId = demoUserId,
+            Title = "Lieferantenliste fuer Logistikzentrum abstimmen",
+            Description = "Mit Einkauf finale Freigabe fuer Ausschreibung erzeugen.",
+            Status = "Offen",
+            Priority = 2,
+            DueDate = DateTime.Today.AddDays(5).ToString("yyyy-MM-dd"),
+            ProjectId = project5.Id
+        });
+
+        AddInvoice(new Invoice {
+            IssueDate = DateTime.Today.AddDays(-22).ToString("yyyy-MM-dd"),
+            DueDate = DateTime.Today.AddDays(8).ToString("yyyy-MM-dd"),
+            Customer = customer1.DisplayName,
+            Amount = 12450,
+            Description = "Teilrechnung Werkhalle Nord - LPH 3",
+            PaidAmount = 0,
+            Status = "Offen"
+        });
+        AddInvoice(new Invoice {
+            IssueDate = DateTime.Today.AddDays(-12).ToString("yyyy-MM-dd"),
+            DueDate = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd"),
+            Customer = customer2.DisplayName,
+            Amount = 6500,
+            Description = "Bestandsaufnahme Campus Retrofit",
+            PaidAmount = 0,
+            Status = "Offen"
+        });
+        AddInvoice(new Invoice {
+            IssueDate = DateTime.Today.AddDays(-35).ToString("yyyy-MM-dd"),
+            DueDate = DateTime.Today.AddDays(-5).ToString("yyyy-MM-dd"),
+            Customer = customer3.DisplayName,
+            Amount = 9800,
+            Description = "Vorplanung Produktionslinie Ost",
+            PaidDate = DateTime.Today.AddDays(-4).ToString("yyyy-MM-dd"),
+            PaidAmount = 9800,
+            Status = "Bezahlt"
+        });
+        AddInvoice(new Invoice {
+            IssueDate = DateTime.Today.AddDays(-6).ToString("yyyy-MM-dd"),
+            DueDate = DateTime.Today.AddDays(16).ToString("yyyy-MM-dd"),
+            Customer = customer4.DisplayName,
+            Amount = 8450,
+            Description = "Revisionsplanung Skyline Suedfluegel",
+            PaidAmount = 0,
+            Status = "Offen"
+        });
+        AddInvoice(new Invoice {
+            IssueDate = DateTime.Today.AddDays(-3).ToString("yyyy-MM-dd"),
+            DueDate = DateTime.Today.AddDays(27).ToString("yyyy-MM-dd"),
+            Customer = customer5.DisplayName,
+            Amount = 11200,
+            Description = "Kickoff und Vor-Ort-Aufnahme Logistikzentrum",
+            PaidAmount = 0,
+            Status = "Offen"
+        });
+
+        AddOffer(new Offer {
+            OfferNumber = $"ANG-{DateTime.Today.Year}-1001",
+            OfferDate = DateTime.Today.AddDays(-4).ToString("yyyy-MM-dd"),
+            DateExpected = DateTime.Today.AddDays(18).ToString("yyyy-MM-dd"),
+            Customer = customer3.DisplayName,
+            Amount = 64000,
+            Probability = 72,
+            Description = "Erweiterung TGA und Medienversorgung",
+            Status = "Offen",
+            PaymentDelay = 21
+        });
+        AddOffer(new Offer {
+            OfferNumber = $"ANG-{DateTime.Today.Year}-1002",
+            OfferDate = DateTime.Today.AddDays(-14).ToString("yyyy-MM-dd"),
+            DateExpected = DateTime.Today.AddDays(12).ToString("yyyy-MM-dd"),
+            Customer = customer1.DisplayName,
+            Amount = 18500,
+            Probability = 90,
+            Description = "Nachtrag Brandschutz und Druckbelueftung",
+            Status = "Beauftragt",
+            PaymentDelay = 14
+        });
+        AddOffer(new Offer {
+            OfferNumber = $"ANG-{DateTime.Today.Year}-1003",
+            OfferDate = DateTime.Today.AddDays(-7).ToString("yyyy-MM-dd"),
+            DateExpected = DateTime.Today.AddDays(24).ToString("yyyy-MM-dd"),
+            Customer = customer4.DisplayName,
+            Amount = 28500,
+            Probability = 58,
+            Description = "Monitoring und technische Gebaeudeauswertung",
+            Status = "Offen",
+            PaymentDelay = 30
+        });
+        AddOffer(new Offer {
+            OfferNumber = $"ANG-{DateTime.Today.Year}-1004",
+            OfferDate = DateTime.Today.AddDays(-2).ToString("yyyy-MM-dd"),
+            DateExpected = DateTime.Today.AddDays(31).ToString("yyyy-MM-dd"),
+            Customer = customer5.DisplayName,
+            Amount = 74000,
+            Probability = 41,
+            Description = "Lagerautomation und Medienkoordination",
+            Status = "Offen",
+            PaymentDelay = 21
+        });
+
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-16).ToString("yyyy-MM-dd"),
+            Description = "Miete und Nebenkosten",
+            Amount = -2850,
+            Interval = "monatlich",
+            Notes = "FIXKOSTEN:Buero und Nebenkosten"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-9).ToString("yyyy-MM-dd"),
+            Description = "Abschlag Werkhalle Nord",
+            Amount = 15750,
+            Notes = "projekt"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-3).ToString("yyyy-MM-dd"),
+            Description = "Lohn und Gehaelter",
+            Amount = -11200,
+            Interval = "monatlich",
+            Notes = "FIXKOSTEN:Personal"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(6).ToString("yyyy-MM-dd"),
+            Description = "Software und Cloud",
+            Amount = -640,
+            Interval = "monatlich",
+            Notes = "FIXKOSTEN:Software und Cloud"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(17).ToString("yyyy-MM-dd"),
+            Description = "Materialvorschuss GreenSteel",
+            Amount = -4200,
+            Notes = "projekt"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-11).ToString("yyyy-MM-dd"),
+            Description = "Betriebshaftpflicht",
+            Amount = -520,
+            Interval = "jährlich",
+            Notes = "FIXKOSTEN:Versicherung"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd"),
+            Description = "Strom und Infrastruktur",
+            Amount = -780,
+            Interval = "monatlich",
+            Notes = "FIXKOSTEN:Energie"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(9).ToString("yyyy-MM-dd"),
+            Description = "Steuerberatung und Abschluss",
+            Amount = -950,
+            Interval = "monatlich",
+            Notes = "FIXKOSTEN:Steuerberatung"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-8).ToString("yyyy-MM-dd"),
+            Description = "Umsatzsteuer-Voranmeldung",
+            Amount = -3150,
+            Interval = "Monatlich",
+            Notes = "STEUER:Umsatzsteuer"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(13).ToString("yyyy-MM-dd"),
+            Description = "Gewerbesteuer Vorauszahlung",
+            Amount = -2400,
+            Interval = "Vierteljährlich",
+            Notes = "STEUER:Gewerbesteuer"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(21).ToString("yyyy-MM-dd"),
+            Description = "Kapitalertragsteuer Ruecklage",
+            Amount = -850,
+            Interval = "Jährlich",
+            Notes = "STEUER:Kapitalertragsteuer"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(-18).ToString("yyyy-MM-dd"),
+            Description = "Abschlag Skyline Quartier",
+            Amount = 9200,
+            Notes = "projekt"
+        });
+        AddTransaction(new Transaction {
+            Date = DateTime.Today.AddDays(12).ToString("yyyy-MM-dd"),
+            Description = "Abschlag Logistikzentrum West",
+            Amount = 13400,
+            Notes = "projekt"
+        });
+
+        AddTarget(new Target { Year = DateTime.Today.Year, Month = DateTime.Today.Month, Amount = 22000 });
+        var nextMonth = DateTime.Today.AddMonths(1);
+        AddTarget(new Target { Year = nextMonth.Year, Month = nextMonth.Month, Amount = 24000 });
+        var monthAfterNext = DateTime.Today.AddMonths(2);
+        AddTarget(new Target { Year = monthAfterNext.Year, Month = monthAfterNext.Month, Amount = 26500 });
+
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource1.Id,
+            ProjectId = project1.Id,
+            Date = DateTime.Today.ToString("yyyy-MM-dd"),
+            Hours = 6,
+            Notes = "Planungsreview"
+        });
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource2.Id,
+            ProjectId = project2.Id,
+            Date = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
+            Hours = 5,
+            Notes = "CAD Ueberarbeitung"
+        });
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource3.Id,
+            ProjectId = project3.Id,
+            Date = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd"),
+            Hours = 7,
+            Notes = "Baustellenabstimmung"
+        });
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource4.Id,
+            ProjectId = project4.Id,
+            Date = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
+            Hours = 6,
+            Notes = "Brandschutz-TGA Abgleich"
+        });
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource5.Id,
+            ProjectId = project5.Id,
+            Date = DateTime.Today.AddDays(3).ToString("yyyy-MM-dd"),
+            Hours = 4,
+            Notes = "Lieferantenkoordination"
+        });
+        AddAllocation(new ResourceAllocation {
+            ResourceId = resource6.Id,
+            ProjectId = project1.Id,
+            Date = DateTime.Today.AddDays(4).ToString("yyyy-MM-dd"),
+            Hours = 3,
+            Notes = "Forecast und Nachkalkulation"
+        });
+
+        AddHardwareAllocation(new HardwareAllocation {
+            ResourceId = resource2.Id,
+            HardwareId = hardware1.Id,
+            ProjectId = project2.Id,
+            Date = DateTime.Today.ToString("yyyy-MM-dd"),
+            Hours = 5,
+            Notes = "3D Modellupdate"
+        });
+        AddHardwareAllocation(new HardwareAllocation {
+            ResourceId = resource3.Id,
+            HardwareId = hardware2.Id,
+            ProjectId = project5.Id,
+            Date = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd"),
+            Hours = 6,
+            Notes = "Bestandsaufnahme Halle"
+        });
+        AddHardwareAllocation(new HardwareAllocation {
+            ResourceId = resource4.Id,
+            HardwareId = hardware4.Id,
+            ProjectId = project3.Id,
+            Date = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
+            Hours = 7,
+            Notes = "BIM Koordination"
+        });
+        AddHardwareAllocation(new HardwareAllocation {
+            ResourceId = resource1.Id,
+            HardwareId = hardware3.Id,
+            ProjectId = project4.Id,
+            Date = DateTime.Today.AddDays(5).ToString("yyyy-MM-dd"),
+            Hours = 2,
+            Notes = "Plaene fuer Abstimmung"
+        });
+
+        AddHistoricalTimeEntry(demoUserId, project1.Id, "Planung", "Kickoff und Abstimmung", DateTime.Today.AddDays(-3).AddHours(8), 4.5);
+        AddHistoricalTimeEntry(demoUserId, project2.Id, "CAD", "Grundrisse ueberarbeitet", DateTime.Today.AddDays(-2).AddHours(9), 6.0);
+        AddHistoricalTimeEntry(demoUserId, project3.Id, "Meeting", "Jour fixe mit GreenSteel", DateTime.Today.AddDays(-1).AddHours(10), 2.0);
+        AddHistoricalTimeEntry(demoUserId, project4.Id, "Dokumentation", "Revisionsunterlagen vorbereitet", DateTime.Today.AddDays(-5).AddHours(8), 3.5);
+        AddHistoricalTimeEntry(demoUserId, project5.Id, "Abstimmung", "Baustellenlogistik mit Kunde abgestimmt", DateTime.Today.AddDays(-4).AddHours(11), 2.5);
+        StartDemoRunningTimer(demoUserId, project1.Id, "Dokumentation", "Demo-Timer laeuft fuer Dashboard");
+    }
+
     // Helpers
     long LastInsertId() {
         using var cmd = Conn.CreateCommand();
@@ -1595,6 +2226,35 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@r", roleId);
         cmd.Parameters.AddWithValue("@p", pageKey);
         cmd.Parameters.AddWithValue("@a", accessLevel);
+        cmd.ExecuteNonQuery();
+    }
+
+    void AddHistoricalTimeEntry(long userId, long projectId, string activityType, string description, DateTime start, double durationHours) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO time_entries(user_id,project_id,activity_type,description,entry_date,start_time,end_time,duration_hours,is_running,created_at)
+            VALUES(@uid,@pid,@act,@desc,@entry,@start,@end,@hours,0,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@uid", userId);
+        cmd.Parameters.AddWithValue("@pid", projectId);
+        cmd.Parameters.AddWithValue("@act", activityType);
+        cmd.Parameters.AddWithValue("@desc", description);
+        cmd.Parameters.AddWithValue("@entry", start.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("@start", start.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.Parameters.AddWithValue("@end", start.AddHours(durationHours).ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.Parameters.AddWithValue("@hours", durationHours);
+        cmd.ExecuteNonQuery();
+    }
+
+    void StartDemoRunningTimer(long userId, long projectId, string activityType, string description) {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO time_entries(user_id,project_id,activity_type,description,entry_date,start_time,is_running,created_at)
+            VALUES(@uid,@pid,@act,@desc,@entry,@start,1,CURRENT_TIMESTAMP)";
+        var start = DateTime.Now.AddMinutes(-42);
+        cmd.Parameters.AddWithValue("@uid", userId);
+        cmd.Parameters.AddWithValue("@pid", projectId);
+        cmd.Parameters.AddWithValue("@act", activityType);
+        cmd.Parameters.AddWithValue("@desc", description);
+        cmd.Parameters.AddWithValue("@entry", start.ToString("yyyy-MM-dd"));
+        cmd.Parameters.AddWithValue("@start", start.ToString("yyyy-MM-dd HH:mm:ss"));
         cmd.ExecuteNonQuery();
     }
 }

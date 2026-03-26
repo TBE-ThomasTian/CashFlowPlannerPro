@@ -22,4 +22,15 @@ public class ConnectionConfig
         DatabaseBackend.MariaDB => $"Server={Host};Port={Port};Database={DatabaseName};User={DbUsername};Password={DbPassword};CharSet=utf8mb4;AllowUserVariables=true",
         _ => throw new ArgumentOutOfRangeException()
     };
+
+    public ConnectionConfig Clone() => new()
+    {
+        Backend = Backend,
+        FilePath = FilePath,
+        Host = Host,
+        Port = Port,
+        DatabaseName = DatabaseName,
+        DbUsername = DbUsername,
+        DbPassword = DbPassword
+    };
 }

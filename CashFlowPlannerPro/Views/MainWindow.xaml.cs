@@ -1,7 +1,9 @@
 using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using CashFlowPlannerPro.Services;
+using Microsoft.Win32;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -28,12 +30,15 @@ public partial class MainWindow : Window
     {
         var dbName = Path.GetFileName(App.DatabasePath);
         UserText.Text = App.CurrentUsername;
-        DbText.Text = dbName;
+        DbText.Text = App.IsDemoMode
+            ? $"{dbName} · {LocalizationManager.Get("DemoMode")}"
+            : dbName;
     }
 
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         ApplyLocalization();
+        UpdateStatusBar();
     }
 
     private void ApplyLocalization()
@@ -59,6 +64,9 @@ public partial class MainWindow : Window
 
         ProfileButton.Content = LocalizationManager.Get("ProfileButton");
         SwitchDatabaseButton.Content = LocalizationManager.Get("SwitchDatabaseButton");
+        BackupButton.Content = LocalizationManager.Get("BackupButton");
+        RestoreButton.Content = LocalizationManager.Get("RestoreButton");
+        CheckUpdatesButton.Content = LocalizationManager.Get("CheckUpdatesButton");
         AboutButton.Content = LocalizationManager.Get("AboutButton");
         ExitButton.Content = LocalizationManager.Get("ExitButton");
 
@@ -79,6 +87,9 @@ public partial class MainWindow : Window
         // Tooltips — System
         ProfileButton.ToolTip = TooltipService.Get("Nav_Profile");
         SwitchDatabaseButton.ToolTip = TooltipService.Get("Nav_SwitchDb");
+        BackupButton.ToolTip = LocalizationManager.Get("BackupButton");
+        RestoreButton.ToolTip = LocalizationManager.Get("RestoreButton");
+        CheckUpdatesButton.ToolTip = LocalizationManager.Get("CheckUpdatesButton");
         AboutButton.ToolTip = TooltipService.Get("Nav_About");
         ExitButton.ToolTip = TooltipService.Get("Nav_Exit");
     }
@@ -139,6 +150,8 @@ public partial class MainWindow : Window
             App.CurrentUsername = loginDialog.SelectedUsername;
             App.CurrentUserId = Data.Database.Instance.GetUserId(loginDialog.SelectedUsername);
             App.DatabasePath = loginDialog.SelectedDatabasePath;
+            App.IsDemoMode = loginDialog.IsDemoSession;
+            App.CurrentConnectionConfig = loginDialog.ActiveConnectionConfig?.Clone();
             App.LoadPermissions();
             var newWindow = new MainWindow();
             newWindow.Show();
@@ -159,8 +172,107 @@ public partial class MainWindow : Window
             LocalizationManager.Get("AboutTitle"));
     }
 
+    private void Backup_Click(object sender, RoutedEventArgs e)
+    {
+        if (!BackupService.SupportsFileBackup())
+        {
+            ModernMessageBox.Show(
+                LocalizationManager.Get("BackupSQLiteOnly"),
+                LocalizationManager.Get("BackupTitle"));
+            return;
+        }
+
+        var sourcePath = App.CurrentConnectionConfig!.FilePath;
+        var dialog = new SaveFileDialog
+        {
+            Title = LocalizationManager.Get("BackupDialogTitle"),
+            Filter = LocalizationManager.Get("BackupDialogFilter"),
+            DefaultExt = ".db",
+            FileName = $"{Path.GetFileNameWithoutExtension(sourcePath)}-backup-{DateTime.Now:yyyyMMdd-HHmmss}.db"
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        try
+        {
+            BackupService.CreateBackup(dialog.FileName);
+            ModernMessageBox.Show(
+                string.Format(LocalizationManager.Get("BackupSuccess"), dialog.FileName),
+                LocalizationManager.Get("BackupTitle"));
+            UpdateStatusBar();
+        }
+        catch (Exception ex)
+        {
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("BackupFailed"), ex.Message),
+                LocalizationManager.Get("BackupTitle"));
+        }
+    }
+
+    private void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (!BackupService.SupportsFileBackup())
+        {
+            ModernMessageBox.Show(
+                LocalizationManager.Get("BackupSQLiteOnly"),
+                LocalizationManager.Get("RestoreTitle"));
+            return;
+        }
+
+        var dialog = new OpenFileDialog
+        {
+            Title = LocalizationManager.Get("RestoreDialogTitle"),
+            Filter = LocalizationManager.Get("BackupDialogFilter"),
+            DefaultExt = ".db"
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        if (!ModernMessageBox.ShowConfirm(
+            string.Format(LocalizationManager.Get("RestoreConfirm"), Path.GetFileName(dialog.FileName)),
+            LocalizationManager.Get("RestoreTitle")))
+            return;
+
+        try
+        {
+            BackupService.RestoreBackup(dialog.FileName);
+            ModernMessageBox.Show(
+                LocalizationManager.Get("RestoreSuccessRestart"),
+                LocalizationManager.Get("RestoreTitle"));
+            RestartApplication();
+        }
+        catch (Exception ex)
+        {
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("RestoreFailed"), ex.Message),
+                LocalizationManager.Get("RestoreTitle"));
+        }
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        await UpdateService.CheckForUpdatesAsync();
+    }
+
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
+        Application.Current.Shutdown();
+    }
+
+    private static void RestartApplication()
+    {
+        var exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrWhiteSpace(exePath))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = true
+            });
+        }
+
         Application.Current.Shutdown();
     }
 }

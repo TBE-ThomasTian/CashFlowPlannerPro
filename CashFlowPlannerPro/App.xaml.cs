@@ -8,6 +8,8 @@ public partial class App : Application
     public static string CurrentUsername { get; set; } = string.Empty;
     public static long CurrentUserId { get; set; }
     public static string DatabasePath { get; set; } = string.Empty;
+    public static bool IsDemoMode { get; set; }
+    public static Data.ConnectionConfig? CurrentConnectionConfig { get; set; }
     public static Dictionary<string, string> Permissions { get; set; } = [];
 
     public static string GetAccess(string pageKey)
@@ -46,6 +48,8 @@ public partial class App : Application
             CurrentUsername = loginDialog.SelectedUsername;
             CurrentUserId = Data.Database.Instance.GetUserId(CurrentUsername);
             DatabasePath = loginDialog.SelectedDatabasePath;
+            IsDemoMode = loginDialog.IsDemoSession;
+            CurrentConnectionConfig = loginDialog.ActiveConnectionConfig?.Clone();
             LoadPermissions();
             var mainWindow = new Views.MainWindow();
             ShutdownMode = ShutdownMode.OnMainWindowClose;
