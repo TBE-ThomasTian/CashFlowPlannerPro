@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -55,5 +57,45 @@ public partial class InvoicesView : UserControl
         {
             ModernMessageBox.ShowError($"Fehler beim Scannen:\n{ex.Message}", "PDF Scan");
         }
+    }
+
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        TryDeleteSelection();
+    }
+
+    private void InvoicesGrid_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete)
+            return;
+
+        if (e.OriginalSource is TextBox or ComboBox)
+            return;
+
+        if (TryDeleteSelection())
+            e.Handled = true;
+    }
+
+    private bool TryDeleteSelection()
+    {
+        var selectedInvoices = InvoicesGrid.SelectedItems.Cast<Invoice>().Distinct().ToList();
+        if (selectedInvoices.Count == 0 && _vm.SelectedInvoice != null)
+            selectedInvoices.Add(_vm.SelectedInvoice);
+
+        if (selectedInvoices.Count == 0)
+        {
+            ModernMessageBox.Show("Bitte waehle zuerst mindestens eine Rechnung aus.", "Rechnungen");
+            return false;
+        }
+
+        var message = selectedInvoices.Count == 1
+            ? $"Soll die Rechnung fuer \"{selectedInvoices[0].Customer}\" wirklich geloescht werden?"
+            : $"Sollen die {selectedInvoices.Count} ausgewaehlten Rechnungen wirklich geloescht werden?";
+
+        if (!ModernMessageBox.ShowConfirm(message, "Rechnungen"))
+            return false;
+
+        _vm.DeleteInvoices(selectedInvoices);
+        return true;
     }
 }

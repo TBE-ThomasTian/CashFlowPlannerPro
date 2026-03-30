@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 
@@ -8,6 +9,7 @@ namespace CashFlowPlannerPro.Views;
 public partial class SevDeskImportDialog : Window
 {
     private readonly SevDeskImportPreview _preview;
+    private bool _isUpdatingSelectAllState;
 
     public SevDeskImportDialog(SevDeskImportPreview preview)
     {
@@ -50,30 +52,58 @@ public partial class SevDeskImportDialog : Window
 
     private void SelectAllCustomersCheckBox_Changed(object sender, RoutedEventArgs e)
     {
+        if (_isUpdatingSelectAllState)
+            return;
+
         bool isChecked = SelectAllCustomersCheckBox.IsChecked == true;
         foreach (var item in _preview.Contacts)
             item.IsSelected = isChecked;
         CustomersGrid.Items.Refresh();
+        RefreshSelectAllTexts();
     }
 
     private void SelectAllInvoicesCheckBox_Changed(object sender, RoutedEventArgs e)
     {
+        if (_isUpdatingSelectAllState)
+            return;
+
         bool isChecked = SelectAllInvoicesCheckBox.IsChecked == true;
         foreach (var item in _preview.Invoices)
             item.IsSelected = isChecked;
         InvoicesGrid.Items.Refresh();
+        RefreshSelectAllTexts();
     }
 
     private void SelectAllOffersCheckBox_Changed(object sender, RoutedEventArgs e)
     {
+        if (_isUpdatingSelectAllState)
+            return;
+
         bool isChecked = SelectAllOffersCheckBox.IsChecked == true;
         foreach (var item in _preview.Offers)
             item.IsSelected = isChecked;
         OffersGrid.Items.Refresh();
+        RefreshSelectAllTexts();
     }
 
     private void GridSelectionCheckBox_Click(object sender, RoutedEventArgs e)
     {
+        if (sender is CheckBox checkBox)
+        {
+            switch (checkBox.DataContext)
+            {
+                case SevDeskContactPreview contact:
+                    contact.IsSelected = checkBox.IsChecked == true;
+                    break;
+                case SevDeskInvoicePreview invoice:
+                    invoice.IsSelected = checkBox.IsChecked == true;
+                    break;
+                case SevDeskOfferPreview offer:
+                    offer.IsSelected = checkBox.IsChecked == true;
+                    break;
+            }
+        }
+
         RefreshSelectAllTexts();
     }
 
@@ -94,19 +124,38 @@ public partial class SevDeskImportDialog : Window
 
     private void RefreshSelectAllTexts()
     {
+        _isUpdatingSelectAllState = true;
+
         SelectAllCustomersCheckBox.Content = string.Format(
             LocalizationManager.Get("IntegrationsSelectAllCustomers"),
             _preview.Contacts.Count);
-        SelectAllCustomersCheckBox.IsChecked = _preview.Contacts.Count > 0 && _preview.Contacts.All(x => x.IsSelected);
+        SelectAllCustomersCheckBox.IsChecked = GetSelectAllState(_preview.Contacts.Select(x => x.IsSelected));
 
         SelectAllInvoicesCheckBox.Content = string.Format(
             LocalizationManager.Get("IntegrationsSelectAllInvoices"),
             _preview.Invoices.Count);
-        SelectAllInvoicesCheckBox.IsChecked = _preview.Invoices.Count > 0 && _preview.Invoices.All(x => x.IsSelected);
+        SelectAllInvoicesCheckBox.IsChecked = GetSelectAllState(_preview.Invoices.Select(x => x.IsSelected));
 
         SelectAllOffersCheckBox.Content = string.Format(
             LocalizationManager.Get("IntegrationsSelectAllOffers"),
             _preview.Offers.Count);
-        SelectAllOffersCheckBox.IsChecked = _preview.Offers.Count > 0 && _preview.Offers.All(x => x.IsSelected);
+        SelectAllOffersCheckBox.IsChecked = GetSelectAllState(_preview.Offers.Select(x => x.IsSelected));
+
+        _isUpdatingSelectAllState = false;
+    }
+
+    private static bool? GetSelectAllState(IEnumerable<bool> selections)
+    {
+        var selectionList = selections.ToList();
+        if (selectionList.Count == 0)
+            return false;
+
+        if (selectionList.All(x => x))
+            return true;
+
+        if (selectionList.All(x => !x))
+            return false;
+
+        return null;
     }
 }

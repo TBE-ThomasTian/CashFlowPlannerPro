@@ -51,6 +51,24 @@ public partial class InvoicesViewModel : ObservableObject
         Invoices.Remove(SelectedInvoice);
     }
 
+    public void DeleteInvoices(IEnumerable<Invoice> invoicesToDelete)
+    {
+        var ids = invoicesToDelete
+            .Where(i => i.Id > 0)
+            .Select(i => i.Id)
+            .Distinct()
+            .ToHashSet();
+
+        if (ids.Count == 0)
+            return;
+
+        foreach (var id in ids)
+            Database.Instance.DeleteInvoice(id);
+
+        Invoices = new ObservableCollection<Invoice>(Invoices.Where(i => !ids.Contains(i.Id)));
+        SelectedInvoice = Invoices.FirstOrDefault();
+    }
+
     [RelayCommand]
     private void SelectPdf()
     {

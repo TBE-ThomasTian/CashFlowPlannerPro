@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
@@ -60,6 +61,23 @@ public partial class OffersView : UserControl
 
     private void Delete_Click(object sender, RoutedEventArgs e)
     {
+        TryDeleteSelection();
+    }
+
+    private void OffersGrid_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete)
+            return;
+
+        if (e.OriginalSource is TextBox or ComboBox)
+            return;
+
+        if (TryDeleteSelection())
+            e.Handled = true;
+    }
+
+    private bool TryDeleteSelection()
+    {
         var selectedOffers = OffersGrid.SelectedItems.Cast<Offer>().Distinct().ToList();
         if (selectedOffers.Count == 0 && _vm.SelectedOffer != null)
             selectedOffers.Add(_vm.SelectedOffer);
@@ -67,7 +85,7 @@ public partial class OffersView : UserControl
         if (selectedOffers.Count == 0)
         {
             ModernMessageBox.Show("Bitte waehle zuerst mindestens ein Angebot aus.", "Angebote");
-            return;
+            return false;
         }
 
         var message = selectedOffers.Count == 1
@@ -75,8 +93,9 @@ public partial class OffersView : UserControl
             : $"Sollen die {selectedOffers.Count} ausgewaehlten Angebote wirklich geloescht werden?";
 
         if (!ModernMessageBox.ShowConfirm(message, "Angebote"))
-            return;
+            return false;
 
         _vm.DeleteOffers(selectedOffers);
+        return true;
     }
 }

@@ -21,6 +21,7 @@
         </Border>
         <DataGrid x:Name="OffersGrid" Grid.Row="1" ItemsSource="{Binding Offers}" SelectedItem="{Binding SelectedOffer}"
                   SelectionMode="Extended" SelectionUnit="FullRow"
+                  PreviewKeyDown="OffersGrid_PreviewKeyDown"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Angebotsnummer" Binding="{Binding OfferNumber}" IsReadOnly="True" Width="140"/>

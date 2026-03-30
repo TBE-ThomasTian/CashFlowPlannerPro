@@ -252,7 +252,11 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="IntegrationsSelectAllOffers" xml:space="preserve"><value>Alle Angebote auswählen ({0})</value></data>
   <data name="IntegrationsNew" xml:space="preserve"><value>Neu</value></data>
   <data name="IntegrationsExisting" xml:space="preserve"><value>Vorhanden</value></data>
-  <data name="IntegrationsImportSuccess" xml:space="preserve"><value>Import abgeschlossen. Kunden: {0}, Rechnungen: {1}, Angebote: {2}</value></data>
+  <data name="IntegrationsImportSuccess" xml:space="preserve"><value>Import abgeschlossen.
+
+Kunden ausgewählt: {0} · geändert/neu: {1}
+Rechnungen ausgewählt: {2} · geändert/neu: {3}
+Angebote ausgewählt: {4} · geändert/neu: {5}</value></data>
   <data name="IntegrationsImportCompleted" xml:space="preserve"><value>Import abgeschlossen.</value></data>
   <data name="ExitButton" xml:space="preserve"><value>🚪  Beenden</value></data>
   <data name="DemoMode" xml:space="preserve"><value>Demo</value></data>

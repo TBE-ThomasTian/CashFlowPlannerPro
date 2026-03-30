@@ -12,6 +12,62 @@
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Margin" Value="0"/>
         </Style>
+        <Style x:Key="ImportTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TabPanel Grid.Row="0"
+                                      IsItemsHost="True"
+                                      Margin="0,0,0,12"
+                                      Background="Transparent"/>
+                            <ContentPresenter Grid.Row="1"
+                                              x:Name="PART_SelectedContentHost"
+                                              ContentSource="SelectedContent"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ImportTabItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource GrayBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder"
+                                Background="#F3F0F5"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              ContentSource="Header"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#ECE6F1"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
     <Grid Margin="18">
         <Grid.RowDefinitions>
@@ -40,6 +96,7 @@
                     <CheckBox x:Name="SelectAllCustomersCheckBox"
                               DockPanel.Dock="Top"
                               Margin="0,0,0,12"
+                              IsThreeState="True"
                               FontWeight="SemiBold"
                               Checked="SelectAllCustomersCheckBox_Changed"
                               Unchecked="SelectAllCustomersCheckBox_Changed"/>
@@ -76,12 +133,13 @@
                           Margin="0,6"/>
 
             <Border Grid.Column="2" Background="White" CornerRadius="10" Padding="16">
-                <TabControl>
-                    <TabItem x:Name="InvoicesTab" Header="Rechnungen">
+                <TabControl SelectedIndex="0" Style="{StaticResource ImportTabControlStyle}">
+                    <TabItem x:Name="InvoicesTab" Header="Rechnungen" Style="{StaticResource ImportTabItemStyle}">
                         <DockPanel Margin="0,10,0,0">
                             <CheckBox x:Name="SelectAllInvoicesCheckBox"
                                       DockPanel.Dock="Top"
                                       Margin="0,0,0,12"
+                                      IsThreeState="True"
                                       FontWeight="SemiBold"
                                       Checked="SelectAllInvoicesCheckBox_Changed"
                                       Unchecked="SelectAllInvoicesCheckBox_Changed"/>
@@ -112,11 +170,12 @@
                         </DockPanel>
                     </TabItem>
 
-                    <TabItem x:Name="OffersTab" Header="Angebote">
+                    <TabItem x:Name="OffersTab" Header="Angebote" Style="{StaticResource ImportTabItemStyle}">
                         <DockPanel Margin="0,10,0,0">
                             <CheckBox x:Name="SelectAllOffersCheckBox"
                                       DockPanel.Dock="Top"
                                       Margin="0,0,0,12"
+                                      IsThreeState="True"
                                       FontWeight="SemiBold"
                                       Checked="SelectAllOffersCheckBox_Changed"
                                       Unchecked="SelectAllOffersCheckBox_Changed"/>

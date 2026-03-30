@@ -12,6 +12,11 @@ namespace CashFlowPlannerPro.Views;
 
 public partial class IntegrationsView : UserControl
 {
+    private readonly record struct ImportStats(int SelectedCount, int AddedCount, int UpdatedCount)
+    {
+        public int ChangedCount => AddedCount + UpdatedCount;
+    }
+
     private bool _isBusy;
 
     public IntegrationsView()
@@ -122,12 +127,23 @@ public partial class IntegrationsView : UserControl
 
             if (dialog.ShowDialog() == true)
             {
-                var importedCustomers = ImportCustomers(preview.Contacts.Where(x => x.IsSelected));
-                var importedInvoices = ImportInvoices(preview.Invoices.Where(x => x.IsSelected));
-                var importedOffers = ImportOffers(preview.Offers.Where(x => x.IsSelected));
+                var selectedCustomers = preview.Contacts.Where(x => x.IsSelected).ToList();
+                var selectedInvoices = preview.Invoices.Where(x => x.IsSelected).ToList();
+                var selectedOffers = preview.Offers.Where(x => x.IsSelected).ToList();
+
+                var customerStats = ImportCustomers(selectedCustomers);
+                var invoiceStats = ImportInvoices(selectedInvoices);
+                var offerStats = ImportOffers(selectedOffers);
 
                 ModernMessageBox.Show(
-                    string.Format(LocalizationManager.Get("IntegrationsImportSuccess"), importedCustomers, importedInvoices, importedOffers),
+                    string.Format(
+                        LocalizationManager.Get("IntegrationsImportSuccess"),
+                        customerStats.SelectedCount,
+                        customerStats.ChangedCount,
+                        invoiceStats.SelectedCount,
+                        invoiceStats.ChangedCount,
+                        offerStats.SelectedCount,
+                        offerStats.ChangedCount),
                     LocalizationManager.Get("IntegrationsImportDialogTitle"));
                 SetStatus(LocalizationManager.Get("IntegrationsImportCompleted"), Brushes.SeaGreen);
             }
@@ -219,11 +235,13 @@ public partial class IntegrationsView : UserControl
                 && Math.Abs(local.Amount - offer.Amount) < 0.01));
     }
 
-    private static int ImportCustomers(IEnumerable<SevDeskContactPreview> selectedContacts)
+    private static ImportStats ImportCustomers(IEnumerable<SevDeskContactPreview> selectedContacts)
     {
-        int changedCustomers = 0;
+        var selectedList = selectedContacts.ToList();
+        int addedCustomers = 0;
+        int updatedCustomers = 0;
         var existing = Database.Instance.GetCustomers();
-        foreach (var contact in selectedContacts)
+        foreach (var contact in selectedList)
         {
             var existingCustomer = FindExistingCustomer(existing, contact);
             if (existingCustomer != null)
@@ -231,7 +249,7 @@ public partial class IntegrationsView : UserControl
                 if (MergeCustomer(existingCustomer, contact))
                 {
                     Database.Instance.UpdateCustomer(existingCustomer);
-                    changedCustomers++;
+                    updatedCustomers++;
                 }
 
                 continue;
@@ -240,17 +258,19 @@ public partial class IntegrationsView : UserControl
             var customer = contact.ToCustomer();
             Database.Instance.AddCustomer(customer);
             existing.Add(customer);
-            changedCustomers++;
+            addedCustomers++;
         }
 
-        return changedCustomers;
+        return new ImportStats(selectedList.Count, addedCustomers, updatedCustomers);
     }
 
-    private static int ImportInvoices(IEnumerable<SevDeskInvoicePreview> selectedInvoices)
+    private static ImportStats ImportInvoices(IEnumerable<SevDeskInvoicePreview> selectedInvoices)
     {
-        int changedInvoices = 0;
+        var selectedList = selectedInvoices.ToList();
+        int addedInvoices = 0;
+        int updatedInvoices = 0;
         var existing = Database.Instance.GetInvoices();
-        foreach (var invoice in selectedInvoices)
+        foreach (var invoice in selectedList)
         {
             var existingInvoice = FindExistingInvoice(existing, invoice);
             if (existingInvoice != null)
@@ -258,7 +278,7 @@ public partial class IntegrationsView : UserControl
                 if (MergeInvoice(existingInvoice, invoice))
                 {
                     Database.Instance.UpdateInvoice(existingInvoice);
-                    changedInvoices++;
+                    updatedInvoices++;
                 }
 
                 continue;
@@ -267,17 +287,19 @@ public partial class IntegrationsView : UserControl
             var localInvoice = invoice.ToInvoice();
             Database.Instance.AddInvoice(localInvoice);
             existing.Add(localInvoice);
-            changedInvoices++;
+            addedInvoices++;
         }
 
-        return changedInvoices;
+        return new ImportStats(selectedList.Count, addedInvoices, updatedInvoices);
     }
 
-    private static int ImportOffers(IEnumerable<SevDeskOfferPreview> selectedOffers)
+    private static ImportStats ImportOffers(IEnumerable<SevDeskOfferPreview> selectedOffers)
     {
-        int changedOffers = 0;
+        var selectedList = selectedOffers.ToList();
+        int addedOffers = 0;
+        int updatedOffers = 0;
         var existing = Database.Instance.GetOffers();
-        foreach (var offer in selectedOffers)
+        foreach (var offer in selectedList)
         {
             var existingOffer = FindExistingOffer(existing, offer);
             if (existingOffer != null)
@@ -285,7 +307,7 @@ public partial class IntegrationsView : UserControl
                 if (MergeOffer(existingOffer, offer))
                 {
                     Database.Instance.UpdateOffer(existingOffer);
-                    changedOffers++;
+                    updatedOffers++;
                 }
 
                 continue;
@@ -294,10 +316,10 @@ public partial class IntegrationsView : UserControl
             var localOffer = offer.ToOffer();
             Database.Instance.AddOffer(localOffer);
             existing.Add(localOffer);
-            changedOffers++;
+            addedOffers++;
         }
 
-        return changedOffers;
+        return new ImportStats(selectedList.Count, addedOffers, updatedOffers);
     }
 
     private void SetStatus(string message, Brush color)
