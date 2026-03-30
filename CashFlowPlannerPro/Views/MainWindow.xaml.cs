@@ -12,13 +12,13 @@ public partial class MainWindow : Window
     private readonly Button[] _navButtons;
     private static readonly string[] NavPageKeys = [
         "dashboard", "transactions", "fixkosten", "taxes",
-        "invoices", "offers", "resources", "targets", "todos", "timetracking", "kunden", "admin"
+        "invoices", "offers", "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin"
     ];
 
     public MainWindow()
     {
         InitializeComponent();
-        _navButtons = [Nav0, Nav1, Nav2, Nav3, Nav4, Nav5, Nav6, Nav7, Nav8, Nav9, Nav10, Nav11];
+        _navButtons = [Nav0, Nav1, Nav2, Nav3, Nav4, Nav5, Nav6, Nav7, Nav8, Nav9, Nav10, Nav11, Nav12];
         LocalizationManager.LanguageChanged += OnLanguageChanged;
         ApplyLocalization();
         UpdateStatusBar();
@@ -60,7 +60,8 @@ public partial class MainWindow : Window
         Nav8.Content = LocalizationManager.Get("NavTodos");
         Nav9.Content = LocalizationManager.Get("NavTimeTracking");
         Nav10.Content = LocalizationManager.Get("NavAddressBook");
-        Nav11.Content = LocalizationManager.Get("NavAdmin");
+        Nav11.Content = LocalizationManager.Get("NavIntegrations");
+        Nav12.Content = LocalizationManager.Get("NavAdmin");
 
         ProfileButton.Content = LocalizationManager.Get("ProfileButton");
         SwitchDatabaseButton.Content = LocalizationManager.Get("SwitchDatabaseButton");
@@ -82,7 +83,8 @@ public partial class MainWindow : Window
         Nav8.ToolTip = TooltipService.Get("Nav_Todos");
         Nav9.ToolTip = TooltipService.Get("Nav_TimeTracking");
         Nav10.ToolTip = TooltipService.Get("Nav_Customers");
-        Nav11.ToolTip = TooltipService.Get("Nav_Admin");
+        Nav11.ToolTip = TooltipService.Get("Nav_Integrations");
+        Nav12.ToolTip = TooltipService.Get("Nav_Admin");
 
         // Tooltips — System
         ProfileButton.ToolTip = TooltipService.Get("Nav_Profile");

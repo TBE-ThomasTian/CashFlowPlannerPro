@@ -14,11 +14,18 @@ namespace CashFlowPlannerPro.ViewModels;
 public partial class InvoicesViewModel : ObservableObject
 {
     [ObservableProperty] private ObservableCollection<Invoice> invoices = new();
+    [ObservableProperty] private ObservableCollection<string> customerNames = new();
     [ObservableProperty] private Invoice? selectedInvoice;
 
     public void Load()
     {
         Invoices = new ObservableCollection<Invoice>(Database.Instance.GetInvoices());
+        CustomerNames = new ObservableCollection<string>(
+            Database.Instance.GetCustomers()
+                .Select(c => c.DisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name));
     }
 
     [RelayCommand]
@@ -28,7 +35,8 @@ public partial class InvoicesViewModel : ObservableObject
             IssueDate = DateTime.Today.ToString("yyyy-MM-dd"),
             DueDate = DateTime.Today.AddDays(30).ToString("yyyy-MM-dd"),
             Status = "Offen",
-            Amount = 0
+            Amount = 0,
+            Customer = CustomerNames.FirstOrDefault() ?? ""
         };
         Database.Instance.AddInvoice(inv);
         Invoices.Add(inv);

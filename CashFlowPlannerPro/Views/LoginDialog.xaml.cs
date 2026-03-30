@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -26,6 +27,7 @@ public partial class LoginDialog : Window
     public string SelectedUsername { get; private set; } = string.Empty;
     public ConnectionConfig? ActiveConnectionConfig { get; private set; }
     public bool IsDemoSession { get; private set; }
+    private bool _isBusy;
 
     public LoginDialog()
     {
@@ -42,6 +44,7 @@ public partial class LoginDialog : Window
         ImportServerBtn.ToolTip = TooltipService.Get("Btn_ImportServer");
         LoginButton.ToolTip = TooltipService.Get("Btn_Login");
         DemoButton.ToolTip = LocalizationManager.Get("LoginDemoButton");
+        BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
         UsernameTextBox.TextChanged += (_, _) => {
@@ -58,6 +61,8 @@ public partial class LoginDialog : Window
     {
         ApplyLocalization();
         UpdateDatabasePathDisplay();
+        if (_isBusy)
+            BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
     }
 
     private void UsernameListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -201,7 +206,7 @@ public partial class LoginDialog : Window
     {
         SelectedDatabasePath = path;
         UpdateDatabasePathDisplay();
-        LoadUsernames();
+        _ = LoadUsernamesAsync();
     }
 
     private void ApplyLocalization()
@@ -216,6 +221,7 @@ public partial class LoginDialog : Window
         LoginButton.Content = LocalizationManager.Get("LoginButton");
         DemoButton.Content = LocalizationManager.Get("LoginDemoButton");
         UsernamePlaceholder.Text = LocalizationManager.Get("LoginUsernamePlaceholder");
+        BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
         if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
             UpdateDatabasePathDisplay();
     }
@@ -270,15 +276,22 @@ public partial class LoginDialog : Window
         };
     }
 
-    private void LoadUsernames()
+    private async Task LoadUsernamesAsync()
     {
+        if (_isBusy)
+            return;
+
+        SetBusy(true);
         try
         {
             var config = BuildConnectionConfig();
             ActiveConnectionConfig = config;
-            Database.Instance.Open(config);
-            Database.Instance.EnsureSchema();
-            _usernames = Database.Instance.GetUsernames();
+            _usernames = await Task.Run(() =>
+            {
+                Database.Instance.Open(config);
+                Database.Instance.EnsureSchema();
+                return Database.Instance.GetUsernames();
+            });
             UsernameListBox.Items.Clear();
             foreach (var u in _usernames)
                 UsernameListBox.Items.Add(u);
@@ -286,6 +299,10 @@ public partial class LoginDialog : Window
         catch (Exception ex)
         {
             ShowError(string.Format(LocalizationManager.Get("LoginDatabaseError"), ex.Message));
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
 
@@ -344,7 +361,7 @@ public partial class LoginDialog : Window
             File.Delete(path);
     }
 
-    private void LoginButton_Click(object sender, RoutedEventArgs e)
+    private async void LoginButton_Click(object sender, RoutedEventArgs e)
     {
         IsDemoSession = false;
         if (_selectedBackend == DatabaseBackend.SQLite && string.IsNullOrEmpty(SelectedDatabasePath))
@@ -361,14 +378,25 @@ public partial class LoginDialog : Window
         {
             var config = BuildConnectionConfig();
             ActiveConnectionConfig = config;
-            Database.Instance.Open(config);
-            Database.Instance.EnsureSchema();
-            if (Database.Instance.ValidateUser(username, password))
+            SetBusy(true);
+            var loginResult = await Task.Run(() =>
+            {
+                Database.Instance.Open(config);
+                Database.Instance.EnsureSchema();
+                var isValid = Database.Instance.ValidateUser(username, password);
+                return new LoginCheckResult
+                {
+                    IsValid = isValid,
+                    RequiresDefaultPasswordChange = isValid && Database.Instance.IsFirstRun && username == "admin" && password == "admin"
+                };
+            });
+
+            if (loginResult.IsValid)
             {
                 SelectedUsername = username;
                 SaveSettings();
-                // Force password change on first run with default credentials
-                if (Database.Instance.IsFirstRun && username == "admin" && password == "admin")
+
+                if (loginResult.RequiresDefaultPasswordChange)
                 {
                     ModernMessageBox.Show(
                         LocalizationManager.Get("FirstRunPasswordPrompt"),
@@ -384,7 +412,9 @@ public partial class LoginDialog : Window
                             ShowError(LocalizationManager.Get("PasswordCannotBeAdmin"));
                             return;
                         }
-                        Database.Instance.ChangePassword(username, pwDlg.ResultText);
+
+                        SetBusy(true);
+                        await Task.Run(() => Database.Instance.ChangePassword(username, pwDlg.ResultText));
                         ModernMessageBox.Show(
                             LocalizationManager.Get("PasswordChangedSuccess"),
                             LocalizationManager.Get("DoneTitle"));
@@ -395,30 +425,40 @@ public partial class LoginDialog : Window
                         return;
                     }
                 }
+
                 DialogResult = true;
             }
             else
+            {
                 ShowError(LocalizationManager.Get("LoginInvalidCredentials"));
+            }
         }
         catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginError"), ex.Message)); }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
-    private void DemoButton_Click(object sender, RoutedEventArgs e)
+    private async void DemoButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            Directory.CreateDirectory(DemoDir);
-            CreateFreshDatabase(DemoDatabasePath);
-
             var config = new ConnectionConfig
             {
                 Backend = DatabaseBackend.SQLite,
                 FilePath = DemoDatabasePath
             };
 
-            Database.Instance.Open(config);
-            Database.Instance.EnsureSchema();
-            Database.Instance.SeedDemoData();
+            SetBusy(true);
+            await Task.Run(() =>
+            {
+                Directory.CreateDirectory(DemoDir);
+                CreateFreshDatabase(DemoDatabasePath);
+                Database.Instance.Open(config);
+                Database.Instance.EnsureSchema();
+                Database.Instance.SeedDemoData();
+            });
 
             ActiveConnectionConfig = config;
             SelectedDatabasePath = DemoDatabasePath;
@@ -429,6 +469,10 @@ public partial class LoginDialog : Window
         catch (Exception ex)
         {
             ShowError(string.Format(LocalizationManager.Get("LoginCreateError"), ex.Message));
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
 
@@ -451,14 +495,18 @@ public partial class LoginDialog : Window
         UpdateConnectionExpanderState();
     }
 
-    private void TestMariaDbConnection_Click(object sender, RoutedEventArgs e)
+    private async void TestMariaDbConnection_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             var config = BuildConnectionConfig();
-            Database.Instance.Open(config);
-            Database.Instance.EnsureSchema();
-            _usernames = Database.Instance.GetUsernames();
+            SetBusy(true);
+            _usernames = await Task.Run(() =>
+            {
+                Database.Instance.Open(config);
+                Database.Instance.EnsureSchema();
+                return Database.Instance.GetUsernames();
+            });
             UsernameListBox.Items.Clear();
             foreach (var u in _usernames)
                 UsernameListBox.Items.Add(u);
@@ -471,6 +519,10 @@ public partial class LoginDialog : Window
             TbMariaStatus.Text = $"❌ Fehler: {ex.Message}";
             TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
 
@@ -515,7 +567,7 @@ public partial class LoginDialog : Window
             else
                 ModernMessageBox.ShowError($"Import mit Fehlern:\n{result.Summary()}", "Migration");
 
-            LoadUsernames();
+            _ = LoadUsernamesAsync();
         }
         catch (Exception ex)
         {
@@ -553,7 +605,7 @@ public partial class LoginDialog : Window
             else
                 ModernMessageBox.ShowError($"Import mit Fehlern:\n{result.Summary()}", "Migration");
 
-            LoadUsernames();
+            _ = LoadUsernamesAsync();
         }
         catch (Exception ex)
         {
@@ -563,6 +615,20 @@ public partial class LoginDialog : Window
 
     private void ShowError(string msg) { ErrorText.Text = msg; ErrorText.Visibility = Visibility.Visible; }
     private void ClearError() { ErrorText.Text = ""; ErrorText.Visibility = Visibility.Collapsed; }
+
+    private void SetBusy(bool isBusy)
+    {
+        _isBusy = isBusy;
+        MainContentGrid.IsEnabled = !isBusy;
+        BusyOverlay.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        Mouse.OverrideCursor = isBusy ? Cursors.Wait : null;
+    }
+
+    private sealed class LoginCheckResult
+    {
+        public bool IsValid { get; init; }
+        public bool RequiresDefaultPasswordChange { get; init; }
+    }
 
     private class AppSettings
     {

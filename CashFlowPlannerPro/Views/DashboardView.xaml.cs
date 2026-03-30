@@ -1,4 +1,6 @@
 using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Controls;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -37,10 +39,14 @@ public partial class DashboardView : UserControl
                 UpdateChart();
                 UpdateMiniBars();
             }
+            else if (e.PropertyName == nameof(DashboardViewModel.IsBusy))
+            {
+                BusyOverlay.Visibility = _vm.IsBusy ? Visibility.Visible : Visibility.Collapsed;
+            }
         };
-        _vm.Load();
-        UpdateChart();
-        UpdateMiniBars();
+        BusyOverlay.Visibility = Visibility.Visible;
+        DashboardBusyText.Text = LocalizationManager.Get("LoadingData");
+        Loaded += DashboardView_LoadedAsync;
         Unloaded += (_, _) =>
         {
             if (!_isSubscribed) return;
@@ -49,11 +55,29 @@ public partial class DashboardView : UserControl
         };
     }
 
+    private async void DashboardView_LoadedAsync(object sender, RoutedEventArgs e)
+    {
+        Loaded -= DashboardView_LoadedAsync;
+        try
+        {
+            await _vm.LoadAsync();
+            UpdateChart();
+            UpdateMiniBars();
+        }
+        catch (Exception ex)
+        {
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("DashboardLoadFailed"), ex.Message),
+                LocalizationManager.Get("AppErrorTitle"));
+        }
+    }
+
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         ApplyLocalization();
         UpdateChart();
         UpdateMiniBars();
+        DashboardBusyText.Text = LocalizationManager.Get("LoadingData");
     }
 
     private void ApplyLocalization()

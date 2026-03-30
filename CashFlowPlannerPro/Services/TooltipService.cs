@@ -18,6 +18,7 @@ public static class TooltipService
         ["Nav_Todos"] = ("Aufgaben verwalten", "Manage tasks"),
         ["Nav_TimeTracking"] = ("Arbeitszeiten erfassen", "Track working hours"),
         ["Nav_Customers"] = ("Kunden und Kontakte verwalten", "Manage customers and contacts"),
+        ["Nav_Integrations"] = ("Add-ons und Drittanbieter anbinden", "Connect add-ons and third-party services"),
         ["Nav_Admin"] = ("Benutzer und Rollen verwalten", "Manage users and roles"),
         ["Nav_Profile"] = ("Profil und Einstellungen bearbeiten", "Edit profile and settings"),
         ["Nav_SwitchDb"] = ("Datenbank wechseln oder neu verbinden", "Switch or reconnect database"),

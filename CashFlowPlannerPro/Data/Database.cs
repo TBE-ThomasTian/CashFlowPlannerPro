@@ -2162,7 +2162,7 @@ public sealed class Database : IDisposable {
     }
 
     void EnsureDefaultRoles() {
-        var allPages = new[] { "dashboard", "transactions", "fixkosten", "taxes", "invoices", "offers", "resources", "targets", "todos", "timetracking", "admin" };
+        var allPages = new[] { "dashboard", "transactions", "fixkosten", "taxes", "invoices", "offers", "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin" };
 
         long adminRoleId = EnsureRole("Admin", "Vollzugriff auf alle Bereiche");
         foreach (var page in allPages)
@@ -2174,6 +2174,7 @@ public sealed class Database : IDisposable {
         EnsureRolePermission(engineerRoleId, "resources", "full");
         EnsureRolePermission(engineerRoleId, "todos", "full");
         EnsureRolePermission(engineerRoleId, "timetracking", "full");
+        EnsureRolePermission(engineerRoleId, "kunden", "read");
 
         long accountingRoleId = EnsureRole("Accounting", "Finanzen, Rechnungen, Angebote und Steuern");
         EnsureRolePermission(accountingRoleId, "dashboard", "read");
@@ -2186,6 +2187,8 @@ public sealed class Database : IDisposable {
         EnsureRolePermission(accountingRoleId, "targets", "full");
         EnsureRolePermission(accountingRoleId, "todos", "read");
         EnsureRolePermission(accountingRoleId, "timetracking", "read");
+        EnsureRolePermission(accountingRoleId, "kunden", "full");
+        EnsureRolePermission(accountingRoleId, "integrations", "full");
 
         long managementRoleId = EnsureRole("Management", "Lesender Zugriff auf relevante Bereiche");
         EnsureRolePermission(managementRoleId, "dashboard", "read");
@@ -2198,6 +2201,8 @@ public sealed class Database : IDisposable {
         EnsureRolePermission(managementRoleId, "targets", "read");
         EnsureRolePermission(managementRoleId, "todos", "read");
         EnsureRolePermission(managementRoleId, "timetracking", "read");
+        EnsureRolePermission(managementRoleId, "kunden", "read");
+        EnsureRolePermission(managementRoleId, "integrations", "read");
 
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "UPDATE users SET role_id=@rid WHERE username='admin' AND (role_id IS NULL OR role_id=0)";

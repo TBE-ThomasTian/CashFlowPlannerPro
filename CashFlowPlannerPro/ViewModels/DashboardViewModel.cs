@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -30,6 +31,7 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string teamUtilization = "";
     [ObservableProperty] private string hoursThisMonth = "";
     [ObservableProperty] private string runningTimers = "";
+    [ObservableProperty] private bool isBusy;
 
     [ObservableProperty] private ObservableCollection<MonthRow> monthRows = [];
 
@@ -37,65 +39,113 @@ public partial class DashboardViewModel : ObservableObject
 
     static string Eur(double v) => v.ToString("N2", De) + " €";
 
-    public void Load()
+    public async Task LoadAsync()
     {
-        StartBalance = Database.Instance.GetSettingStartBalance();
-        Refresh();
+        IsBusy = true;
+        try
+        {
+            StartBalance = await Task.Run(() => Database.Instance.GetSettingStartBalance());
+            await Refresh();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
-    private void Refresh()
+    private async Task Refresh()
     {
-        var rows = Database.Instance.MonthlyCashflow(
-            HorizonMonths, IncludeOffersOffen, IncludeOffersBeauftragt, IncludeInvoices, IncludeRecurring);
-        var targets = Database.Instance.GetTargets();
+        IsBusy = true;
+        try
+        {
+            var snapshot = await Task.Run(() =>
+            {
+                var rows = Database.Instance.MonthlyCashflow(
+                    HorizonMonths, IncludeOffersOffen, IncludeOffersBeauftragt, IncludeInvoices, IncludeRecurring);
+                var targets = Database.Instance.GetTargets();
+                double actualPastCashflow = Database.Instance.GetActualCashflowToDate(StartBalance);
+                string activeOffers = Eur(Database.Instance.ActiveOffersSum());
+                string openInvoices = Eur(Database.Instance.OpenInvoicesSum());
+                string hoursThisMonth = Database.Instance.GetHoursBookedThisMonth().ToString("N1", De) + " h";
+                string runningTimers = Database.Instance.CountRunningTimeEntries().ToString("N0", De);
+                var todos = Database.Instance.GetAllTodos();
+                var resources = Database.Instance.GetResources();
 
-        double cumulative = StartBalance;
-        foreach (var r in rows) {
-            cumulative += r.Net;
-            r.Cumulative = cumulative;
-            r.Target = targets.TryGetValue(r.Month, out var t) ? t : 0;
-            r.Variance = r.Net - r.Target;
+                return new DashboardSnapshot
+                {
+                    Rows = rows,
+                    Targets = targets,
+                    ActualPastCashflow = actualPastCashflow,
+                    ActiveOffers = activeOffers,
+                    OpenInvoices = openInvoices,
+                    HoursThisMonth = hoursThisMonth,
+                    RunningTimers = runningTimers,
+                    Todos = todos,
+                    Resources = resources
+                };
+            });
+
+            double cumulative = StartBalance;
+            foreach (var r in snapshot.Rows) {
+                cumulative += r.Net;
+                r.Cumulative = cumulative;
+                r.Target = snapshot.Targets.TryGetValue(r.Month, out var t) ? t : 0;
+                r.Variance = r.Net - r.Target;
+            }
+
+            MonthRows = new ObservableCollection<MonthRow>(snapshot.Rows);
+
+            CurrentBalance = Eur(snapshot.ActualPastCashflow);
+            bool anyNegative = snapshot.Rows.Any(r => r.Cumulative < 0);
+            ForecastEnd = anyNegative ? "Geld reicht nicht!" : Eur(snapshot.Rows.Count > 0 ? snapshot.Rows[^1].Cumulative : StartBalance);
+            MonthlyCashflow = snapshot.Rows.Count > 0 ? Eur(snapshot.Rows.Average(r => r.Net)) : Eur(0);
+            ActiveOffers = snapshot.ActiveOffers;
+            OpenInvoices = snapshot.OpenInvoices;
+            HoursThisMonth = snapshot.HoursThisMonth;
+            RunningTimers = snapshot.RunningTimers;
+
+            double avgExpenses = snapshot.Rows.Count > 0 ? snapshot.Rows.Average(r => Math.Abs(r.Expenses)) : 0;
+            BurnRate = Eur(avgExpenses);
+
+            double avgNet = snapshot.Rows.Count > 0 ? snapshot.Rows.Average(r => r.Net) : 0;
+            if (avgNet < 0)
+                Runway = Math.Ceiling(StartBalance / Math.Abs(avgNet)).ToString("N0", De) + " Monate";
+            else
+                Runway = "\u221e";
+
+            OpenTodos = snapshot.Todos.Count(t => !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)).ToString("N0", De);
+            OverdueTodos = snapshot.Todos.Count(t =>
+                !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)
+                && DateTime.TryParse(t.DueDate, out var due)
+                && due.Date < DateTime.Today).ToString("N0", De);
+
+            TeamUtilization = snapshot.Resources.Count == 0
+                ? "0 %"
+                : Math.Round(snapshot.Resources.Average(r => r.Availability) * 100).ToString("N0", De) + " %";
         }
-
-        MonthRows = new ObservableCollection<MonthRow>(rows);
-
-        // KPIs — CurrentBalance = StartBalance + actual past cashflow (not future forecast)
-        double actualPastCashflow = Database.Instance.GetActualCashflowToDate(StartBalance);
-        CurrentBalance = Eur(actualPastCashflow);
-        bool anyNegative = rows.Any(r => r.Cumulative < 0);
-        ForecastEnd = anyNegative ? "Geld reicht nicht!" : Eur(rows.Count > 0 ? rows[^1].Cumulative : StartBalance);
-        MonthlyCashflow = rows.Count > 0 ? Eur(rows.Average(r => r.Net)) : Eur(0);
-        ActiveOffers = Eur(Database.Instance.ActiveOffersSum());
-        OpenInvoices = Eur(Database.Instance.OpenInvoicesSum());
-        HoursThisMonth = Database.Instance.GetHoursBookedThisMonth().ToString("N1", De) + " h";
-        RunningTimers = Database.Instance.CountRunningTimeEntries().ToString("N0", De);
-
-        double avgExpenses = rows.Count > 0 ? rows.Average(r => Math.Abs(r.Expenses)) : 0;
-        BurnRate = Eur(avgExpenses);
-
-        double avgNet = rows.Count > 0 ? rows.Average(r => r.Net) : 0;
-        if (avgNet < 0)
-            Runway = Math.Ceiling(StartBalance / Math.Abs(avgNet)).ToString("N0", De) + " Monate";
-        else
-            Runway = "\u221e";
-
-        var todos = Database.Instance.GetAllTodos();
-        OpenTodos = todos.Count(t => !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)).ToString("N0", De);
-        OverdueTodos = todos.Count(t =>
-            !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)
-            && DateTime.TryParse(t.DueDate, out var due)
-            && due.Date < DateTime.Today).ToString("N0", De);
-
-        var resources = Database.Instance.GetResources();
-        TeamUtilization = resources.Count == 0
-            ? "0 %"
-            : Math.Round(resources.Average(r => r.Availability) * 100).ToString("N0", De) + " %";
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
     private void SaveBalance()
     {
         Database.Instance.SetSettingStartBalance(StartBalance);
+    }
+
+    private sealed class DashboardSnapshot
+    {
+        public List<MonthRow> Rows { get; init; } = [];
+        public Dictionary<string, double> Targets { get; init; } = [];
+        public double ActualPastCashflow { get; init; }
+        public string ActiveOffers { get; init; } = "";
+        public string OpenInvoices { get; init; } = "";
+        public string HoursThisMonth { get; init; } = "";
+        public string RunningTimers { get; init; } = "";
+        public List<UserTodo> Todos { get; init; } = [];
+        public List<Resource> Resources { get; init; } = [];
     }
 }

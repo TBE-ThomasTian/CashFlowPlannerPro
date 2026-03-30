@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,11 +14,18 @@ namespace CashFlowPlannerPro.ViewModels;
 public partial class OffersViewModel : ObservableObject
 {
     [ObservableProperty] private ObservableCollection<Offer> offers = new();
+    [ObservableProperty] private ObservableCollection<string> customerNames = new();
     [ObservableProperty] private Offer? selectedOffer;
 
     public void Load()
     {
         Offers = new ObservableCollection<Offer>(Database.Instance.GetOffers());
+        CustomerNames = new ObservableCollection<string>(
+            Database.Instance.GetCustomers()
+                .Select(c => c.DisplayName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name));
     }
 
     [RelayCommand]
@@ -27,6 +35,7 @@ public partial class OffersViewModel : ObservableObject
             OfferNumber = Database.Instance.NextOfferNumber(),
             OfferDate = DateTime.Today.ToString("yyyy-MM-dd"),
             DateExpected = DateTime.Today.ToString("yyyy-MM-dd"),
+            Customer = CustomerNames.FirstOrDefault() ?? "",
             Status = "Offen",
             Probability = 50,
             Amount = 0,
@@ -43,6 +52,24 @@ public partial class OffersViewModel : ObservableObject
         if (SelectedOffer == null) return;
         Database.Instance.DeleteOffer(SelectedOffer.Id);
         Offers.Remove(SelectedOffer);
+    }
+
+    public void DeleteOffers(IEnumerable<Offer> offersToDelete)
+    {
+        var ids = offersToDelete
+            .Where(o => o.Id > 0)
+            .Select(o => o.Id)
+            .Distinct()
+            .ToHashSet();
+
+        if (ids.Count == 0)
+            return;
+
+        foreach (var id in ids)
+            Database.Instance.DeleteOffer(id);
+
+        Offers = new ObservableCollection<Offer>(Offers.Where(o => !ids.Contains(o.Id)));
+        SelectedOffer = Offers.FirstOrDefault();
     }
 
     [RelayCommand]

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -17,6 +18,11 @@ public partial class OffersView : UserControl
         _vm = new OffersViewModel();
         DataContext = _vm;
         _vm.Load();
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+                _vm.Load();
+        };
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddOffer");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteOffer");
@@ -50,5 +56,27 @@ public partial class OffersView : UserControl
         {
             ModernMessageBox.ShowError($"Fehler beim Scannen:\n{ex.Message}", "PDF Scan");
         }
+    }
+
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedOffers = OffersGrid.SelectedItems.Cast<Offer>().Distinct().ToList();
+        if (selectedOffers.Count == 0 && _vm.SelectedOffer != null)
+            selectedOffers.Add(_vm.SelectedOffer);
+
+        if (selectedOffers.Count == 0)
+        {
+            ModernMessageBox.Show("Bitte waehle zuerst mindestens ein Angebot aus.", "Angebote");
+            return;
+        }
+
+        var message = selectedOffers.Count == 1
+            ? $"Soll \"{selectedOffers[0].OfferNumber}\" wirklich geloescht werden?"
+            : $"Sollen die {selectedOffers.Count} ausgewaehlten Angebote wirklich geloescht werden?";
+
+        if (!ModernMessageBox.ShowConfirm(message, "Angebote"))
+            return;
+
+        _vm.DeleteOffers(selectedOffers);
     }
 }

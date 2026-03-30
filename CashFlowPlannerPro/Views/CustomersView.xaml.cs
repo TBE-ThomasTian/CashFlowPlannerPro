@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -17,6 +18,11 @@ public partial class CustomersView : UserControl
         _vm = new CustomersViewModel();
         DataContext = _vm;
         _vm.Load();
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+                _vm.Load();
+        };
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddCustomer");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteCustomer");
@@ -36,6 +42,34 @@ public partial class CustomersView : UserControl
             _vm.Load();
             _vm.SelectedCustomer = _vm.Customers.FirstOrDefault(c => c.Id == result.Id);
         }
+    }
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        CustomersGrid.Focus();
+        CustomersGrid.SelectAll();
+    }
+
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedCustomers = CustomersGrid.SelectedItems.Cast<Customer>().Distinct().ToList();
+        if (selectedCustomers.Count == 0 && _vm.SelectedCustomer != null)
+            selectedCustomers.Add(_vm.SelectedCustomer);
+
+        if (selectedCustomers.Count == 0)
+        {
+            ModernMessageBox.Show("Bitte wähle zuerst mindestens einen Kunden aus.", "Adressbuch");
+            return;
+        }
+
+        var message = selectedCustomers.Count == 1
+            ? $"Soll \"{selectedCustomers[0].DisplayName}\" wirklich gelöscht werden?"
+            : $"Sollen die {selectedCustomers.Count} ausgewählten Kunden wirklich gelöscht werden?";
+
+        if (!ModernMessageBox.ShowConfirm(message, "Adressbuch"))
+            return;
+
+        _vm.DeleteCustomers(selectedCustomers);
     }
 
     private void DataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)

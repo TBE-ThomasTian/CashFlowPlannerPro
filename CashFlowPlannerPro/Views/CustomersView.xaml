@@ -10,13 +10,15 @@
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neuer Kunde" Click="Add_Click" Margin="0,0,8,0"/>
-                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,16,0"/>
+                <Button x:Name="SelectAllBtn" Style="{StaticResource {x:Type Button}}" Content="Alle ausw&#228;hlen" Click="SelectAll_Click" Margin="0,0,8,0"/>
+                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Click="Delete_Click" Margin="0,0,16,0"/>
                 <TextBox x:Name="SearchBox" Width="250" VerticalContentAlignment="Center" Padding="6,4"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                          Tag="Suche nach Firma, Name, E-Mail, Ort..."/>
             </StackPanel>
         </Border>
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}"
+        <DataGrid x:Name="CustomersGrid" Grid.Row="1" ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}"
+                  SelectionMode="Extended" SelectionUnit="FullRow"
                   CellEditEnding="DataGrid_CellEditEnding" MouseDoubleClick="DataGrid_MouseDoubleClick">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Firma" Binding="{Binding Company}" Width="180"/>

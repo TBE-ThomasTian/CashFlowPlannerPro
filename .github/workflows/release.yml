@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore CashFlowPlannerPro.sln
+
+      - name: Publish app
+        run: dotnet publish CashFlowPlannerPro/CashFlowPlannerPro.csproj -c Release -r win-x64 --self-contained true -o artifacts/app
+
+      - name: Publish updater
+        run: dotnet publish CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -c Release -r win-x64 --self-contained true -o artifacts/updater
+
+      - name: Prepare package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/app/updater | Out-Null
+          Copy-Item -Path artifacts/updater/* -Destination artifacts/app/updater -Recurse -Force
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
+          Compress-Archive -Path artifacts/app/* -DestinationPath "CashFlowPlannerPro-$version-win-x64.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cashflowplannerpro-win-x64
+          path: CashFlowPlannerPro-*-win-x64.zip
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CashFlowPlannerPro-*-win-x64.zip
+          generate_release_notes: true

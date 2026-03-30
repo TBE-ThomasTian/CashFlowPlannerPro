@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
@@ -53,6 +54,25 @@ public partial class CustomersViewModel : ObservableObject
         Database.Instance.DeleteCustomer(SelectedCustomer.Id);
         _allCustomers.Remove(SelectedCustomer);
         Customers.Remove(SelectedCustomer);
+    }
+
+    public void DeleteCustomers(IEnumerable<Customer> customersToDelete)
+    {
+        var ids = customersToDelete
+            .Where(c => c.Id > 0)
+            .Select(c => c.Id)
+            .Distinct()
+            .ToHashSet();
+
+        if (ids.Count == 0)
+            return;
+
+        foreach (var id in ids)
+            Database.Instance.DeleteCustomer(id);
+
+        _allCustomers = _allCustomers.Where(c => !ids.Contains(c.Id)).ToList();
+        ApplyFilter();
+        SelectedCustomer = Customers.FirstOrDefault();
     }
 
     public void Save(Customer c)

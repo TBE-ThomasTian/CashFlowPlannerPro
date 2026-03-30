@@ -15,17 +15,31 @@
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}" Margin="0,0,8,0"/>
+                <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Click="Delete_Click" Margin="0,0,8,0"/>
                 <Button x:Name="ScanPdfBtn" Style="{StaticResource NavButton}" Content="&#x1F4C4; PDF scannen" Click="ScanPdf_Click" Padding="10,4"/>
             </StackPanel>
         </Border>
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Offers}" SelectedItem="{Binding SelectedOffer}"
+        <DataGrid x:Name="OffersGrid" Grid.Row="1" ItemsSource="{Binding Offers}" SelectedItem="{Binding SelectedOffer}"
+                  SelectionMode="Extended" SelectionUnit="FullRow"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Angebotsnummer" Binding="{Binding OfferNumber}" IsReadOnly="True" Width="140"/>
                 <DataGridTextColumn Header="Angebotsdatum" Binding="{Binding OfferDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTextColumn Header="Erwartetes Datum" Binding="{Binding DateExpected, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
-                <DataGridTextColumn Header="Kunde" Binding="{Binding Customer}" Width="150"/>
+                <DataGridTemplateColumn Header="Kunde" Width="170">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Customer}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding DataContext.CustomerNames, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                      SelectedItem="{Binding Customer, UpdateSourceTrigger=PropertyChanged}"
+                                      IsEditable="True"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Betrag &#8364;" Binding="{Binding Amount, StringFormat=N2}" Width="100"/>
                 <DataGridTextColumn Header="Wahrscheinlichkeit %" Binding="{Binding Probability}" Width="130"/>
                 <DataGridTemplateColumn Header="Status" Width="120">

@@ -28,6 +28,7 @@ public static class PageKeys
     public const string Todos = "todos";
     public const string TimeTracking = "timetracking";
     public const string Kunden = "kunden";
+    public const string Integrations = "integrations";
     public const string Admin = "admin";
 
     public static readonly (string key, string label)[] All = [
@@ -42,6 +43,7 @@ public static class PageKeys
         (Todos, "✅ Aufgaben"),
         (TimeTracking, "⏱ Zeiterfassung"),
         (Kunden, "📇 Adressbuch"),
+        (Integrations, "🔗 Integrationen"),
         (Admin, "🔐 Benutzerverwaltung")
     ];
 }

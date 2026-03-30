@@ -311,5 +311,24 @@
                 <DataGridTextColumn x:Name="InvoiceAmountColumn" Header="Rechnungen" Binding="{Binding InvoiceAmount, StringFormat={}{0:N2}}" Width="120"/>
             </DataGrid.Columns>
         </DataGrid>
+
+        <Border x:Name="BusyOverlay"
+                Grid.RowSpan="6"
+                Background="#A0FFFFFF"
+                Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <ProgressBar Width="220"
+                             Height="8"
+                             IsIndeterminate="True"/>
+                <TextBlock x:Name="DashboardBusyText"
+                           Text="Daten werden geladen..."
+                           Margin="0,14,0,0"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource ForegroundBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

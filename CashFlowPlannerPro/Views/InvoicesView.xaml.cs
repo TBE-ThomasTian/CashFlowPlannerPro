@@ -17,6 +17,11 @@ public partial class InvoicesView : UserControl
         _vm = new InvoicesViewModel();
         DataContext = _vm;
         _vm.Load();
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+                _vm.Load();
+        };
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddInvoice");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteInvoice");

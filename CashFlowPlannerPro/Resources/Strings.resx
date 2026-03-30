@@ -28,6 +28,7 @@
   <data name="NavTodos" xml:space="preserve"><value>✅  Aufgaben</value></data>
   <data name="NavTimeTracking" xml:space="preserve"><value>⏱  Zeiterfassung</value></data>
   <data name="NavAddressBook" xml:space="preserve"><value>📇  Adressbuch</value></data>
+  <data name="NavIntegrations" xml:space="preserve"><value>🧩  Add-ons</value></data>
   <data name="NavAdmin" xml:space="preserve"><value>🔐  Verwaltung</value></data>
   <data name="ProfileButton" xml:space="preserve"><value>👤  Mein Profil</value></data>
   <data name="SwitchDatabaseButton" xml:space="preserve"><value>⚙  Datenbank wechseln</value></data>
@@ -83,6 +84,8 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="LoginUsernamePlaceholder" xml:space="preserve"><value>Benutzername</value></data>
   <data name="LoginButton" xml:space="preserve"><value>Anmelden</value></data>
   <data name="LoginDemoButton" xml:space="preserve"><value>Demo starten</value></data>
+  <data name="LoadingPleaseWait" xml:space="preserve"><value>Bitte warten...</value></data>
+  <data name="LoadingData" xml:space="preserve"><value>Daten werden geladen...</value></data>
   <data name="LoginOpenDbTitle" xml:space="preserve"><value>Datenbank öffnen</value></data>
   <data name="LoginOpenDbFilter" xml:space="preserve"><value>SQLite Datenbank (*.db)|*.db|Alle Dateien (*.*)|*.*</value></data>
   <data name="LoginNewDbTitle" xml:space="preserve"><value>Neue Datenbank erstellen</value></data>
@@ -204,6 +207,53 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="DashboardPdfSuccess" xml:space="preserve"><value>PDF-Report wurde erstellt:
 {0}</value></data>
   <data name="DashboardPdfFailed" xml:space="preserve"><value>PDF-Report konnte nicht erstellt werden: {0}</value></data>
+  <data name="DashboardLoadFailed" xml:space="preserve"><value>Dashboard konnte nicht geladen werden: {0}</value></data>
+  <data name="IntegrationsTitle" xml:space="preserve"><value>🧩 Add-ons</value></data>
+  <data name="IntegrationsSubtitle" xml:space="preserve"><value>Drittanbieter sicher verbinden und Daten kontrolliert übernehmen</value></data>
+  <data name="IntegrationsProviderTitle" xml:space="preserve"><value>sevDesk API</value></data>
+  <data name="IntegrationsProviderInfo" xml:space="preserve"><value>API-Token lokal verschlüsselt speichern und bei Bedarf Import-Vorschau laden.</value></data>
+  <data name="IntegrationsTokenLabel" xml:space="preserve"><value>API-Token</value></data>
+  <data name="IntegrationsSaveToken" xml:space="preserve"><value>Token speichern</value></data>
+  <data name="IntegrationsTestConnection" xml:space="preserve"><value>Verbindung testen</value></data>
+  <data name="IntegrationsLoadPreview" xml:space="preserve"><value>Daten abrufen</value></data>
+  <data name="IntegrationsStatusTitle" xml:space="preserve"><value>Status</value></data>
+  <data name="IntegrationsStatusIdle" xml:space="preserve"><value>Noch keine Verbindung getestet.</value></data>
+  <data name="IntegrationsFlowTitle" xml:space="preserve"><value>Import-Ablauf</value></data>
+  <data name="IntegrationsFlowText" xml:space="preserve"><value>Vor dem Import wird immer eine Vorschau geöffnet. Dort entscheidest du, ob Kunden, Rechnungen, Angebote oder nur einzelne Einträge übernommen werden.</value></data>
+  <data name="IntegrationsPreviewTitle" xml:space="preserve"><value>Kontrollierter Import</value></data>
+  <data name="IntegrationsPreviewHint" xml:space="preserve"><value>Die Vorschau zeigt neue und bereits vorhandene Datensätze getrennt. Standardmäßig werden nur neue Einträge vorselektiert.</value></data>
+  <data name="IntegrationsReadOnlyHint" xml:space="preserve"><value>Diese Rolle darf die Integration nur ansehen, aber nicht ändern oder importieren.</value></data>
+  <data name="IntegrationsTokenRequired" xml:space="preserve"><value>Bitte zuerst einen sevDesk API-Token eingeben.</value></data>
+  <data name="IntegrationsTokenSaved" xml:space="preserve"><value>API-Token wurde lokal verschlüsselt gespeichert.</value></data>
+  <data name="IntegrationsConnectionSuccess" xml:space="preserve"><value>Verbindung zu sevDesk erfolgreich getestet.</value></data>
+  <data name="IntegrationsConnectionFailed" xml:space="preserve"><value>Verbindung fehlgeschlagen: {0}</value></data>
+  <data name="IntegrationsPreviewFailed" xml:space="preserve"><value>sevDesk-Daten konnten nicht geladen werden: {0}</value></data>
+  <data name="IntegrationsImportDialogTitle" xml:space="preserve"><value>sevDesk Import-Vorschau</value></data>
+  <data name="IntegrationsImportDialogSubtitle" xml:space="preserve"><value>Hier legst du fest, welche Datensätze wirklich übernommen werden.</value></data>
+  <data name="IntegrationsCustomers" xml:space="preserve"><value>Kunden</value></data>
+  <data name="IntegrationsInvoices" xml:space="preserve"><value>Rechnungen</value></data>
+  <data name="IntegrationsOffers" xml:space="preserve"><value>Angebote</value></data>
+  <data name="IntegrationsEmail" xml:space="preserve"><value>E-Mail</value></data>
+  <data name="IntegrationsCity" xml:space="preserve"><value>Ort</value></data>
+  <data name="IntegrationsState" xml:space="preserve"><value>Status</value></data>
+  <data name="IntegrationsInvoiceNumber" xml:space="preserve"><value>Nummer</value></data>
+  <data name="IntegrationsOfferNumber" xml:space="preserve"><value>Nummer</value></data>
+  <data name="IntegrationsDate" xml:space="preserve"><value>Datum</value></data>
+  <data name="IntegrationsDueDate" xml:space="preserve"><value>Fällig am</value></data>
+  <data name="IntegrationsExpectedDate" xml:space="preserve"><value>Erwartet</value></data>
+  <data name="IntegrationsAmount" xml:space="preserve"><value>Betrag</value></data>
+  <data name="IntegrationsProbability" xml:space="preserve"><value>Wkt. %</value></data>
+  <data name="IntegrationsSourceStatus" xml:space="preserve"><value>sevDesk Status</value></data>
+  <data name="IntegrationsImportState" xml:space="preserve"><value>Import</value></data>
+  <data name="IntegrationsImportAction" xml:space="preserve"><value>Auswahl importieren</value></data>
+  <data name="IntegrationsNothingSelected" xml:space="preserve"><value>Bitte waehle mindestens einen Eintrag fuer den Import aus.</value></data>
+  <data name="IntegrationsSelectAllCustomers" xml:space="preserve"><value>Alle Kunden auswählen ({0})</value></data>
+  <data name="IntegrationsSelectAllInvoices" xml:space="preserve"><value>Alle Rechnungen auswählen ({0})</value></data>
+  <data name="IntegrationsSelectAllOffers" xml:space="preserve"><value>Alle Angebote auswählen ({0})</value></data>
+  <data name="IntegrationsNew" xml:space="preserve"><value>Neu</value></data>
+  <data name="IntegrationsExisting" xml:space="preserve"><value>Vorhanden</value></data>
+  <data name="IntegrationsImportSuccess" xml:space="preserve"><value>Import abgeschlossen. Kunden: {0}, Rechnungen: {1}, Angebote: {2}</value></data>
+  <data name="IntegrationsImportCompleted" xml:space="preserve"><value>Import abgeschlossen.</value></data>
   <data name="ExitButton" xml:space="preserve"><value>🚪  Beenden</value></data>
   <data name="DemoMode" xml:space="preserve"><value>Demo</value></data>
   <data name="TooltipDashboard" xml:space="preserve"><value>Finanzübersicht und Cashflow-Prognose</value></data>
