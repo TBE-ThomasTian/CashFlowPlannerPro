@@ -62,12 +62,16 @@ public sealed class SevDeskInvoicePreview
     public string IssueDate { get; set; } = "";
     public string DueDate { get; set; } = "";
     public double Amount { get; set; }
+    public double NetAmount { get; set; }
+    public double VatAmount { get; set; }
+    public double VatRate { get; set; } = 19;
     public string Description { get; set; } = "";
     public string Status { get; set; } = "Offen";
     public string SourceStatus { get; set; } = "Offen";
     public string InvoiceType { get; set; } = "";
 
     public string AmountText => Amount.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) + " €";
+    public string NetAmountText => NetAmount.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) + " €";
     public bool IsCancelled => string.Equals(Status, "Storniert", StringComparison.OrdinalIgnoreCase);
 
     public Invoice ToInvoice()
@@ -85,6 +89,9 @@ public sealed class SevDeskInvoicePreview
             IssueDate = IssueDate,
             DueDate = DueDate,
             Amount = Amount,
+            NetAmount = NetAmount,
+            VatAmount = VatAmount,
+            VatRate = VatRate,
             Description = $"{description} [sevDesk:{ExternalId}]",
             Status = Status,
             PaidAmount = Status == "Bezahlt" ? Amount : 0,

@@ -26,14 +26,9 @@ public partial class InvoicesView : UserControl
         };
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddInvoice");
+        EditBtn.ToolTip = "Ausgewaehlte Rechnung bearbeiten";
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteInvoice");
         ScanPdfBtn.ToolTip = TooltipService.Get("Btn_ScanPdf");
-    }
-
-    private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
-    {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is Invoice inv)
-            Dispatcher.BeginInvoke(() => _vm.Save(inv));
     }
 
     private void ScanPdf_Click(object sender, RoutedEventArgs e)
@@ -62,6 +57,31 @@ public partial class InvoicesView : UserControl
     private void Delete_Click(object sender, RoutedEventArgs e)
     {
         TryDeleteSelection();
+    }
+
+    private void Edit_Click(object sender, RoutedEventArgs e)
+    {
+        EditSelectedInvoice();
+    }
+
+    private void InvoicesGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        EditSelectedInvoice();
+    }
+
+    private void EditSelectedInvoice()
+    {
+        if (_vm.SelectedInvoice == null)
+        {
+            ModernMessageBox.Show("Bitte waehle zuerst eine Rechnung aus.", "Rechnungen");
+            return;
+        }
+
+        var editedInvoice = InvoiceEditDialog.ShowEdit(_vm.SelectedInvoice, _vm.CustomerNames);
+        if (editedInvoice == null)
+            return;
+
+        _vm.ApplyInvoiceChanges(_vm.SelectedInvoice, editedInvoice);
     }
 
     private void InvoicesGrid_PreviewKeyDown(object sender, KeyEventArgs e)

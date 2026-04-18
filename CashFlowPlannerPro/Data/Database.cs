@@ -131,8 +131,12 @@ public sealed class Database : IDisposable {
         ExecDdl(@"CREATE TABLE IF NOT EXISTS invoices(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_date TEXT, due_date TEXT, customer TEXT, amount REAL,
+            net_amount REAL DEFAULT 0, vat_amount REAL DEFAULT 0, vat_rate REAL DEFAULT 19,
             description TEXT, paid_date TEXT, paid_amount REAL, status TEXT,
             pdf_path TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN net_amount REAL DEFAULT 0");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN vat_amount REAL DEFAULT 0");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN vat_rate REAL DEFAULT 19");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS targets(
             id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, month INTEGER, amount REAL)");
         ExecDdl("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
@@ -420,14 +424,11 @@ public sealed class Database : IDisposable {
                         double totalAmt = r.IsDBNull(2) ? 0 : r.GetDouble(2);
                         double paidAmt = r.IsDBNull(4) ? 0 : r.GetDouble(4);
                         double remaining = totalAmt - paidAmt;
-                        if (due.HasValue && remaining != 0) evs.Add((due.Value, remaining));
-                    }
-                } else if (status == "Bezahlt") {
-                    string? paidS = r.IsDBNull(3) ? null : r.GetString(3);
-                    if (!string.IsNullOrEmpty(paidS)) {
-                        var paidD = ParseDate(paidS);
-                        double amt = r.IsDBNull(4) ? (r.IsDBNull(2) ? 0 : r.GetDouble(2)) : r.GetDouble(4);
-                        if (paidD.HasValue && amt != 0) evs.Add((paidD.Value, amt));
+                        if (due.HasValue && remaining != 0)
+                        {
+                            var forecastDate = due.Value.Date < DateTime.Today ? DateTime.Today : due.Value;
+                            evs.Add((forecastDate, remaining));
+                        }
                     }
                 }
             }
@@ -473,7 +474,7 @@ public sealed class Database : IDisposable {
             }
         }
         foreach (var e in evs) {
-            if (e.d < startOfMonth) continue;
+            if (e.d.Date < today) continue;
             var label = MonthLabel(e.d.Year, e.d.Month);
             if (!netMap.ContainsKey(label)) continue;
             netMap[label] += e.a;
@@ -551,6 +552,7 @@ public sealed class Database : IDisposable {
             cmd.CommandText += " WHERE notes LIKE @f";
             cmd.Parameters.AddWithValue("@f", notesFilter + "%");
         }
+        cmd.CommandText += " ORDER BY date DESC, id DESC";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Transaction {
@@ -605,7 +607,7 @@ public sealed class Database : IDisposable {
     public List<Invoice> GetInvoices() {
         var list = new List<Invoice>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,issue_date,due_date,customer,amount,description,paid_date,paid_amount,status,pdf_path,created_at FROM invoices";
+        cmd.CommandText = "SELECT id,issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at FROM invoices";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Invoice {
@@ -614,12 +616,15 @@ public sealed class Database : IDisposable {
                 DueDate = r.IsDBNull(2) ? "" : r.GetString(2),
                 Customer = r.IsDBNull(3) ? "" : r.GetString(3),
                 Amount = r.IsDBNull(4) ? 0 : r.GetDouble(4),
-                Description = r.IsDBNull(5) ? "" : r.GetString(5),
-                PaidDate = r.IsDBNull(6) ? "" : r.GetString(6),
-                PaidAmount = r.IsDBNull(7) ? 0 : r.GetDouble(7),
-                Status = r.IsDBNull(8) ? "" : r.GetString(8),
-                PdfPath = r.IsDBNull(9) ? "" : r.GetString(9),
-                CreatedAt = r.IsDBNull(10) ? "" : r.GetString(10)
+                NetAmount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
+                VatAmount = r.IsDBNull(6) ? 0 : r.GetDouble(6),
+                VatRate = r.IsDBNull(7) ? 19 : r.GetDouble(7),
+                Description = r.IsDBNull(8) ? "" : r.GetString(8),
+                PaidDate = r.IsDBNull(9) ? "" : r.GetString(9),
+                PaidAmount = r.IsDBNull(10) ? 0 : r.GetDouble(10),
+                Status = r.IsDBNull(11) ? "" : r.GetString(11),
+                PdfPath = r.IsDBNull(12) ? "" : r.GetString(12),
+                CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13)
             });
         }
         return list;
@@ -627,12 +632,15 @@ public sealed class Database : IDisposable {
 
     public void AddInvoice(Invoice i) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO invoices(issue_date,due_date,customer,amount,description,paid_date,paid_amount,status,pdf_path,created_at)
-            VALUES(@issue,@due,@cust,@amt,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
+        cmd.CommandText = @"INSERT INTO invoices(issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at)
+            VALUES(@issue,@due,@cust,@amt,@net,@vat,@vat_rate,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
         cmd.Parameters.AddWithValue("@issue", (object?)i.IssueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@due", (object?)i.DueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@cust", (object?)i.Customer ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@amt", i.Amount);
+        cmd.Parameters.AddWithValue("@net", i.NetAmount);
+        cmd.Parameters.AddWithValue("@vat", i.VatAmount);
+        cmd.Parameters.AddWithValue("@vat_rate", i.VatRate);
         cmd.Parameters.AddWithValue("@desc", (object?)i.Description ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@paid_d", (object?)i.PaidDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@paid_a", i.PaidAmount);
@@ -645,12 +653,16 @@ public sealed class Database : IDisposable {
     public void UpdateInvoice(Invoice i) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = @"UPDATE invoices SET issue_date=@issue,due_date=@due,customer=@cust,amount=@amt,
+            net_amount=@net,vat_amount=@vat,vat_rate=@vat_rate,
             description=@desc,paid_date=@paid_d,paid_amount=@paid_a,status=@status,pdf_path=@pdf WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", i.Id);
         cmd.Parameters.AddWithValue("@issue", (object?)i.IssueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@due", (object?)i.DueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@cust", (object?)i.Customer ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@amt", i.Amount);
+        cmd.Parameters.AddWithValue("@net", i.NetAmount);
+        cmd.Parameters.AddWithValue("@vat", i.VatAmount);
+        cmd.Parameters.AddWithValue("@vat_rate", i.VatRate);
         cmd.Parameters.AddWithValue("@desc", (object?)i.Description ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@paid_d", (object?)i.PaidDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@paid_a", i.PaidAmount);
@@ -1316,6 +1328,24 @@ public sealed class Database : IDisposable {
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(r.GetString(0));
         return list;
+    }
+
+    public long? GetCategoryId(string name) {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT id FROM categories WHERE name=@name";
+        cmd.Parameters.AddWithValue("@name", name);
+        var value = cmd.ExecuteScalar();
+        return value != null && value != DBNull.Value ? Convert.ToInt64(value) : null;
+    }
+
+    public string? GetCategoryName(long? id) {
+        if (id == null) return null;
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM categories WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", id.Value);
+        var value = cmd.ExecuteScalar();
+        return value != null && value != DBNull.Value ? value.ToString() : null;
     }
 
     // Users

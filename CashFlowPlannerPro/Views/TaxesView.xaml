@@ -2,7 +2,11 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+             xmlns:conv="clr-namespace:CashFlowPlannerPro.Converters"
              xmlns:vm="clr-namespace:CashFlowPlannerPro.ViewModels">
+    <UserControl.Resources>
+        <conv:DateDisplayConverter x:Key="DateDisplayConverter"/>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -11,14 +15,14 @@
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="AddBtn" Content="&#x2795; Neu" Style="{StaticResource AddButton}" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-                <Button x:Name="DeleteBtn" Content="&#x1F5D1;&#xFE0F; Löschen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
+                <Button x:Name="DeleteBtn" Content="&#x1F5D1;&#xFE0F; L&#246;schen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
             </StackPanel>
         </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Taxes}" SelectedItem="{Binding SelectedTransaction}"
                   AutoGenerateColumns="False" CanUserAddRows="False"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Fälligkeitsdatum" Binding="{Binding Date}" Width="130"/>
+                <DataGridTextColumn Header="F&#228;lligkeitsdatum" Binding="{Binding Date, Converter={StaticResource DateDisplayConverter}}" Width="130"/>
                 <DataGridTextColumn Header="Beschreibung" Binding="{Binding Description}" Width="*"/>
                 <DataGridTextColumn Header="Betrag &#x20AC;" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="120"/>
                 <DataGridComboBoxColumn Header="Intervall" SelectedItemBinding="{Binding Interval}" Width="150">
@@ -26,8 +30,8 @@
                         <x:Array Type="sys:String">
                             <sys:String>Einmalig</sys:String>
                             <sys:String>Monatlich</sys:String>
-                            <sys:String>Vierteljährlich</sys:String>
-                            <sys:String>Jährlich</sys:String>
+                            <sys:String>Viertelj&#228;hrlich</sys:String>
+                            <sys:String>J&#228;hrlich</sys:String>
                         </x:Array>
                     </DataGridComboBoxColumn.ItemsSource>
                 </DataGridComboBoxColumn>

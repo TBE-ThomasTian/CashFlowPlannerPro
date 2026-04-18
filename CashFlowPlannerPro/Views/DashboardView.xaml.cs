@@ -124,16 +124,30 @@ public partial class DashboardView : UserControl
         plt.Clear();
 
         double[] netValues = _vm.MonthRows.Select(r => r.Net).ToArray();
+        double[] positiveNetValues = netValues.Select(v => v > 0 ? v : 0).ToArray();
+        double[] negativeNetValues = netValues.Select(v => v < 0 ? v : 0).ToArray();
         double[] cumValues = _vm.MonthRows.Select(r => r.Cumulative).ToArray();
         double[] positions = Enumerable.Range(0, netValues.Length).Select(i => (double)i).ToArray();
 
-        var bars = plt.Add.Bars(positions, netValues);
-        bars.Color = ScottPlot.Color.FromHex("#812B8C");
+        if (positiveNetValues.Any(v => v > 0))
+        {
+            var positiveBars = plt.Add.Bars(positions, positiveNetValues);
+            positiveBars.Color = ScottPlot.Color.FromHex("#2E7D32");
+            positiveBars.LegendText = "Netto positiv";
+        }
+
+        if (negativeNetValues.Any(v => v < 0))
+        {
+            var negativeBars = plt.Add.Bars(positions, negativeNetValues);
+            negativeBars.Color = ScottPlot.Color.FromHex("#BF3940");
+            negativeBars.LegendText = "Netto negativ";
+        }
 
         var line = plt.Add.Scatter(positions, cumValues);
         line.Color = ScottPlot.Color.FromHex("#D9731A");
         line.LineWidth = 3;
         line.MarkerSize = 6;
+        line.LegendText = "Kontostand kumuliert";
 
         string[] labels = _vm.MonthRows.Select(r => r.Month).ToArray();
         plt.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(
@@ -141,6 +155,9 @@ public partial class DashboardView : UserControl
         plt.Axes.Bottom.TickLabelStyle.Rotation = 0;
 
         plt.YLabel(LocalizationManager.Get("DashboardYAxisEuro"));
+        plt.Axes.Margins(0.08, 0.18);
+        plt.Axes.AutoScale();
+        plt.ShowLegend(ScottPlot.Alignment.UpperRight);
 
         Chart.Refresh();
     }

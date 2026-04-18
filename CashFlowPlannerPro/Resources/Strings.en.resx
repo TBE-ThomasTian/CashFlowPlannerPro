@@ -135,7 +135,7 @@ Financial planning made easy.</value></data>
   <data name="NewPasswordRequired" xml:space="preserve"><value>Please enter a new password.</value></data>
   <data name="PasswordsDoNotMatch" xml:space="preserve"><value>The new passwords do not match.</value></data>
   <data name="PasswordChanged" xml:space="preserve"><value>Password changed successfully.</value></data>
-  <data name="DashboardBalance" xml:space="preserve"><value>Balance €</value></data>
+  <data name="DashboardBalance" xml:space="preserve"><value>Current balance €</value></data>
   <data name="DashboardForecastMonths" xml:space="preserve"><value>Forecast Months</value></data>
   <data name="DashboardInvoices" xml:space="preserve"><value>Invoices</value></data>
   <data name="DashboardOpenOffers" xml:space="preserve"><value>Open Offers</value></data>
@@ -158,7 +158,7 @@ Financial planning made easy.</value></data>
   <data name="DashboardHoursThisMonth" xml:space="preserve"><value>Hours This Month</value></data>
   <data name="DashboardRunningTimers" xml:space="preserve"><value>Running Timers</value></data>
   <data name="DashboardChartTitle" xml:space="preserve"><value>Cashflow Forecast</value></data>
-  <data name="DashboardChartSubtitle" xml:space="preserve"><value>Net per month and cumulative trend</value></data>
+  <data name="DashboardChartSubtitle" xml:space="preserve"><value>Bars = net per month, line = cumulative balance</value></data>
   <data name="DashboardLiveFinance" xml:space="preserve"><value>Live Finance View</value></data>
   <data name="DashboardMonth" xml:space="preserve"><value>Month</value></data>
   <data name="DashboardIncome" xml:space="preserve"><value>Income</value></data>

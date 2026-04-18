@@ -15,7 +15,7 @@
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="AddBtn" Content="&#x2795; Neu" Style="{StaticResource AddButton}" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
-                <Button x:Name="DeleteBtn" Content="&#x1F5D1;&#xFE0F; Löschen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
+                <Button x:Name="DeleteBtn" Content="&#x1F5D1;&#xFE0F; L&#246;schen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
             </StackPanel>
         </Border>
         <DataGrid Grid.Row="1" ItemsSource="{Binding Transactions}" SelectedItem="{Binding SelectedTransaction}"
@@ -29,12 +29,12 @@
                     <DataGridComboBoxColumn.ItemsSource>
                         <x:Array Type="sys:String">
                             <sys:String>einmalig</sys:String>
-                            <sys:String>täglich</sys:String>
-                            <sys:String>wöchentlich</sys:String>
+                            <sys:String>t&#228;glich</sys:String>
+                            <sys:String>w&#246;chentlich</sys:String>
                             <sys:String>monatlich</sys:String>
-                            <sys:String>vierteljährlich</sys:String>
-                            <sys:String>halbjährlich</sys:String>
-                            <sys:String>jährlich</sys:String>
+                            <sys:String>viertelj&#228;hrlich</sys:String>
+                            <sys:String>halbj&#228;hrlich</sys:String>
+                            <sys:String>j&#228;hrlich</sys:String>
                         </x:Array>
                     </DataGridComboBoxColumn.ItemsSource>
                 </DataGridComboBoxColumn>

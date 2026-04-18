@@ -182,6 +182,14 @@ public static class SevDeskClient
         var dueDate = NormalizeDate(GetString(item, "dueDate"));
         var invoiceType = GetString(item, "invoiceType");
         var sourceStatus = BuildInvoiceStatusLabel(item, dueDate, invoiceType);
+        var grossAmount = GetDouble(item, "sumGross", "totalGross", "invoiceSum");
+        var netAmount = GetDouble(item, "sumNet", "totalNet");
+        var vatAmount = GetDouble(item, "sumTax", "taxAmount", "vatAmount");
+        if (vatAmount <= 0 && grossAmount > 0 && netAmount > 0)
+            vatAmount = Math.Round(grossAmount - netAmount, 2);
+        var vatRate = netAmount > 0 && vatAmount > 0
+            ? Math.Round(vatAmount / netAmount * 100, 2)
+            : 19;
 
         return new SevDeskInvoicePreview
         {
@@ -190,7 +198,10 @@ public static class SevDeskClient
             CustomerName = customerName,
             IssueDate = issueDate,
             DueDate = dueDate,
-            Amount = GetDouble(item, "sumGross", "totalGross", "invoiceSum"),
+            Amount = grossAmount,
+            NetAmount = netAmount,
+            VatAmount = vatAmount,
+            VatRate = vatRate,
             Description = description,
             SourceStatus = sourceStatus,
             InvoiceType = invoiceType,

@@ -36,7 +36,7 @@
                     <DataGridTemplateColumn.CellEditingTemplate>
                         <DataTemplate>
                             <ComboBox ItemsSource="{Binding DataContext.CustomerNames, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                      SelectedItem="{Binding Customer, UpdateSourceTrigger=PropertyChanged}"
+                                      Text="{Binding Customer, UpdateSourceTrigger=LostFocus}"
                                       IsEditable="True"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellEditingTemplate>

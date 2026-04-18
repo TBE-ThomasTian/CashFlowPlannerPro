@@ -43,7 +43,9 @@ public static class LocalizationManager
         var culture = new CultureInfo(normalized);
 
         CurrentLanguageCode = culture.TwoLetterISOLanguageName;
+        CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
+        CultureInfo.DefaultThreadCurrentCulture = culture;
         CultureInfo.DefaultThreadCurrentUICulture = culture;
 
         if (persist)

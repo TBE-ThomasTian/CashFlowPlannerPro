@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Markup;
 using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro;
@@ -34,6 +36,7 @@ public partial class App : Application
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         LocalizationManager.LoadSavedLanguage();
+        ApplyWpfCultureLanguage();
 
         DispatcherUnhandledException += (s, ex) =>
         {
@@ -60,5 +63,12 @@ public partial class App : Application
         {
             Shutdown();
         }
+    }
+
+    private static void ApplyWpfCultureLanguage()
+    {
+        FrameworkElement.LanguageProperty.OverrideMetadata(
+            typeof(FrameworkElement),
+            new FrameworkPropertyMetadata(XmlLanguage.GetLanguage(CultureInfo.CurrentCulture.IetfLanguageTag)));
     }
 }

@@ -125,10 +125,10 @@ public partial class ScanPreviewDialog : Window
         TbInvoiceDate.Text = FormatDate(s.InvoiceDate);
         TbDueDate.Text = FormatDate(s.DueDate);
         TbCustomer.Text = s.Customer ?? "";
-        TbAmount.Text = s.Amount?.ToString("F2") ?? "";
-        TbNetAmount.Text = s.NetAmount?.ToString("F2") ?? "";
+        TbAmount.Text = s.Amount?.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) ?? "";
+        TbNetAmount.Text = s.NetAmount?.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) ?? "";
         TbVat.Text = s.VatAmount != null
-            ? $"{s.VatAmount:F2}" + (s.VatRate != null ? $" ({s.VatRate}%)" : "")
+            ? s.VatAmount.Value.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) + (s.VatRate != null ? $" ({s.VatRate.Value.ToString("N2", CultureInfo.GetCultureInfo("de-DE"))}%)" : "")
             : "";
         TbIban.Text = s.Iban ?? "";
         TbDescription.Text = s.Description ?? "";
@@ -155,14 +155,63 @@ public partial class ScanPreviewDialog : Window
         return text;
     }
 
+    private static double ParseAmountText(string text)
+    {
+        text = text.Trim();
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        text = text.Replace("EUR", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("€", "")
+            .Trim();
+
+        var parenIndex = text.IndexOf('(');
+        if (parenIndex >= 0)
+            text = text[..parenIndex];
+
+        return TryParseLocalizedNumber(text, out var amount)
+            ? Math.Round(amount, 2)
+            : 0;
+    }
+
+    private static double ParseVatRate(string text)
+    {
+        var start = text.IndexOf('(');
+        var end = text.IndexOf('%');
+        if (start >= 0 && end > start)
+            text = text.Substring(start + 1, end - start - 1);
+
+        text = text.Trim();
+        return TryParseLocalizedNumber(text, out var rate)
+            ? rate
+            : 19;
+    }
+
+    private static bool TryParseLocalizedNumber(string text, out double value)
+    {
+        text = text.Trim()
+            .Replace("\u00a0", "")
+            .Replace(" ", "");
+
+        return double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out value)
+            || double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+    }
+
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
-        double.TryParse(TbAmount.Text.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var amount);
+        var amount = ParseAmountText(TbAmount.Text);
+        var netAmount = ParseAmountText(TbNetAmount.Text);
+        var vatAmount = ParseAmountText(TbVat.Text);
+        var vatRate = ParseVatRate(TbVat.Text);
+
         ResultInvoice = new Invoice {
             IssueDate = ParseBackDate(TbInvoiceDate.Text) ?? DateTime.Now.ToString("yyyy-MM-dd"),
-            DueDate = ParseBackDate(TbDueDate.Text),
+            DueDate = ParseBackDate(TbDueDate.Text) ?? "",
             Customer = TbCustomer.Text.Trim(),
             Amount = amount,
+            NetAmount = netAmount,
+            VatAmount = vatAmount,
+            VatRate = vatRate,
             Description = TbDescription.Text.Trim(),
             Status = "Offen",
             PdfPath = _pdfPath

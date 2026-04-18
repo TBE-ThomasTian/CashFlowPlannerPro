@@ -370,6 +370,9 @@ public partial class IntegrationsView : UserControl
         changed |= ApplyImportedValue(invoice.IssueDate, isLinkedSevDeskInvoice, () => existingInvoice.IssueDate, value => existingInvoice.IssueDate = value);
         changed |= ApplyImportedValue(invoice.DueDate, isLinkedSevDeskInvoice, () => existingInvoice.DueDate, value => existingInvoice.DueDate = value);
         changed |= ApplyImportedNumericValue(invoice.Amount, isLinkedSevDeskInvoice, () => existingInvoice.Amount, value => existingInvoice.Amount = value);
+        changed |= ApplyImportedNumericValue(invoice.NetAmount, isLinkedSevDeskInvoice, () => existingInvoice.NetAmount, value => existingInvoice.NetAmount = value);
+        changed |= ApplyImportedNumericValue(invoice.VatAmount, isLinkedSevDeskInvoice, () => existingInvoice.VatAmount, value => existingInvoice.VatAmount = value);
+        changed |= ApplyImportedNumericValue(invoice.VatRate, isLinkedSevDeskInvoice, () => existingInvoice.VatRate, value => existingInvoice.VatRate = value);
         changed |= ApplyImportedValue(invoice.Status, isLinkedSevDeskInvoice, () => existingInvoice.Status, value => existingInvoice.Status = value);
         changed |= ApplyImportedNumericValue(invoice.Status == "Bezahlt" ? invoice.Amount : 0, isLinkedSevDeskInvoice, () => existingInvoice.PaidAmount, value => existingInvoice.PaidAmount = value);
 

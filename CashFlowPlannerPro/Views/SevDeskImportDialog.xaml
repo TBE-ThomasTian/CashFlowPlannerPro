@@ -163,7 +163,8 @@
                                     <DataGridTextColumn x:Name="InvoiceCustomerColumn" Header="Kunde" Binding="{Binding CustomerName}" Width="*"/>
                                     <DataGridTextColumn x:Name="InvoiceDateColumn" Header="Datum" Binding="{Binding IssueDate}" Width="100"/>
                                     <DataGridTextColumn x:Name="InvoiceDueDateColumn" Header="Fällig am" Binding="{Binding DueDate}" Width="100"/>
-                                    <DataGridTextColumn x:Name="InvoiceAmountColumn" Header="Betrag" Binding="{Binding AmountText}" Width="110"/>
+                                    <DataGridTextColumn x:Name="InvoiceAmountColumn" Header="Brutto" Binding="{Binding AmountText}" Width="110"/>
+                                    <DataGridTextColumn Header="Netto" Binding="{Binding NetAmountText}" Width="110"/>
                                     <DataGridTextColumn x:Name="InvoiceStateColumn" Header="Import" Binding="{Binding ImportState}" Width="100"/>
                                 </DataGrid.Columns>
                             </DataGrid>

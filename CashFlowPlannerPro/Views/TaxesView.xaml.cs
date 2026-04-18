@@ -1,4 +1,6 @@
 using System.Windows.Controls;
+using System.Windows;
+using System.Windows.Threading;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -22,7 +24,23 @@ public partial class TaxesView : UserControl
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is Transaction t)
-            Dispatcher.BeginInvoke(() => _vm.Save(t));
+        if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not Transaction t)
+            return;
+
+        CommitEditingElement(e.EditingElement);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => _vm.Save(t));
+    }
+
+    private static void CommitEditingElement(FrameworkElement editingElement)
+    {
+        switch (editingElement)
+        {
+            case TextBox textBox:
+                textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                break;
+            case ComboBox comboBox:
+                comboBox.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                break;
+        }
     }
 }

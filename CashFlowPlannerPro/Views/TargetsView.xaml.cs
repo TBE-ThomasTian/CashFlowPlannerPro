@@ -1,4 +1,6 @@
 using System.Windows.Controls;
+using System.Windows;
+using System.Windows.Threading;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
@@ -22,7 +24,16 @@ public partial class TargetsView : UserControl
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is Target t)
-            Dispatcher.BeginInvoke(() => _vm.Save(t));
+        if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not Target t)
+            return;
+
+        CommitEditingElement(e.EditingElement);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => _vm.Save(t));
+    }
+
+    private static void CommitEditingElement(FrameworkElement editingElement)
+    {
+        if (editingElement is TextBox textBox)
+            textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
     }
 }

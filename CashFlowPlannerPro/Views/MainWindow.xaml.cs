@@ -28,7 +28,7 @@ public partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
-        var dbName = Path.GetFileName(App.DatabasePath);
+        var dbName = GetDatabaseDisplayName();
         UserText.Text = App.CurrentUsername;
         DbText.Text = App.IsDemoMode
             ? $"{dbName} · {LocalizationManager.Get("DemoMode")}"
@@ -39,6 +39,20 @@ public partial class MainWindow : Window
     {
         ApplyLocalization();
         UpdateStatusBar();
+    }
+
+    private static string GetDatabaseDisplayName()
+    {
+        var config = App.CurrentConnectionConfig;
+        if (config?.Backend == Data.DatabaseBackend.MariaDB)
+            return $"Server: {config.Host}/{config.DatabaseName}";
+
+        var path = config?.FilePath;
+        if (string.IsNullOrWhiteSpace(path))
+            path = App.DatabasePath;
+
+        var fileName = Path.GetFileName(path);
+        return string.IsNullOrWhiteSpace(fileName) ? "Lokale Datenbank" : $"Lokal: {fileName}";
     }
 
     private void ApplyLocalization()

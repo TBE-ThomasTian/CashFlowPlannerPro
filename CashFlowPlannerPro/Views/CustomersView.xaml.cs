@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
@@ -30,8 +31,25 @@ public partial class CustomersView : UserControl
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is Customer c)
-            Dispatcher.BeginInvoke(() => _vm.Save(c));
+        if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not Customer c)
+            return;
+
+        CommitEditingElement(e.EditingElement);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => _vm.Save(c));
+    }
+
+    private static void CommitEditingElement(FrameworkElement editingElement)
+    {
+        switch (editingElement)
+        {
+            case TextBox textBox:
+                textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                break;
+            case ComboBox comboBox:
+                comboBox.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                comboBox.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+                break;
+        }
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)

@@ -142,7 +142,7 @@
                         <TextBlock Text="📋  Erkannte Positionen" Foreground="#D9731A" FontSize="14"
                                    FontWeight="SemiBold" Margin="0,12,0,8"/>
                         <Border Background="#1E1A40" CornerRadius="6" ClipToBounds="True">
-                            <DataGrid x:Name="ItemsGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                            <DataGrid x:Name="ItemsGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
                                       Background="#1E1A40" Foreground="White" RowBackground="#1E1A40"
                                       AlternatingRowBackground="#252050" BorderThickness="0"
                                       GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3D3670"

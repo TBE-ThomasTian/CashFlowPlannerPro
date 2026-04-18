@@ -124,10 +124,10 @@ public partial class OfferScanPreviewDialog : Window
         TbOfferNumber.Text = s.OfferNumber ?? "";
         TbOfferDate.Text = FormatDate(s.OfferDate);
         TbCustomer.Text = s.Customer ?? "";
-        TbGrossAmount.Text = s.GrossAmount?.ToString("F2") ?? "";
-        TbNetAmount.Text = s.NetAmount?.ToString("F2") ?? "";
+        TbGrossAmount.Text = s.GrossAmount?.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) ?? "";
+        TbNetAmount.Text = s.NetAmount?.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) ?? "";
         TbVat.Text = s.VatAmount != null
-            ? $"{s.VatAmount:F2}" + (s.VatRate != null ? $" ({s.VatRate}%)" : "")
+            ? s.VatAmount.Value.ToString("N2", CultureInfo.GetCultureInfo("de-DE")) + (s.VatRate != null ? $" ({s.VatRate.Value.ToString("N2", CultureInfo.GetCultureInfo("de-DE"))}%)" : "")
             : "";
         TbDescription.Text = s.Description ?? "";
         TbRawText.Text = s.RawText;
@@ -157,8 +157,8 @@ public partial class OfferScanPreviewDialog : Window
 
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
-        double.TryParse(TbGrossAmount.Text.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var amount);
-        double.TryParse(TbProbability.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var prob);
+        var amount = ParseAmountText(TbGrossAmount.Text);
+        var prob = ParseAmountText(TbProbability.Text);
 
         ResultOffer = new Offer {
             OfferNumber = TbOfferNumber.Text.Trim(),
@@ -171,6 +171,31 @@ public partial class OfferScanPreviewDialog : Window
             PdfPath = _pdfPath
         };
         DialogResult = true;
+    }
+
+    private static double ParseAmountText(string text)
+    {
+        text = text.Replace("EUR", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("€", "")
+            .Trim();
+
+        var parenIndex = text.IndexOf('(');
+        if (parenIndex >= 0)
+            text = text[..parenIndex];
+
+        return TryParseLocalizedNumber(text, out var value)
+            ? Math.Round(value, 2)
+            : 0;
+    }
+
+    private static bool TryParseLocalizedNumber(string text, out double value)
+    {
+        text = text.Trim()
+            .Replace("\u00a0", "")
+            .Replace(" ", "");
+
+        return double.TryParse(text, NumberStyles.Any, CultureInfo.GetCultureInfo("de-DE"), out value)
+            || double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;

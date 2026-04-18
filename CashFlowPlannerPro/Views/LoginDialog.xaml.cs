@@ -79,63 +79,73 @@ public partial class LoginDialog : Window
     {
         try
         {
-            // Try loading encrypted settings first
-            var secure = SecureConnectionStore.Load();
-            if (secure != null && secure.RememberSettings)
-            {
-                ChkRememberSettings.IsChecked = true;
-
-                if (secure.Backend == "MariaDB")
-                {
-                    _selectedBackend = DatabaseBackend.MariaDB;
-                    RbMariaDb.IsChecked = true;
-                    TbMariaHost.Text = secure.Host ?? "localhost";
-                    TbMariaPort.Text = (secure.Port > 0 ? secure.Port : 3306).ToString();
-                    TbMariaDatabase.Text = secure.DatabaseName ?? "cashflow";
-                    TbMariaUser.Text = secure.DbUsername ?? "root";
-                    PbMariaPassword.Password = secure.DbPassword ?? "";
-                }
-                else if (!string.IsNullOrEmpty(secure.LastDatabasePath)
-                         && File.Exists(secure.LastDatabasePath))
-                {
-                    _lastDatabasePath = secure.LastDatabasePath;
-                    SelectedDatabasePath = _lastDatabasePath;
-                    UpdateDatabasePathDisplay();
-                }
-
-                if (!string.IsNullOrEmpty(secure.AppUsername))
-                    UsernameTextBox.Text = secure.AppUsername;
-
-                return;
-            }
-
-            // Fallback: load legacy unencrypted settings
             if (File.Exists(SettingsFile))
             {
                 var json = File.ReadAllText(SettingsFile);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json);
                 if (settings != null)
-                {
-                    if (settings.Backend == "MariaDB")
-                    {
-                        _selectedBackend = DatabaseBackend.MariaDB;
-                        RbMariaDb.IsChecked = true;
-                        TbMariaHost.Text = settings.MariaDbHost ?? "localhost";
-                        TbMariaPort.Text = (settings.MariaDbPort > 0 ? settings.MariaDbPort : 3306).ToString();
-                        TbMariaDatabase.Text = settings.MariaDbDatabase ?? "cashflow";
-                        TbMariaUser.Text = settings.MariaDbUsername ?? "root";
-                    }
-                    else if (!string.IsNullOrEmpty(settings.LastDatabasePath)
-                             && File.Exists(settings.LastDatabasePath))
-                    {
-                        _lastDatabasePath = settings.LastDatabasePath;
-                        SelectedDatabasePath = _lastDatabasePath;
-                        UpdateDatabasePathDisplay();
-                    }
-                }
+                    ApplyBasicSettings(settings);
             }
+
+            var secure = SecureConnectionStore.Load();
+            if (secure != null && secure.RememberSettings)
+            {
+                ChkRememberSettings.IsChecked = true;
+                ApplySecureSettings(secure);
+
+                if (!string.IsNullOrEmpty(secure.AppUsername))
+                    UsernameTextBox.Text = secure.AppUsername;
+            }
+
+            BackendToggle_Changed(this, new RoutedEventArgs());
+            UpdateDatabasePathDisplay();
         }
         catch { }
+    }
+
+    private void ApplyBasicSettings(AppSettings settings)
+    {
+        if (settings.Backend == "MariaDB")
+        {
+            _selectedBackend = DatabaseBackend.MariaDB;
+            RbMariaDb.IsChecked = true;
+            TbMariaHost.Text = settings.MariaDbHost ?? "localhost";
+            TbMariaPort.Text = (settings.MariaDbPort > 0 ? settings.MariaDbPort : 3306).ToString();
+            TbMariaDatabase.Text = settings.MariaDbDatabase ?? "cashflow";
+            TbMariaUser.Text = settings.MariaDbUsername ?? "root";
+            return;
+        }
+
+        _selectedBackend = DatabaseBackend.SQLite;
+        RbSqlite.IsChecked = true;
+        if (!string.IsNullOrEmpty(settings.LastDatabasePath) && File.Exists(settings.LastDatabasePath))
+        {
+            _lastDatabasePath = settings.LastDatabasePath;
+            SelectedDatabasePath = _lastDatabasePath;
+        }
+    }
+
+    private void ApplySecureSettings(SecureConnectionData secure)
+    {
+        if (secure.Backend == "MariaDB")
+        {
+            _selectedBackend = DatabaseBackend.MariaDB;
+            RbMariaDb.IsChecked = true;
+            TbMariaHost.Text = secure.Host ?? TbMariaHost.Text;
+            TbMariaPort.Text = (secure.Port > 0 ? secure.Port : 3306).ToString();
+            TbMariaDatabase.Text = secure.DatabaseName ?? TbMariaDatabase.Text;
+            TbMariaUser.Text = secure.DbUsername ?? TbMariaUser.Text;
+            PbMariaPassword.Password = secure.DbPassword ?? "";
+            return;
+        }
+
+        _selectedBackend = DatabaseBackend.SQLite;
+        RbSqlite.IsChecked = true;
+        if (!string.IsNullOrEmpty(secure.LastDatabasePath) && File.Exists(secure.LastDatabasePath))
+        {
+            _lastDatabasePath = secure.LastDatabasePath;
+            SelectedDatabasePath = _lastDatabasePath;
+        }
     }
 
     private void SaveSettings()
@@ -145,9 +155,13 @@ public partial class LoginDialog : Window
 
         try
         {
+            SaveBasicSettings();
+
             if (ChkRememberSettings.IsChecked == true)
             {
-                // Save encrypted via DPAPI
+                // Save credentials encrypted via DPAPI. Basic connection metadata
+                // is still stored in settings.json so the last backend is restored
+                // even if protected credentials cannot be decrypted.
                 int.TryParse(TbMariaPort.Text, out var port);
                 var secure = new SecureConnectionData
                 {
@@ -170,36 +184,31 @@ public partial class LoginDialog : Window
                 }
 
                 SecureConnectionStore.Save(secure);
-
-                // Delete legacy unencrypted settings if they exist
-                if (File.Exists(SettingsFile))
-                    File.Delete(SettingsFile);
             }
             else
             {
-                // Remove encrypted data when unchecked
                 SecureConnectionStore.Delete();
-
-                // Save basic settings without password (legacy format)
-                Directory.CreateDirectory(SettingsDir);
-                var settings = new AppSettings { Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite" };
-                if (_selectedBackend == DatabaseBackend.SQLite)
-                {
-                    settings.LastDatabasePath = SelectedDatabasePath;
-                }
-                else
-                {
-                    settings.MariaDbHost = TbMariaHost.Text;
-                    int.TryParse(TbMariaPort.Text, out var port2);
-                    settings.MariaDbPort = port2 > 0 ? port2 : 3306;
-                    settings.MariaDbDatabase = TbMariaDatabase.Text;
-                    settings.MariaDbUsername = TbMariaUser.Text;
-                }
-                var json = JsonSerializer.Serialize(settings);
-                File.WriteAllText(SettingsFile, json);
             }
         }
         catch { }
+    }
+
+    private void SaveBasicSettings()
+    {
+        Directory.CreateDirectory(SettingsDir);
+        int.TryParse(TbMariaPort.Text, out var port);
+        var settings = new AppSettings
+        {
+            Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite",
+            LastDatabasePath = SelectedDatabasePath,
+            MariaDbHost = TbMariaHost.Text,
+            MariaDbPort = port > 0 ? port : 3306,
+            MariaDbDatabase = TbMariaDatabase.Text,
+            MariaDbUsername = TbMariaUser.Text
+        };
+
+        var json = JsonSerializer.Serialize(settings);
+        File.WriteAllText(SettingsFile, json);
     }
 
     private void SetDatabasePath(string path)

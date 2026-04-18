@@ -135,7 +135,7 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="NewPasswordRequired" xml:space="preserve"><value>Bitte geben Sie ein neues Passwort ein.</value></data>
   <data name="PasswordsDoNotMatch" xml:space="preserve"><value>Die neuen Passwörter stimmen nicht überein.</value></data>
   <data name="PasswordChanged" xml:space="preserve"><value>Passwort wurde erfolgreich geändert.</value></data>
-  <data name="DashboardBalance" xml:space="preserve"><value>Kontostand €</value></data>
+  <data name="DashboardBalance" xml:space="preserve"><value>Kontostand heute €</value></data>
   <data name="DashboardForecastMonths" xml:space="preserve"><value>Prognose Monate</value></data>
   <data name="DashboardInvoices" xml:space="preserve"><value>Rechnungen</value></data>
   <data name="DashboardOpenOffers" xml:space="preserve"><value>Offene Angebote</value></data>
@@ -158,7 +158,7 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="DashboardHoursThisMonth" xml:space="preserve"><value>Stunden diesen Monat</value></data>
   <data name="DashboardRunningTimers" xml:space="preserve"><value>Laufende Timer</value></data>
   <data name="DashboardChartTitle" xml:space="preserve"><value>Cashflow Prognose</value></data>
-  <data name="DashboardChartSubtitle" xml:space="preserve"><value>Netto pro Monat und kumulierte Entwicklung</value></data>
+  <data name="DashboardChartSubtitle" xml:space="preserve"><value>Balken = Netto pro Monat, Linie = kumulierter Kontostand</value></data>
   <data name="DashboardLiveFinance" xml:space="preserve"><value>Live-Finanzbild</value></data>
   <data name="DashboardMonth" xml:space="preserve"><value>Monat</value></data>
   <data name="DashboardIncome" xml:space="preserve"><value>Einnahmen</value></data>

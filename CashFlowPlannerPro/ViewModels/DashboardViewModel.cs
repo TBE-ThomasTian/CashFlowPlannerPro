@@ -1,8 +1,5 @@
-using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -35,9 +32,19 @@ public partial class DashboardViewModel : ObservableObject
 
     [ObservableProperty] private ObservableCollection<MonthRow> monthRows = [];
 
-    static readonly CultureInfo De = CultureInfo.GetCultureInfo("de-DE");
+    private static readonly CultureInfo De = CultureInfo.GetCultureInfo("de-DE");
 
-    static string Eur(double v) => v.ToString("N2", De) + " €";
+    private static string Eur(double value) => value.ToString("N2", De) + " \u20ac";
+
+    partial void OnStartBalanceChanged(double value)
+    {
+        CurrentBalance = Eur(value);
+
+        if (MonthRows.Count > 0)
+            ApplyForecastRows(MonthRows);
+        else
+            ForecastEnd = Eur(value);
+    }
 
     public async Task LoadAsync()
     {
@@ -64,7 +71,6 @@ public partial class DashboardViewModel : ObservableObject
                 var rows = Database.Instance.MonthlyCashflow(
                     HorizonMonths, IncludeOffersOffen, IncludeOffersBeauftragt, IncludeInvoices, IncludeRecurring);
                 var targets = Database.Instance.GetTargets();
-                double actualPastCashflow = Database.Instance.GetActualCashflowToDate(StartBalance);
                 string activeOffers = Eur(Database.Instance.ActiveOffersSum());
                 string openInvoices = Eur(Database.Instance.OpenInvoicesSum());
                 string hoursThisMonth = Database.Instance.GetHoursBookedThisMonth().ToString("N1", De) + " h";
@@ -76,7 +82,6 @@ public partial class DashboardViewModel : ObservableObject
                 {
                     Rows = rows,
                     Targets = targets,
-                    ActualPastCashflow = actualPastCashflow,
                     ActiveOffers = activeOffers,
                     OpenInvoices = openInvoices,
                     HoursThisMonth = hoursThisMonth,
@@ -86,19 +91,8 @@ public partial class DashboardViewModel : ObservableObject
                 };
             });
 
-            double cumulative = StartBalance;
-            foreach (var r in snapshot.Rows) {
-                cumulative += r.Net;
-                r.Cumulative = cumulative;
-                r.Target = snapshot.Targets.TryGetValue(r.Month, out var t) ? t : 0;
-                r.Variance = r.Net - r.Target;
-            }
+            ApplyForecastRows(snapshot.Rows, snapshot.Targets);
 
-            MonthRows = new ObservableCollection<MonthRow>(snapshot.Rows);
-
-            CurrentBalance = Eur(snapshot.ActualPastCashflow);
-            bool anyNegative = snapshot.Rows.Any(r => r.Cumulative < 0);
-            ForecastEnd = anyNegative ? "Geld reicht nicht!" : Eur(snapshot.Rows.Count > 0 ? snapshot.Rows[^1].Cumulative : StartBalance);
             MonthlyCashflow = snapshot.Rows.Count > 0 ? Eur(snapshot.Rows.Average(r => r.Net)) : Eur(0);
             ActiveOffers = snapshot.ActiveOffers;
             OpenInvoices = snapshot.OpenInvoices;
@@ -107,12 +101,6 @@ public partial class DashboardViewModel : ObservableObject
 
             double avgExpenses = snapshot.Rows.Count > 0 ? snapshot.Rows.Average(r => Math.Abs(r.Expenses)) : 0;
             BurnRate = Eur(avgExpenses);
-
-            double avgNet = snapshot.Rows.Count > 0 ? snapshot.Rows.Average(r => r.Net) : 0;
-            if (avgNet < 0)
-                Runway = Math.Ceiling(StartBalance / Math.Abs(avgNet)).ToString("N0", De) + " Monate";
-            else
-                Runway = "\u221e";
 
             OpenTodos = snapshot.Todos.Count(t => !string.Equals(t.Status, "Erledigt", StringComparison.OrdinalIgnoreCase)).ToString("N0", De);
             OverdueTodos = snapshot.Todos.Count(t =>
@@ -130,6 +118,41 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
+    private void ApplyForecastRows(IEnumerable<MonthRow> rows, Dictionary<string, double>? targets = null)
+    {
+        double cumulative = StartBalance;
+        var updatedRows = rows.Select(r =>
+        {
+            var target = targets != null && targets.TryGetValue(r.Month, out var targetValue)
+                ? targetValue
+                : r.Target;
+
+            cumulative += r.Net;
+            return new MonthRow
+            {
+                Month = r.Month,
+                Income = r.Income,
+                Expenses = r.Expenses,
+                Net = r.Net,
+                Cumulative = cumulative,
+                Target = target,
+                Variance = r.Net - target,
+                InvoiceAmount = r.InvoiceAmount
+            };
+        }).ToList();
+
+        MonthRows = new ObservableCollection<MonthRow>(updatedRows);
+        CurrentBalance = Eur(StartBalance);
+
+        bool anyNegative = updatedRows.Any(r => r.Cumulative < 0);
+        ForecastEnd = anyNegative ? "Geld reicht nicht!" : Eur(updatedRows.Count > 0 ? updatedRows[^1].Cumulative : StartBalance);
+
+        double avgNet = updatedRows.Count > 0 ? updatedRows.Average(r => r.Net) : 0;
+        Runway = avgNet < 0
+            ? Math.Ceiling(StartBalance / Math.Abs(avgNet)).ToString("N0", De) + " Monate"
+            : "\u221e";
+    }
+
     [RelayCommand]
     private void SaveBalance()
     {
@@ -140,7 +163,6 @@ public partial class DashboardViewModel : ObservableObject
     {
         public List<MonthRow> Rows { get; init; } = [];
         public Dictionary<string, double> Targets { get; init; } = [];
-        public double ActualPastCashflow { get; init; }
         public string ActiveOffers { get; init; } = "";
         public string OpenInvoices { get; init; } = "";
         public string HoursThisMonth { get; init; } = "";

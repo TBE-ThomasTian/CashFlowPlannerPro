@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
@@ -32,8 +33,25 @@ public partial class OffersView : UserControl
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is Offer o)
-            Dispatcher.BeginInvoke(() => _vm.Save(o));
+        if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not Offer o)
+            return;
+
+        CommitEditingElement(e.EditingElement);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => _vm.Save(o));
+    }
+
+    private static void CommitEditingElement(FrameworkElement editingElement)
+    {
+        switch (editingElement)
+        {
+            case TextBox textBox:
+                textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                break;
+            case ComboBox comboBox:
+                comboBox.GetBindingExpression(ComboBox.SelectedItemProperty)?.UpdateSource();
+                comboBox.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+                break;
+        }
     }
 
     private void ScanPdf_Click(object sender, RoutedEventArgs e)

@@ -13,12 +13,16 @@ namespace CashFlowPlannerPro.ViewModels;
 
 public partial class InvoicesViewModel : ObservableObject
 {
+    private const double DefaultVatRate = 19;
+    private readonly Dictionary<Invoice, string> amountCalculationBases = new();
+
     [ObservableProperty] private ObservableCollection<Invoice> invoices = new();
     [ObservableProperty] private ObservableCollection<string> customerNames = new();
     [ObservableProperty] private Invoice? selectedInvoice;
 
     public void Load()
     {
+        amountCalculationBases.Clear();
         Invoices = new ObservableCollection<Invoice>(Database.Instance.GetInvoices());
         CustomerNames = new ObservableCollection<string>(
             Database.Instance.GetCustomers()
@@ -36,6 +40,9 @@ public partial class InvoicesViewModel : ObservableObject
             DueDate = DateTime.Today.AddDays(30).ToString("yyyy-MM-dd"),
             Status = "Offen",
             Amount = 0,
+            NetAmount = 0,
+            VatAmount = 0,
+            VatRate = DefaultVatRate,
             Customer = CustomerNames.FirstOrDefault() ?? ""
         };
         Database.Instance.AddInvoice(inv);
@@ -100,9 +107,116 @@ public partial class InvoicesViewModel : ObservableObject
         if (inv.Id > 0) Database.Instance.UpdateInvoice(inv);
     }
 
+    public void ApplyInvoiceChanges(Invoice target, Invoice source)
+    {
+        target.IssueDate = source.IssueDate;
+        target.DueDate = source.DueDate;
+        target.Customer = source.Customer;
+        target.Amount = source.Amount;
+        target.NetAmount = source.NetAmount;
+        target.VatAmount = source.VatAmount;
+        target.VatRate = source.VatRate;
+        target.Description = source.Description;
+        target.PaidDate = source.PaidDate;
+        target.PaidAmount = source.PaidAmount;
+        target.Status = source.Status;
+        target.PdfPath = source.PdfPath;
+        Save(target);
+    }
+
+    public void RecalculateInvoiceAmounts(Invoice inv, string editedPropertyName)
+    {
+        switch (editedPropertyName)
+        {
+            case nameof(Invoice.Amount):
+                amountCalculationBases[inv] = nameof(Invoice.Amount);
+                CalculateFromGross(inv);
+                break;
+            case nameof(Invoice.NetAmount):
+                amountCalculationBases[inv] = nameof(Invoice.NetAmount);
+                CalculateFromNet(inv);
+                break;
+            case nameof(Invoice.VatAmount):
+                amountCalculationBases[inv] = nameof(Invoice.VatAmount);
+                CalculateFromVat(inv);
+                break;
+            case nameof(Invoice.VatRate):
+                RecalculateAfterVatRateChange(inv);
+                break;
+        }
+    }
+
     public void AddScannedInvoice(Invoice inv)
     {
         Database.Instance.AddInvoice(inv);
         Load();
     }
+
+    private void RecalculateAfterVatRateChange(Invoice inv)
+    {
+        var calculationBase = amountCalculationBases.GetValueOrDefault(inv);
+        if (calculationBase == nameof(Invoice.NetAmount) || (IsZero(inv.Amount) && !IsZero(inv.NetAmount)))
+            CalculateFromNet(inv);
+        else
+            CalculateFromGross(inv);
+    }
+
+    private static void CalculateFromGross(Invoice inv)
+    {
+        inv.VatRate = NormalizeVatRate(inv.VatRate);
+        if (IsZero(inv.Amount))
+        {
+            inv.NetAmount = 0;
+            inv.VatAmount = 0;
+            return;
+        }
+
+        if (IsZero(inv.VatRate))
+        {
+            inv.NetAmount = RoundCurrency(inv.Amount);
+            inv.VatAmount = 0;
+            return;
+        }
+
+        inv.NetAmount = RoundCurrency(inv.Amount / (1 + inv.VatRate / 100));
+        inv.VatAmount = RoundCurrency(inv.Amount - inv.NetAmount);
+    }
+
+    private static void CalculateFromNet(Invoice inv)
+    {
+        inv.VatRate = NormalizeVatRate(inv.VatRate);
+        inv.NetAmount = RoundCurrency(inv.NetAmount);
+        inv.VatAmount = RoundCurrency(inv.NetAmount * inv.VatRate / 100);
+        inv.Amount = RoundCurrency(inv.NetAmount + inv.VatAmount);
+    }
+
+    private static void CalculateFromVat(Invoice inv)
+    {
+        inv.VatAmount = RoundCurrency(inv.VatAmount);
+        if (!IsZero(inv.NetAmount))
+        {
+            inv.Amount = RoundCurrency(inv.NetAmount + inv.VatAmount);
+            inv.VatRate = RoundRate(inv.VatAmount / inv.NetAmount * 100);
+        }
+        else if (!IsZero(inv.Amount))
+        {
+            inv.NetAmount = RoundCurrency(inv.Amount - inv.VatAmount);
+            inv.VatRate = !IsZero(inv.NetAmount)
+                ? RoundRate(inv.VatAmount / inv.NetAmount * 100)
+                : DefaultVatRate;
+        }
+    }
+
+    private static double NormalizeVatRate(double vatRate) =>
+        double.IsNaN(vatRate) || double.IsInfinity(vatRate) || vatRate < 0
+            ? DefaultVatRate
+            : RoundRate(vatRate);
+
+    private static double RoundCurrency(double value) =>
+        Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static double RoundRate(double value) =>
+        Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static bool IsZero(double value) => Math.Abs(value) < 0.005;
 }
