@@ -29,9 +29,11 @@
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,12">
                     <TextBlock x:Name="SystemSectionText" Text="SYSTEM" Foreground="#475569" FontSize="10" FontWeight="Bold"
                                Margin="24,12,0,6"/>
+                    <Button x:Name="SettingsButton" Content="⚙  Einstellungen" Style="{StaticResource SidebarButton}"
+                            Click="ApplicationSettings_Click"/>
                     <Button x:Name="ProfileButton" Content="👤  Mein Profil" Style="{StaticResource SidebarButton}"
                             Click="UserSettings_Click"/>
-                    <Button x:Name="SwitchDatabaseButton" Content="⚙  Datenbank wechseln" Style="{StaticResource SidebarButton}"
+                    <Button x:Name="SwitchDatabaseButton" Content="🗄  Datenbank wechseln" Style="{StaticResource SidebarButton}"
                             Click="SwitchDatabase_Click"/>
                     <Button x:Name="BackupButton" Content="💾  Backup erstellen" Style="{StaticResource SidebarButton}"
                             Click="Backup_Click"/>

@@ -29,6 +29,7 @@ public partial class CustomersViewModel : ObservableObject
         var filtered = string.IsNullOrWhiteSpace(SearchText)
             ? _allCustomers
             : _allCustomers.Where(c =>
+                c.CustomerNumber.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
                 c.Company.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
                 c.ContactName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
                 c.Email.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||

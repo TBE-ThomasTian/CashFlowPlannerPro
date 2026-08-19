@@ -11,41 +11,20 @@ namespace CashFlowPlannerPro.Views;
 public partial class UserSettingsDialog : Window
 {
     private readonly string _currentUser;
-    private readonly List<LanguageOption> _languages = [];
 
     public UserSettingsDialog(string currentUser)
     {
         InitializeComponent();
         _currentUser = currentUser;
-        LocalizationManager.LanguageChanged += OnLanguageChanged;
         TbCurrentUser.Text = currentUser;
         TbFullName.Text = Database.Instance.GetFullName(currentUser) ?? "";
         LoadAvatar();
-        BuildLanguageOptions();
         ApplyLocalization();
         Owner = Application.Current.MainWindow?.IsVisible == true ? Application.Current.MainWindow : null;
         SaveButton.ToolTip = TooltipService.Get("Btn_Save");
         CancelButton.ToolTip = TooltipService.Get("Btn_Cancel");
         ChangeAvatarButton.ToolTip = TooltipService.Get("Btn_ChangeAvatar");
         RemoveAvatarButton.ToolTip = TooltipService.Get("Btn_RemoveAvatar");
-        Closed += (_, _) => LocalizationManager.LanguageChanged -= OnLanguageChanged;
-    }
-
-    private void OnLanguageChanged(object? sender, EventArgs e)
-    {
-        ApplyLocalization();
-    }
-
-    private void BuildLanguageOptions()
-    {
-        _languages.Clear();
-        _languages.Add(new LanguageOption("de", LocalizationManager.Get("LanguageGerman")));
-        _languages.Add(new LanguageOption("en", LocalizationManager.Get("LanguageEnglish")));
-        LanguageCombo.ItemsSource = null;
-        LanguageCombo.ItemsSource = _languages;
-        LanguageCombo.DisplayMemberPath = nameof(LanguageOption.Label);
-        LanguageCombo.SelectedValuePath = nameof(LanguageOption.Code);
-        LanguageCombo.SelectedValue = LocalizationManager.CurrentLanguageCode;
     }
 
     private void ApplyLocalization()
@@ -54,20 +33,12 @@ public partial class UserSettingsDialog : Window
         TitleText.Text = LocalizationManager.Get("ProfileTitle");
         LoggedInAsLabel.Text = LocalizationManager.Get("ProfileLoggedInAs");
         DisplayNameLabel.Text = LocalizationManager.Get("ProfileDisplayName");
-        LanguageLabel.Text = LocalizationManager.Get("ProfileLanguage");
-        CompanyProfileButton.Content = LocalizationManager.Get("CompanyProfileButton");
         ChangePasswordLabel.Text = LocalizationManager.Get("ProfileChangePassword");
         CurrentPasswordLabel.Text = LocalizationManager.Get("ProfileCurrentPassword");
         NewPasswordLabel.Text = LocalizationManager.Get("ProfileNewPassword");
         ConfirmPasswordLabel.Text = LocalizationManager.Get("ProfileConfirmPassword");
         CancelButton.Content = LocalizationManager.Get("Cancel");
         SaveButton.Content = LocalizationManager.Get("Save");
-        BuildLanguageOptions();
-    }
-
-    private void CompanyProfile_Click(object sender, RoutedEventArgs e)
-    {
-        CompanyProfileDialog.ShowDialogWindow();
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -76,9 +47,6 @@ public partial class UserSettingsDialog : Window
         var fullName = TbFullName.Text.Trim();
         if (!string.IsNullOrEmpty(fullName))
             Database.Instance.UpdateUserFullName(_currentUser, fullName);
-
-        if (LanguageCombo.SelectedValue is string languageCode && !string.IsNullOrWhiteSpace(languageCode))
-            LocalizationManager.SetLanguage(languageCode);
 
         // Change password if fields are filled
         var oldPw = PbOldPassword.Password;
@@ -192,11 +160,5 @@ public partial class UserSettingsDialog : Window
     public static void Show(string currentUser)
     {
         new UserSettingsDialog(currentUser).ShowDialog();
-    }
-
-    private sealed class LanguageOption(string code, string label)
-    {
-        public string Code { get; } = code;
-        public string Label { get; } = label;
     }
 }

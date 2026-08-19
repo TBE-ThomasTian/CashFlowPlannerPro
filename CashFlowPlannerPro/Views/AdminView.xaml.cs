@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using CashFlowPlannerPro.Data;
@@ -57,11 +59,19 @@ public partial class AdminView : UserControl
             var fullName = Database.Instance.GetFullName(username) ?? "";
 
             var contentGrid = new Grid();
+            contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            contentGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+            contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var identityPanel = new StackPanel { Orientation = Orientation.Horizontal };
-            identityPanel.Children.Add(new Border {
+            var identityPanel = new Grid {
+                MinWidth = 0,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            identityPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            identityPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var avatar = new Border {
                 Width = 36, Height = 36, CornerRadius = new CornerRadius(18),
                 Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x23, 0x59)),
                 Child = new TextBlock {
@@ -71,19 +81,32 @@ public partial class AdminView : UserControl
                     VerticalAlignment = VerticalAlignment.Center
                 },
                 Margin = new Thickness(0, 0, 12, 0)
-            });
+            };
+            identityPanel.Children.Add(avatar);
 
-            var info = new StackPanel();
-            info.Children.Add(new TextBlock {
-                Text = string.IsNullOrEmpty(fullName) ? username : $"{fullName} ({username})",
+            var displayText = string.IsNullOrEmpty(fullName) ? username : $"{fullName} ({username})";
+            var nameText = new TextBlock {
+                Text = displayText,
+                ToolTip = displayText,
                 FontWeight = FontWeights.SemiBold, FontSize = 13,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B))
-            });
+                Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B)),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(nameText, 1);
+            identityPanel.Children.Add(nameText);
+            Grid.SetRow(identityPanel, 0);
+            Grid.SetColumn(identityPanel, 0);
+            contentGrid.Children.Add(identityPanel);
 
             // Role dropdown
             var roleCombo = new ComboBox {
-                Width = 170, FontSize = 11, Margin = new Thickness(0, 2, 0, 0),
-                Background = Brushes.White
+                MinWidth = 0,
+                FontSize = 11,
+                Margin = new Thickness(0, 8, 0, 0),
+                Background = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
             roleCombo.Items.Add(new ComboBoxItem { Content = "Keine Rolle", Tag = (long)0 });
             foreach (var role in _roles)
@@ -100,30 +123,40 @@ public partial class AdminView : UserControl
                 if (roleCombo.SelectedItem is ComboBoxItem ci && ci.Tag is long rid)
                     Database.Instance.SetUserRole(capturedUser, rid > 0 ? rid : null);
             };
-            identityPanel.Children.Add(info);
-            Grid.SetColumn(identityPanel, 0);
-            contentGrid.Children.Add(identityPanel);
-
-            var rolePanel = new StackPanel {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            rolePanel.Children.Add(roleCombo);
-            Grid.SetColumn(rolePanel, 1);
-            contentGrid.Children.Add(rolePanel);
+            Grid.SetRow(roleCombo, 1);
+            Grid.SetColumn(roleCombo, 0);
+            Grid.SetColumnSpan(roleCombo, 2);
+            contentGrid.Children.Add(roleCombo);
 
             // Delete button
+            var isBuiltInAdmin = string.Equals(username, "admin", StringComparison.Ordinal);
             var deleteBtn = new Button {
-                Content = "🗑", FontSize = 14, Cursor = System.Windows.Input.Cursors.Hand,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Content = "\uE74D",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 16,
+                Style = (Style)FindResource("CompactDeleteButton"),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(4)
+                Margin = new Thickness(8, 0, 0, 0),
+                IsEnabled = !isBuiltInAdmin,
+                ToolTip = isBuiltInAdmin
+                    ? "Der integrierte Administrator kann nicht gelöscht werden."
+                    : $"Benutzer „{username}“ löschen"
             };
-            if (username != "admin")
+            ToolTipService.SetShowOnDisabled(deleteBtn, true);
+            AutomationProperties.SetAutomationId(deleteBtn, $"DeleteUser_{username}");
+            AutomationProperties.SetName(deleteBtn, isBuiltInAdmin
+                ? "Administrator kann nicht gelöscht werden"
+                : $"Benutzer {username} löschen");
+
+            if (!isBuiltInAdmin)
             {
                 deleteBtn.Click += (_, _) => {
                     if (!CheckAdminAccess()) return;
-                    if (ModernMessageBox.ShowConfirm($"Benutzer \"{capturedUser}\" wirklich löschen?", "Benutzer löschen"))
+                    if (ModernMessageBox.ShowConfirm(
+                            $"Benutzer \"{capturedUser}\" wirklich löschen?\n\n" +
+                            "Die zugehörige Mitarbeiterressource und bestehende Projektplanungen bleiben erhalten.\n\n" +
+                            "Persönliche Aufgaben, Einstellungen und Zeiterfassungen dieses Benutzers werden endgültig gelöscht.",
+                            "Benutzer löschen"))
                     {
                         Database.Instance.DeleteUser(capturedUser);
                         Refresh();
@@ -132,17 +165,14 @@ public partial class AdminView : UserControl
             }
             else
             {
-                deleteBtn.IsEnabled = false;
-                deleteBtn.ToolTip = "Admin kann nicht gelöscht werden";
+                deleteBtn.Cursor = Cursors.Arrow;
             }
-
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-            DockPanel.SetDock(deleteBtn, Dock.Right);
-            row.Children.Add(deleteBtn);
-            row.Children.Add(contentGrid);
+            Grid.SetRow(deleteBtn, 0);
+            Grid.SetColumn(deleteBtn, 1);
+            contentGrid.Children.Add(deleteBtn);
 
             var card = new Border {
-                Child = row, Background = new SolidColorBrush(Color.FromRgb(0xF8, 0xFA, 0xFC)),
+                Child = contentGrid, Background = new SolidColorBrush(Color.FromRgb(0xF8, 0xFA, 0xFC)),
                 CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 10, 12, 10),
                 Margin = new Thickness(0, 0, 0, 6),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)),
@@ -196,12 +226,18 @@ public partial class AdminView : UserControl
         {
             try
             {
-                Database.Instance.AddUser(dlg.Username, dlg.Password, dlg.FullName);
+                var resource = Database.Instance.AddUserWithResource(dlg.Username, dlg.Password, dlg.FullName);
                 Refresh();
+                ModernMessageBox.ShowSuccess(
+                    $"Der Benutzer \"{dlg.Username}\" wurde angelegt.\n\n" +
+                    $"Die Mitarbeiterressource \"{resource.Name}\" wurde automatisch zugeordnet.",
+                    "Benutzer angelegt");
             }
             catch (Exception ex)
             {
-                ModernMessageBox.ShowError(ex.Message, "Fehler");
+                ModernMessageBox.ShowError(
+                    $"Der Benutzer konnte nicht angelegt werden:\n{ex.Message}",
+                    "Benutzer anlegen");
             }
         }
     }

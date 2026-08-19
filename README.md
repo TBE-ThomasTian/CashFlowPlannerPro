@@ -35,7 +35,7 @@ CashFlow Planner Pro ist eine moderne Windows-Desktop-App fuer Cashflow-Prognose
 
 ### Technik
 
-- .NET 8
+- .NET 10
 - WPF Desktop App
 - SQLite und MariaDB
 - ScottPlot, PDF-Export und Integrations-Add-ons
@@ -89,7 +89,7 @@ CashFlow Planner Pro is a modern Windows desktop application for cash flow forec
 
 ### Technology
 
-- .NET 8
+- .NET 10
 - WPF desktop application
 - SQLite and MariaDB
 - ScottPlot, PDF reporting, and integration add-ons

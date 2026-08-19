@@ -1,8 +1,7 @@
 <UserControl x:Class="CashFlowPlannerPro.Views.OffersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:CashFlowPlannerPro.Converters"
-             xmlns:sys="clr-namespace:System;assembly=mscorlib">
+             xmlns:conv="clr-namespace:CashFlowPlannerPro.Converters">
     <UserControl.Resources>
         <conv:FileNameConverter x:Key="FileNameConverter"/>
         <conv:DateDisplayConverter x:Key="DateDisplayConverter"/>
@@ -14,76 +13,40 @@
         </Grid.RowDefinitions>
         <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource GridLineBrush}" BorderThickness="0,0,0,1" Padding="12,10">
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neu" Command="{Binding AddCommand}" Margin="0,0,8,0"/>
+                <Button x:Name="AddBtn" Style="{StaticResource AddButton}" Content="&#x2795; Neu" Click="Add_Click" Margin="0,0,8,0"/>
                 <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Click="Delete_Click" Margin="0,0,8,0"/>
-                <Button x:Name="ScanPdfBtn" Style="{StaticResource NavButton}" Content="&#x1F4C4; PDF scannen" Click="ScanPdf_Click" Padding="10,4"/>
+                <Button x:Name="ScanPdfBtn" Style="{StaticResource NavButton}" Content="&#x1F4C4; PDF scannen" Click="ScanPdf_Click"
+                        Padding="10,4" Margin="0,0,8,0"/>
+                <Button x:Name="CreateProjectBtn" Style="{StaticResource NavButton}" Content="&#x1F4C1; Projekt erstellen"
+                        Click="CreateProject_Click" Padding="10,4"
+                        ToolTip="Aus dem ausgewählten beauftragten Angebot ein Projekt erstellen"/>
             </StackPanel>
         </Border>
         <DataGrid x:Name="OffersGrid" Grid.Row="1" ItemsSource="{Binding Offers}" SelectedItem="{Binding SelectedOffer}"
                   SelectionMode="Extended" SelectionUnit="FullRow"
+                  IsReadOnly="True"
                   PreviewKeyDown="OffersGrid_PreviewKeyDown"
-                  CellEditEnding="DataGrid_CellEditEnding">
+                  MouseDoubleClick="OffersGrid_MouseDoubleClick">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Angebotsnummer" Binding="{Binding OfferNumber}" IsReadOnly="True" Width="140"/>
+                <DataGridTextColumn Header="Projektnummer" Binding="{Binding ProjectNumber}" IsReadOnly="True" Width="130"/>
                 <DataGridTextColumn Header="Angebotsdatum" Binding="{Binding OfferDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTextColumn Header="Erwartetes Datum" Binding="{Binding DateExpected, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
-                <DataGridTemplateColumn Header="Kunde" Width="170">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Customer}"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                    <DataGridTemplateColumn.CellEditingTemplate>
-                        <DataTemplate>
-                            <ComboBox ItemsSource="{Binding DataContext.CustomerNames, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                      Text="{Binding Customer, UpdateSourceTrigger=LostFocus}"
-                                      IsEditable="True"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellEditingTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Betrag &#8364;" Binding="{Binding Amount, StringFormat=N2}" Width="100"/>
+                <DataGridTextColumn Header="Kunde" Binding="{Binding Customer}" Width="170"/>
+                <DataGridTextColumn Header="Ausgangsbetrag &#8364;" Binding="{Binding AmountBeforeDiscount, StringFormat=N2}" Width="135"/>
+                <DataGridTextColumn Header="Rabatt %" Binding="{Binding DiscountPercent, StringFormat=N2}" Width="90"/>
+                <DataGridTextColumn Header="Endbetrag &#8364;" Binding="{Binding Amount, StringFormat=N2}" Width="115"/>
                 <DataGridTextColumn Header="Wahrscheinlichkeit %" Binding="{Binding Probability}" Width="130"/>
-                <DataGridTemplateColumn Header="Status" Width="120">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Status}"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                    <DataGridTemplateColumn.CellEditingTemplate>
-                        <DataTemplate>
-                            <ComboBox SelectedItem="{Binding Status, UpdateSourceTrigger=PropertyChanged}" IsEditable="False">
-                                <sys:String>Offen</sys:String>
-                                <sys:String>Beauftragt</sys:String>
-                                <sys:String>Abgelehnt</sys:String>
-                            </ComboBox>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellEditingTemplate>
-                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120"/>
                 <DataGridTextColumn Header="Beschreibung" Binding="{Binding Description}" Width="200"/>
-                <DataGridTemplateColumn Header="Zahlungsziel Tage" Width="130">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding PaymentDelay}"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                    <DataGridTemplateColumn.CellEditingTemplate>
-                        <DataTemplate>
-                            <ComboBox SelectedItem="{Binding PaymentDelay, UpdateSourceTrigger=PropertyChanged}" IsEditable="False">
-                                <sys:Int32>0</sys:Int32>
-                                <sys:Int32>30</sys:Int32>
-                                <sys:Int32>60</sys:Int32>
-                                <sys:Int32>90</sys:Int32>
-                                <sys:Int32>120</sys:Int32>
-                            </ComboBox>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellEditingTemplate>
-                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Zahlungsziel Tage" Binding="{Binding PaymentDelay}" Width="130"/>
                 <DataGridTemplateColumn Header="PDF Anhang" Width="180">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{Binding PdfPath, Converter={StaticResource FileNameConverter}}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                                 <Button Content="&#128206;" Command="{Binding DataContext.SelectPdfCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        IsEnabled="{Binding DataContext.CanEditOffers, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         Padding="4,2" FontSize="11" ToolTip="PDF anh&#228;ngen / Attach PDF"/>
                                 <Button Content="&#128194;" Command="{Binding DataContext.OpenPdfCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         Padding="4,2" FontSize="11" Margin="4,0,0,0" ToolTip="PDF &#246;ffnen / Open PDF"/>

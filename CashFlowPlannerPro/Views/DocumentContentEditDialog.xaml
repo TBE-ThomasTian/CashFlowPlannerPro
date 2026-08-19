@@ -1,0 +1,253 @@
+<Window x:Class="CashFlowPlannerPro.Views.DocumentContentEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="Dokumentinhalt bearbeiten"
+        Width="1120" Height="760" MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False" Background="#171433"
+        KeyDown="Window_KeyDown" Loaded="Window_Loaded">
+    <Window.Resources>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#C8C4E8"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style x:Key="DocumentTabControl" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <ScrollViewer x:Name="TabHeaderScroller"
+                                          Grid.Row="0"
+                                          Margin="0,0,0,8"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          CanContentScroll="False"
+                                          PanningMode="HorizontalOnly"
+                                          Focusable="False">
+                                <TabPanel x:Name="HeaderPanel"
+                                          IsItemsHost="True"
+                                          KeyboardNavigation.TabIndex="1"/>
+                            </ScrollViewer>
+                            <Border Grid.Row="1" Background="#211C49" BorderBrush="#4C447E"
+                                    BorderThickness="1" CornerRadius="8" Padding="10">
+                                <ContentPresenter x:Name="PART_SelectedContentHost"
+                                                  ContentSource="SelectedContent"
+                                                  SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DocumentTabItem" TargetType="TabItem">
+            <Setter Property="Visibility" Value="Visible"/>
+            <Setter Property="Foreground" Value="#C8C4E8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder" Background="#342D68" BorderBrush="#4C447E"
+                                BorderThickness="1" CornerRadius="7" Padding="13,8">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#BF247A"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#BF247A"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#F6C35B"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TabBorder" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinWidth" Value="92"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="#2A2359" BorderBrush="#812B8C" BorderThickness="2" Padding="16">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Grid Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock x:Name="DialogTitle" Text="Dokumentinhalt bearbeiten"
+                               Foreground="#F6C35B" FontSize="21" FontWeight="Bold"
+                               TextWrapping="Wrap"/>
+                    <TextBlock x:Name="DialogSubtitle"
+                               Text="Diese Angaben bilden den eigentlichen Dokumentinhalt und sind von der lokalen Kurzbeschreibung getrennt."
+                               Foreground="#AAA4CE" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                </StackPanel>
+            </Grid>
+
+            <TabControl Grid.Row="1" x:Name="ContentTabs" Style="{StaticResource DocumentTabControl}">
+                <TabItem x:Name="HeaderTab" Header="Kopf" Style="{StaticResource DocumentTabItem}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="2">
+                            <TextBlock Text="Überschrift" Style="{StaticResource SectionLabel}"/>
+                            <TextBox x:Name="TbHeader" Style="{StaticResource DarkTextBox}"
+                                     automation:AutomationProperties.Name="Dokumentüberschrift"
+                                     Margin="0,0,0,18"/>
+
+                            <TextBlock Text="Vortext" Style="{StaticResource SectionLabel}"/>
+                            <TextBox x:Name="TbPreText" Style="{StaticResource DarkTextBox}"
+                                     automation:AutomationProperties.Name="Vortext"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220"
+                                     VerticalScrollBarVisibility="Auto"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem x:Name="PositionsTab" Header="Positionen" Style="{StaticResource DocumentTabItem}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                      Margin="0,0,0,10">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="AddLineButton" Content="+ Position" Click="AddLine_Click"
+                                        Style="{StaticResource ToolbarButton}" Background="#2E9D62"
+                                        automation:AutomationProperties.Name="Position hinzufügen"
+                                        ToolTip="Neue Position am Ende hinzufügen"/>
+                                <Button x:Name="DeleteLineButton" Content="Löschen" Click="DeleteLine_Click"
+                                        Style="{StaticResource ToolbarButton}" Background="#C23B3B"
+                                        automation:AutomationProperties.Name="Ausgewählte Position löschen"
+                                        ToolTip="Ausgewählte Position löschen"/>
+                                <Button x:Name="MoveLineUpButton" Content="Nach oben" Click="MoveLineUp_Click"
+                                        Style="{StaticResource ToolbarButton}" Background="#4C447E"
+                                        automation:AutomationProperties.Name="Position nach oben verschieben"
+                                        ToolTip="Ausgewählte Position nach oben verschieben"/>
+                                <Button x:Name="MoveLineDownButton" Content="Nach unten" Click="MoveLineDown_Click"
+                                        Style="{StaticResource ToolbarButton}" Background="#4C447E"
+                                        automation:AutomationProperties.Name="Position nach unten verschieben"
+                                        ToolTip="Ausgewählte Position nach unten verschieben"/>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <DataGrid Grid.Row="1" x:Name="LineItemsGrid" MinHeight="80"
+                                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserReorderColumns="True" CanUserResizeColumns="True" CanUserSortColumns="False"
+                                  SelectionMode="Single" SelectionUnit="FullRow" FrozenColumnCount="2"
+                                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                  SelectionChanged="LineItemsGrid_SelectionChanged"
+                                  automation:AutomationProperties.Name="Dokumentpositionen">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Pos." Width="65"
+                                                    Binding="{Binding PositionNumber, UpdateSourceTrigger=LostFocus}"/>
+                                <DataGridTextColumn Header="Bezeichnung" Width="180"
+                                                    Binding="{Binding Name, UpdateSourceTrigger=LostFocus}"/>
+                                <DataGridTextColumn Header="Beschreibung" Width="280"
+                                                    Binding="{Binding Description, UpdateSourceTrigger=LostFocus}"/>
+                                <DataGridTextColumn Header="Menge" Width="80"
+                                                    Binding="{Binding Quantity, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridTextColumn Header="Einheit" Width="85"
+                                                    Binding="{Binding Unit, UpdateSourceTrigger=LostFocus}"/>
+                                <DataGridTextColumn Header="EP" Width="95"
+                                                    Binding="{Binding UnitPrice, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridTextColumn Header="Rabatt %" Width="85"
+                                                    Binding="{Binding DiscountPercent, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridTextColumn Header="MwSt %" Width="80"
+                                                    Binding="{Binding TaxRate, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridTextColumn Header="Netto" Width="100"
+                                                    Binding="{Binding NetAmount, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridTextColumn Header="Brutto" Width="100"
+                                                    Binding="{Binding GrossAmount, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"/>
+                                <DataGridCheckBoxColumn Header="Optional" Width="80"
+                                                        Binding="{Binding IsOptional, UpdateSourceTrigger=PropertyChanged}"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Grid.Row="2"
+                                   Text="Doppelklick oder F2 bearbeitet eine Zelle. Die Reihenfolge wird beim Speichern übernommen."
+                                   Foreground="#AAA4CE" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </Grid>
+                </TabItem>
+
+                <TabItem x:Name="PostTextTab" Header="Nachtext" Style="{StaticResource DocumentTabItem}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="2">
+                            <TextBlock Text="Nachtext" Style="{StaticResource SectionLabel}"/>
+                            <TextBox x:Name="TbPostText" Style="{StaticResource DarkTextBox}"
+                                     automation:AutomationProperties.Name="Nachtext"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="280"
+                                     VerticalScrollBarVisibility="Auto"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem x:Name="InternalNoteTab" Header="Interne Notiz" Style="{StaticResource DocumentTabItem}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="2">
+                            <Border Background="#43351F" BorderBrush="#D49A2A" BorderThickness="1"
+                                    CornerRadius="7" Padding="12" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="Nur intern" Foreground="#FFD37A" FontWeight="Bold"/>
+                                    <TextBlock Text="Diese Notiz gehört nicht zum sichtbaren Kunden-Dokument. Hier können Referenz- oder Bestellnummern und interne Hinweise stehen."
+                                               Foreground="#F1D7A5" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="Interne Notiz / Referenz" Style="{StaticResource SectionLabel}"/>
+                            <TextBox x:Name="TbInternalNote" Style="{StaticResource DarkTextBox}"
+                                     automation:AutomationProperties.Name="Interne Notiz"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220"
+                                     VerticalScrollBarVisibility="Auto"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="PositionSummaryText" Foreground="#AAA4CE" FontSize="12"
+                           TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click"
+                            MinWidth="110" MinHeight="38" Margin="0,0,12,0" Padding="14,8"
+                            Background="#4C447E" Foreground="White"
+                            automation:AutomationProperties.Name="Dokumentinhalt abbrechen"/>
+                    <Button x:Name="SaveBtn" Content="Übernehmen" Click="Save_Click"
+                            MinWidth="120" MinHeight="38" Padding="14,8"
+                            Background="#BF247A" Foreground="White" FontWeight="SemiBold"
+                            automation:AutomationProperties.Name="Dokumentinhalt übernehmen"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

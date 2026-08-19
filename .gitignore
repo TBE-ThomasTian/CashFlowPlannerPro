@@ -6,5 +6,6 @@ obj/
 *.suo
 *.db
 publish/
+artifacts/
 *.zip
 installer/output/

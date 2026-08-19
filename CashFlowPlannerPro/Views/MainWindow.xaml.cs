@@ -77,6 +77,7 @@ public partial class MainWindow : Window
         Nav11.Content = LocalizationManager.Get("NavIntegrations");
         Nav12.Content = LocalizationManager.Get("NavAdmin");
 
+        SettingsButton.Content = LocalizationManager.Get("SettingsButton");
         ProfileButton.Content = LocalizationManager.Get("ProfileButton");
         SwitchDatabaseButton.Content = LocalizationManager.Get("SwitchDatabaseButton");
         BackupButton.Content = LocalizationManager.Get("BackupButton");
@@ -101,6 +102,7 @@ public partial class MainWindow : Window
         Nav12.ToolTip = TooltipService.Get("Nav_Admin");
 
         // Tooltips — System
+        SettingsButton.ToolTip = TooltipService.Get("Nav_Settings");
         ProfileButton.ToolTip = TooltipService.Get("Nav_Profile");
         SwitchDatabaseButton.ToolTip = TooltipService.Get("Nav_SwitchDb");
         BackupButton.ToolTip = LocalizationManager.Get("BackupButton");
@@ -137,9 +139,16 @@ public partial class MainWindow : Window
             if (parts.Length == 2 && int.TryParse(parts[1], out int idx))
             {
                 ContentTabs.SelectedIndex = idx;
+                RefreshSelectedPage(idx);
                 SetActiveNav(idx);
             }
         }
+    }
+
+    private void RefreshSelectedPage(int index)
+    {
+        if (index == 6 && ContentTabs.Items[index] is TabItem { Content: ResourcesView resourcesView })
+            resourcesView.Reload();
     }
 
     private void SetActiveNav(int activeIndex)
@@ -179,6 +188,11 @@ public partial class MainWindow : Window
     {
         UserSettingsDialog.Show(App.CurrentUsername);
         UpdateStatusBar();
+    }
+
+    private void ApplicationSettings_Click(object sender, RoutedEventArgs e)
+    {
+        ApplicationSettingsDialog.ShowDialogWindow();
     }
 
     private void About_Click(object sender, RoutedEventArgs e)

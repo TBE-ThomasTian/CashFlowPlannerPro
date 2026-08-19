@@ -109,6 +109,14 @@ public partial class InvoicesViewModel : ObservableObject
 
     public void ApplyInvoiceChanges(Invoice target, Invoice source)
     {
+        if (target.Id != source.Id)
+            throw new InvalidOperationException("Die bearbeitete Rechnung gehört nicht zum ausgewählten Datensatz.");
+
+        // Persist the detached dialog copy first. If the database rejects the
+        // update, the object currently displayed in the grid remains unchanged.
+        Save(source);
+
+        target.InvoiceNumber = source.InvoiceNumber;
         target.IssueDate = source.IssueDate;
         target.DueDate = source.DueDate;
         target.Customer = source.Customer;
@@ -121,7 +129,7 @@ public partial class InvoicesViewModel : ObservableObject
         target.PaidAmount = source.PaidAmount;
         target.Status = source.Status;
         target.PdfPath = source.PdfPath;
-        Save(target);
+        target.Content = source.Content?.DeepClone() ?? new DocumentContent();
     }
 
     public void RecalculateInvoiceAmounts(Invoice inv, string editedPropertyName)

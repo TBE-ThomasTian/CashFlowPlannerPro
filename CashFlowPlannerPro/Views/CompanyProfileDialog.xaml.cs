@@ -122,9 +122,11 @@ public partial class CompanyProfileDialog : Window
         return null;
     }
 
-    public static bool ShowDialogWindow()
+    public static bool ShowDialogWindow(Window? owner = null)
     {
         var dlg = new CompanyProfileDialog();
+        if (owner != null)
+            dlg.Owner = owner;
         return dlg.ShowDialog() == true;
     }
 }

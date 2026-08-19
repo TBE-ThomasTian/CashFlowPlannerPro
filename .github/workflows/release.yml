@@ -17,37 +17,97 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          [xml]$appProject = Get-Content -LiteralPath "CashFlowPlannerPro/CashFlowPlannerPro.csproj"
+          [xml]$updaterProject = Get-Content -LiteralPath "CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj"
+          $appVersion = [string]$appProject.Project.PropertyGroup.Version
+          $updaterVersion = [string]$updaterProject.Project.PropertyGroup.Version
+          $installerMatch = Select-String -LiteralPath "installer/CashFlowPlannerPro.iss" -Pattern '^#define MyAppVersion "([^"]+)"$'
+          if (-not $installerMatch) { throw "Installer version is missing." }
+          $installerVersion = $installerMatch.Matches[0].Groups[1].Value
+          if ($appVersion -ne $updaterVersion -or $appVersion -ne $installerVersion) {
+            throw "Version mismatch: app=$appVersion updater=$updaterVersion installer=$installerVersion"
+          }
+          if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Stable SemVer required: $appVersion" }
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$appVersion") {
+            throw "Tag ${{ github.ref_name }} does not match project version v$appVersion"
+          }
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore CashFlowPlannerPro.sln
+        run: dotnet restore CashFlowPlannerPro.sln -r win-x64
 
       - name: Publish app
-        run: dotnet publish CashFlowPlannerPro/CashFlowPlannerPro.csproj -c Release -r win-x64 --self-contained true -o artifacts/app
+        run: dotnet publish CashFlowPlannerPro/CashFlowPlannerPro.csproj -c Release -r win-x64 --self-contained true --no-restore -o publish/win-x64
 
       - name: Publish updater
-        run: dotnet publish CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -c Release -r win-x64 --self-contained true -o artifacts/updater
+        run: dotnet publish CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts/updater
 
       - name: Prepare package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts/app/updater | Out-Null
-          Copy-Item -Path artifacts/updater/* -Destination artifacts/app/updater -Recurse -Force
+          New-Item -ItemType Directory -Force -Path publish/win-x64/updater | Out-Null
+          Copy-Item -Path artifacts/updater/* -Destination publish/win-x64/updater -Recurse -Force
+          $requiredFiles = @(
+            "publish/win-x64/CashFlowPlannerPro.exe",
+            "publish/win-x64/coreclr.dll",
+            "publish/win-x64/hostfxr.dll",
+            "publish/win-x64/updater/CashFlowPlannerPro.Updater.exe",
+            "publish/win-x64/updater/coreclr.dll",
+            "publish/win-x64/updater/hostfxr.dll"
+          )
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Published file is missing: $file" }
+          }
           $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
-          Compress-Archive -Path artifacts/app/* -DestinationPath "CashFlowPlannerPro-$version-win-x64.zip" -Force
+          Compress-Archive -Path publish/win-x64/* -DestinationPath "CashFlowPlannerPro-$version-win-x64.zip" -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "installer\CashFlowPlannerPro.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Verify release assets
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
+          $zip = "CashFlowPlannerPro-$version-win-x64.zip"
+          [xml]$appProject = Get-Content -LiteralPath "CashFlowPlannerPro/CashFlowPlannerPro.csproj"
+          $installer = "installer/output/CashFlowPlannerPro_Setup_$($appProject.Project.PropertyGroup.Version).exe"
+          if (-not (Test-Path -LiteralPath $zip)) { throw "Release ZIP is missing: $zip" }
+          if (-not (Test-Path -LiteralPath $installer)) { throw "Installer is missing: $installer" }
+          Get-FileHash -Algorithm SHA256 -LiteralPath $zip, $installer
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: cashflowplannerpro-win-x64
-          path: CashFlowPlannerPro-*-win-x64.zip
+          path: |
+            CashFlowPlannerPro-*-win-x64.zip
+            installer/output/CashFlowPlannerPro_Setup_*.exe
+          if-no-files-found: error
 
       - name: Create GitHub release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: CashFlowPlannerPro-*-win-x64.zip
+          files: |
+            CashFlowPlannerPro-*-win-x64.zip
+            installer/output/CashFlowPlannerPro_Setup_*.exe
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,0 +1,74 @@
+<Window x:Class="CashFlowPlannerPro.Views.ApplicationSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Einstellungen" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="30" Width="500"
+            BorderBrush="#812B8C" BorderThickness="2"
+            PreviewMouseLeftButtonDown="Chrome_PreviewMouseLeftButtonDown">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="TitleText" Text="Einstellungen" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <StackPanel Grid.Row="1">
+                <TextBlock x:Name="AppearanceTitleText" Text="Darstellung" FontSize="14"
+                           FontWeight="SemiBold" Foreground="#F6C35B" Margin="0,0,0,12"/>
+
+                <TextBlock x:Name="UiSizeLabel" Text="Darstellungsgröße"
+                           Foreground="#CBD5E1" FontSize="12" Margin="0,0,0,5"/>
+                <ComboBox x:Name="UiSizeCombo" Margin="0,0,0,6" Cursor="Hand"
+                          SelectionChanged="UiSizeCombo_SelectionChanged"/>
+                <TextBlock x:Name="UiSizeHintText"
+                           Text="Skaliert Schrift, Bedienelemente und Abstände in der gesamten Anwendung."
+                           Foreground="#8899AA" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,18"/>
+
+                <TextBlock x:Name="LanguageLabel" Text="Sprache"
+                           Foreground="#CBD5E1" FontSize="12" Margin="0,0,0,5"/>
+                <ComboBox x:Name="LanguageCombo" Margin="0,0,0,18" Cursor="Hand"/>
+
+                <Button x:Name="CompanyProfileButton" Content="🏢 Firmenprofil"
+                        Click="CompanyProfile_Click" Margin="0,0,0,22" Padding="12,8"
+                        FontSize="13" Cursor="Hand" Background="#3D3670"
+                        Foreground="White" BorderThickness="0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Abbrechen" Click="Cancel_Click"
+                        MinWidth="100" Margin="0,0,12,0" Padding="12,8" FontSize="13"
+                        Cursor="Hand" Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="SaveButton" Content="Speichern" Click="Save_Click"
+                        MinWidth="100" Padding="12,8" FontSize="13" FontWeight="SemiBold"
+                        Cursor="Hand" Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

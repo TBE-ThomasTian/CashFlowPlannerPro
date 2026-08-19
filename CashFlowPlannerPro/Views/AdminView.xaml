@@ -32,7 +32,10 @@
                                 Style="{StaticResource AddButton}" Padding="8,4"
                                 HorizontalAlignment="Right" Margin="8,0,0,0"/>
                     </DockPanel>
-                    <StackPanel x:Name="UserListPanel"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="UserListPanel"/>
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
 

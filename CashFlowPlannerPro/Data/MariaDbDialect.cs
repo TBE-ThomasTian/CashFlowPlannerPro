@@ -42,15 +42,13 @@ public class MariaDbDialect : IDbDialect
             // MariaDB: `interval` is a reserved word
             .Replace(" interval TEXT", " `interval` TEXT");
 
-        // MariaDB: UNIQUE constraints on TEXT columns need a prefix length
-        // UNIQUE(resource_id, project_id, date) → UNIQUE(resource_id, project_id, date(50))
-        result = Regex.Replace(result, @"UNIQUE\(([^)]+)\)", m =>
-        {
-            var cols = m.Groups[1].Value;
-            // Add prefix length to 'date' column in UNIQUE constraints
-            cols = Regex.Replace(cols, @"\bdate\b(?!\()", "date(50)");
-            return $"UNIQUE({cols})";
-        });
+        // Parent IDs are BIGINT; MariaDB requires integer foreign keys to use
+        // the exact same size and signedness as the referenced column.
+        result = Regex.Replace(
+            result,
+            @"\b([A-Za-z_][A-Za-z0-9_]*_id)\s+INTEGER\b",
+            "$1 BIGINT",
+            RegexOptions.IgnoreCase);
 
         return result;
     }
@@ -68,7 +66,5 @@ public class MariaDbDialect : IDbDialect
         => $"TIMESTAMPDIFF(SECOND, {startCol}, {endParam}) / 3600.0";
 
     public bool IsMigrationError(Exception ex)
-        => ex is MySqlException myEx &&
-           (myEx.Message.Contains("Duplicate column", StringComparison.OrdinalIgnoreCase) ||
-            myEx.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase));
+        => ex is MySqlException { ErrorCode: MySqlErrorCode.DuplicateFieldName };
 }

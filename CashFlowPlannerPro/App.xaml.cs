@@ -16,7 +16,7 @@ public partial class App : Application
 
     public static string GetAccess(string pageKey)
     {
-        if (CurrentUsername.Equals("admin", System.StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(CurrentUsername, "admin", System.StringComparison.Ordinal))
             return "full";
         return Permissions.GetValueOrDefault(pageKey, "none");
     }
@@ -35,6 +35,7 @@ public partial class App : Application
     private void Application_Startup(object sender, StartupEventArgs e)
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        UiScaleService.Initialize();
         LocalizationManager.LoadSavedLanguage();
         ApplyWpfCultureLanguage();
 

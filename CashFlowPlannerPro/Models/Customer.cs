@@ -3,6 +3,7 @@ namespace CashFlowPlannerPro.Models;
 public class Customer
 {
     public long Id { get; set; }
+    public string CustomerNumber { get; set; } = "";
     public string Company { get; set; } = "";
     public string ContactName { get; set; } = "";
     public string Email { get; set; } = "";

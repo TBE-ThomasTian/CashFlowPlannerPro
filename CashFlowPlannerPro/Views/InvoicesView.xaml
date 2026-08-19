@@ -22,10 +22,13 @@
         </Border>
         <DataGrid x:Name="InvoicesGrid" Grid.Row="1" ItemsSource="{Binding Invoices}" SelectedItem="{Binding SelectedInvoice}"
                   AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                   SelectionMode="Extended" SelectionUnit="FullRow"
                   PreviewKeyDown="InvoicesGrid_PreviewKeyDown"
                   MouseDoubleClick="InvoicesGrid_MouseDoubleClick">
             <DataGrid.Columns>
+                <DataGridTextColumn Header="Rechnungsnr." Binding="{Binding InvoiceNumber}" Width="120" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Ausstellungsdatum" Binding="{Binding IssueDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTextColumn Header="F&#228;llig am" Binding="{Binding DueDate, Converter={StaticResource DateDisplayConverter}}" Width="120"/>
                 <DataGridTemplateColumn Header="Kunde" Width="170">

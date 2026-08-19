@@ -13,6 +13,7 @@ public partial class InvoiceEditDialog : Window
     private const double DefaultVatRate = 19;
     private bool isUpdatingAmounts;
     private string amountBase = nameof(Invoice.Amount);
+    private DocumentContent _workingContent;
 
     public Invoice Invoice { get; private set; }
     public bool Saved { get; private set; }
@@ -21,6 +22,7 @@ public partial class InvoiceEditDialog : Window
     {
         InitializeComponent();
         Invoice = invoice;
+        _workingContent = (invoice.Content ?? new DocumentContent()).DeepClone();
         LoadCombos(customerNames);
         LoadData();
         SaveBtn.ToolTip = TooltipService.Get("Btn_Save");
@@ -41,6 +43,7 @@ public partial class InvoiceEditDialog : Window
     private void LoadData()
     {
         isUpdatingAmounts = true;
+        TbInvoiceNumber.Text = Invoice.InvoiceNumber;
         TbIssueDate.Text = FormatDate(Invoice.IssueDate);
         TbDueDate.Text = FormatDate(Invoice.DueDate);
         CbCustomer.Text = Invoice.Customer;
@@ -54,7 +57,30 @@ public partial class InvoiceEditDialog : Window
         CbStatus.SelectedItem = Invoice.Status;
         if (CbStatus.SelectedItem == null)
             CbStatus.Text = Invoice.Status;
+        UpdateDocumentContentButton();
         isUpdatingAmounts = false;
+    }
+
+    private void DocumentContent_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new DocumentContentEditDialog(_workingContent, "Rechnung")
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() == true && dialog.ResultContent != null)
+        {
+            _workingContent = dialog.ResultContent.DeepClone();
+            UpdateDocumentContentButton();
+        }
+    }
+
+    private void UpdateDocumentContentButton()
+    {
+        var count = _workingContent.LineItems.Count;
+        DocumentContentBtn.Content = count == 1
+            ? "Dokumentinhalt (1 Position)"
+            : $"Dokumentinhalt ({count} Positionen)";
     }
 
     private void Gross_LostFocus(object sender, RoutedEventArgs e)
@@ -151,6 +177,7 @@ public partial class InvoiceEditDialog : Window
             return;
         }
 
+        Invoice.InvoiceNumber = TbInvoiceNumber.Text.Trim();
         Invoice.IssueDate = ParseDate(TbIssueDate.Text) ?? "";
         Invoice.DueDate = ParseDate(TbDueDate.Text) ?? "";
         Invoice.Customer = CbCustomer.Text.Trim();
@@ -162,6 +189,7 @@ public partial class InvoiceEditDialog : Window
         Invoice.PaidDate = ParseDate(TbPaidDate.Text);
         Invoice.PaidAmount = RoundCurrency(paidAmount.Value);
         Invoice.Status = CbStatus.Text.Trim();
+        Invoice.Content = _workingContent.DeepClone();
 
         Saved = true;
         Close();
@@ -181,6 +209,7 @@ public partial class InvoiceEditDialog : Window
         var copy = new Invoice
         {
             Id = invoice.Id,
+            InvoiceNumber = invoice.InvoiceNumber,
             IssueDate = invoice.IssueDate,
             DueDate = invoice.DueDate,
             Customer = invoice.Customer,
@@ -194,7 +223,8 @@ public partial class InvoiceEditDialog : Window
             PaidAmount = invoice.PaidAmount,
             Status = invoice.Status,
             PdfPath = invoice.PdfPath,
-            CreatedAt = invoice.CreatedAt
+            CreatedAt = invoice.CreatedAt,
+            Content = invoice.Content?.DeepClone() ?? new DocumentContent()
         };
 
         var dlg = new InvoiceEditDialog(copy, customerNames)

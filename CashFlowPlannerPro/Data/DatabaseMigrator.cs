@@ -4,28 +4,41 @@ namespace CashFlowPlannerPro.Data;
 
 public static class DatabaseMigrator
 {
-    // Tables in dependency order (parents before children)
+    // Tables in dependency order (parents before children). This order is also
+    // used in reverse when the target is cleared, so foreign keys remain valid.
     private static readonly string[] Tables = [
-        "users",
+        "roles",
         "categories",
         "persons",
         "settings",
-        "roles",
-        "role_permissions",
-        "projects",
-        "resources",
         "customers",
+        "projects",
+        "users",
+        "resources",
+        "hardware_resources",
         "transactions",
         "offers",
         "invoices",
         "targets",
-        "resource_allocations",
-        "hardware_resources",
-        "hardware_allocations",
+        "role_permissions",
         "project_milestones",
+        "resource_allocations",
+        "hardware_allocations",
+        "document_contents",
+        "document_line_items",
         "user_todos",
+        "user_settings",
         "time_entries"
     ];
+
+    // These tables were added after the first released database format. Older
+    // source databases are valid even when they do not contain them yet.
+    private static readonly HashSet<string> OptionalSourceTables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "document_contents",
+        "document_line_items",
+        "user_settings"
+    };
 
     /// <summary>
     /// Migrates all data from source to the currently open Database.Instance.
@@ -46,25 +59,65 @@ public static class DatabaseMigrator
         sourceDialect.ConfigureConnection(sourceConn);
 
         var targetConn = GetTargetConnection();
-
-        for (int i = 0; i < Tables.Length; i++)
+        var availableSourceTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var table in Tables)
         {
-            var table = Tables[i];
-            onProgress?.Invoke(table, i + 1, Tables.Length);
-
-            try
+            if (TableExists(sourceConn, table))
             {
-                int count = CopyTable(sourceConn, targetConn, table, Database.Instance.Dialect);
-                result.TableCounts[table] = count;
-                result.TotalRows += count;
+                availableSourceTables.Add(table);
+                continue;
             }
-            catch (Exception ex)
+
+            if (!OptionalSourceTables.Contains(table))
             {
-                result.Errors.Add($"{table}: {ex.Message}");
+                result.Errors.Add($"{table}: Die Tabelle fehlt in der Quelldatenbank.");
+                result.Success = false;
+                return result;
             }
         }
 
-        result.Success = result.Errors.Count == 0;
+        var copiedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        string currentTable = "";
+        using var transaction = targetConn.BeginTransaction();
+        try
+        {
+            foreach (var table in Tables.Reverse())
+            {
+                currentTable = table;
+                using var delete = targetConn.CreateCommand();
+                delete.Transaction = transaction;
+                delete.CommandText = $"DELETE FROM {table}";
+                delete.ExecuteNonQuery();
+            }
+
+            for (int i = 0; i < Tables.Length; i++)
+            {
+                currentTable = Tables[i];
+                onProgress?.Invoke(currentTable, i + 1, Tables.Length);
+
+                int count = availableSourceTables.Contains(currentTable)
+                    ? CopyTable(sourceConn, targetConn, currentTable, Database.Instance.Dialect, transaction)
+                    : 0;
+                copiedCounts[currentTable] = count;
+            }
+
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            try { transaction.Rollback(); } catch { }
+            result.Errors.Add($"{currentTable}: {ex.Message}");
+            result.Success = false;
+            return result;
+        }
+
+        foreach (var (table, count) in copiedCounts)
+        {
+            result.TableCounts[table] = count;
+            result.TotalRows += count;
+        }
+
+        result.Success = true;
         return result;
     }
 
@@ -75,7 +128,27 @@ public static class DatabaseMigrator
         return Database.Instance.GetConnection();
     }
 
-    private static int CopyTable(DbConnection source, DbConnection target, string table, IDbDialect targetDialect)
+    private static bool TableExists(DbConnection connection, string table)
+    {
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = $"SELECT 1 FROM {table} WHERE 1=0";
+            cmd.ExecuteScalar();
+            return true;
+        }
+        catch (DbException)
+        {
+            return false;
+        }
+    }
+
+    private static int CopyTable(
+        DbConnection source,
+        DbConnection target,
+        string table,
+        IDbDialect targetDialect,
+        DbTransaction transaction)
     {
         // Read all rows from source
         var rows = new List<Dictionary<string, object?>>();
@@ -99,20 +172,12 @@ public static class DatabaseMigrator
             }
         }
 
-        if (rows.Count == 0) return 0;
-
-        // Clear target table (to avoid duplicates)
-        using (var delCmd = target.CreateCommand())
-        {
-            delCmd.CommandText = $"DELETE FROM {table}";
-            delCmd.ExecuteNonQuery();
-        }
-
         // Insert rows into target
         int inserted = 0;
         foreach (var row in rows)
         {
             using var insertCmd = target.CreateCommand();
+            insertCmd.Transaction = transaction;
 
             // Quote 'key' column for MariaDB
             var cols = columnNames.Select(c =>

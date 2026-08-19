@@ -5,6 +5,7 @@ namespace CashFlowPlannerPro.Models;
 public class Invoice : ObservableObject
 {
     private long id;
+    private string invoiceNumber = "";
     private string issueDate = "";
     private string dueDate = "";
     private string customer = "";
@@ -19,8 +20,10 @@ public class Invoice : ObservableObject
     private string status = "Offen";
     private string? pdfPath;
     private string? createdAt;
+    private DocumentContent content = new();
 
     public long Id { get => id; set => SetProperty(ref id, value); }
+    public string InvoiceNumber { get => invoiceNumber; set => SetProperty(ref invoiceNumber, value); }
     public string IssueDate { get => issueDate; set => SetProperty(ref issueDate, value); }
     public string DueDate { get => dueDate; set => SetProperty(ref dueDate, value); }
     public string Customer { get => customer; set => SetProperty(ref customer, value); }
@@ -35,4 +38,5 @@ public class Invoice : ObservableObject
     public string Status { get => status; set => SetProperty(ref status, value); }
     public string? PdfPath { get => pdfPath; set => SetProperty(ref pdfPath, value); }
     public string? CreatedAt { get => createdAt; set => SetProperty(ref createdAt, value); }
+    public DocumentContent Content { get => content; set => SetProperty(ref content, value); }
 }

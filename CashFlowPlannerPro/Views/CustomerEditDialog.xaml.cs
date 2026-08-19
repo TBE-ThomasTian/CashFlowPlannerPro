@@ -30,6 +30,7 @@ public partial class CustomerEditDialog : Window
     private void LoadData()
     {
         TbCompany.Text = Customer.Company;
+        TbCustomerNumber.Text = Customer.CustomerNumber;
         TbContactName.Text = Customer.ContactName;
         TbEmail.Text = Customer.Email;
         TbPhone.Text = Customer.Phone;
@@ -53,6 +54,7 @@ public partial class CustomerEditDialog : Window
         }
 
         Customer.Company = TbCompany.Text.Trim();
+        Customer.CustomerNumber = TbCustomerNumber.Text.Trim();
         Customer.ContactName = TbContactName.Text.Trim();
         Customer.Email = TbEmail.Text.Trim();
         Customer.Phone = TbPhone.Text.Trim();
@@ -84,7 +86,8 @@ public partial class CustomerEditDialog : Window
     public static Customer? ShowEdit(Customer customer)
     {
         var dlg = new CustomerEditDialog(new Customer {
-            Id = customer.Id, Company = customer.Company, ContactName = customer.ContactName,
+            Id = customer.Id, CustomerNumber = customer.CustomerNumber,
+            Company = customer.Company, ContactName = customer.ContactName,
             Email = customer.Email, Phone = customer.Phone, Street = customer.Street,
             ZipCode = customer.ZipCode, City = customer.City, Country = customer.Country,
             TaxId = customer.TaxId, Status = customer.Status, Notes = customer.Notes

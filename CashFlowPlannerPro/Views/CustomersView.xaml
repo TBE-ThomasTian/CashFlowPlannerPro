@@ -14,13 +14,20 @@
                 <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Click="Delete_Click" Margin="0,0,16,0"/>
                 <TextBox x:Name="SearchBox" Width="250" VerticalContentAlignment="Center" Padding="6,4"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                         Tag="Suche nach Firma, Name, E-Mail, Ort..."/>
+                         Tag="Suche nach Kundennummer, Firma, Name, E-Mail, Ort..."/>
             </StackPanel>
         </Border>
         <DataGrid x:Name="CustomersGrid" Grid.Row="1" ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}"
                   SelectionMode="Extended" SelectionUnit="FullRow"
                   CellEditEnding="DataGrid_CellEditEnding" MouseDoubleClick="DataGrid_MouseDoubleClick">
             <DataGrid.Columns>
+                <DataGridTextColumn Header="Kundennr." Binding="{Binding CustomerNumber}" Width="110">
+                    <DataGridTextColumn.EditingElementStyle>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="MaxLength" Value="100"/>
+                        </Style>
+                    </DataGridTextColumn.EditingElementStyle>
+                </DataGridTextColumn>
                 <DataGridTextColumn Header="Firma" Binding="{Binding Company}" Width="180"/>
                 <DataGridTextColumn Header="Ansprechpartner" Binding="{Binding ContactName}" Width="150"/>
                 <DataGridTextColumn Header="E-Mail" Binding="{Binding Email}" Width="180"/>

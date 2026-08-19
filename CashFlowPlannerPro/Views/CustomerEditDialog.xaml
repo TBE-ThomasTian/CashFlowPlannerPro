@@ -35,10 +35,14 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Firma -->
-                <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                <!-- Firma / Kundennummer -->
+                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
                     <TextBlock Text="Firma" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
                     <TextBox x:Name="TbCompany" Style="{StaticResource DarkTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
+                    <TextBlock Text="Kundennummer" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbCustomerNumber" Style="{StaticResource DarkTextBox}" MaxLength="100"/>
                 </StackPanel>
 
                 <!-- Ansprechpartner -->

@@ -23,21 +23,38 @@ public sealed class Database : IDisposable {
             _ => new SqliteDialect()
         };
 
-        // MariaDB: auto-create database if it doesn't exist
-        if (config.Backend == DatabaseBackend.MariaDB && !string.IsNullOrEmpty(config.DatabaseName))
+        if (config.Backend == DatabaseBackend.MariaDB)
         {
-            var bootstrapStr = $"Server={config.Host};Port={config.Port};User={config.DbUsername};Password={config.DbPassword};CharSet=utf8mb4";
-            using var bootstrapConn = _dialect.CreateConnection(bootstrapStr);
-            bootstrapConn.Open();
-            using var cmd = bootstrapConn.CreateCommand();
-            cmd.CommandText = $"CREATE DATABASE IF NOT EXISTS `{config.DatabaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
-            cmd.ExecuteNonQuery();
-        }
+            if (string.IsNullOrWhiteSpace(config.Host))
+                throw new ArgumentException("Bitte einen MariaDB-Host eingeben.", nameof(config));
+            if (config.Port is < 1 or > 65535)
+                throw new ArgumentOutOfRangeException(nameof(config), "Der MariaDB-Port muss zwischen 1 und 65535 liegen.");
+            if (string.IsNullOrWhiteSpace(config.DatabaseName))
+                throw new ArgumentException("Bitte einen MariaDB-Datenbanknamen eingeben.", nameof(config));
+            if (string.IsNullOrWhiteSpace(config.DbUsername))
+                throw new ArgumentException("Bitte einen MariaDB-Benutzernamen eingeben.", nameof(config));
+            if (string.IsNullOrEmpty(config.DbPassword))
+                throw new ArgumentException("Bitte ein MariaDB-Passwort eingeben. MariaDB Zero-Config-TLS benötigt ein nicht leeres Passwort.", nameof(config));
 
-        var connStr = config.ToConnectionString();
-        _conn = _dialect.CreateConnection(connStr);
-        _conn.Open();
-        _dialect.ConfigureConnection(_conn);
+            OpenConnection(config.ToConnectionString());
+        }
+        else
+        {
+            OpenConnection(config.ToConnectionString());
+        }
+    }
+
+    private void OpenConnection(string connectionString) {
+        var connection = _dialect.CreateConnection(connectionString);
+        try {
+            connection.Open();
+            _dialect.ConfigureConnection(connection);
+            _conn = connection;
+        }
+        catch {
+            connection.Dispose();
+            throw;
+        }
     }
 
     public void Open(string path) => Open(new ConnectionConfig {
@@ -62,6 +79,30 @@ public sealed class Database : IDisposable {
             System.Diagnostics.Debug.WriteLine($"[DB Migration Error] {sql}: {ex.Message}");
             throw;
         }
+    }
+
+    private void EnsureMariaDbDocumentSnapshotStorage() {
+        if (_dialect is not MariaDbDialect)
+            return;
+
+        string? dataType;
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = @"SELECT DATA_TYPE
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA=DATABASE()
+                  AND TABLE_NAME='document_contents'
+                  AND COLUMN_NAME='source_snapshot_json'
+                LIMIT 1";
+            dataType = cmd.ExecuteScalar()?.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(dataType)) {
+            Exec("ALTER TABLE document_contents ADD COLUMN IF NOT EXISTS source_snapshot_json LONGTEXT NULL");
+            return;
+        }
+
+        if (!dataType.Equals("longtext", StringComparison.OrdinalIgnoreCase))
+            Exec("ALTER TABLE document_contents MODIFY COLUMN source_snapshot_json LONGTEXT NULL");
     }
 
     void Exec(string sql) {
@@ -93,6 +134,7 @@ public sealed class Database : IDisposable {
     }
 
     public void EnsureSchema() {
+        IsFirstRun = false;
         ExecDdl(@"CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -112,12 +154,20 @@ public sealed class Database : IDisposable {
                 ins.ExecuteNonQuery();
                 IsFirstRun = true;
             }
+            else
+            {
+                using var admin = Conn.CreateCommand();
+                admin.CommandText = "SELECT password_hash FROM users WHERE username = 'admin' LIMIT 1";
+                var storedHash = admin.ExecuteScalar()?.ToString();
+                IsFirstRun = !string.IsNullOrEmpty(storedHash) &&
+                    Services.PasswordHasher.Verify("admin", storedHash);
+            }
         }
         ExecDdl("CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
         ExecDdl("CREATE TABLE IF NOT EXISTS persons(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS transactions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL, description TEXT, amount REAL NOT NULL,
+            date VARCHAR(50) NOT NULL, description TEXT, amount REAL NOT NULL,
             category_id INTEGER, person_id INTEGER, interval TEXT, notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT,
             FOREIGN KEY(category_id) REFERENCES categories(id),
@@ -125,38 +175,91 @@ public sealed class Database : IDisposable {
         ExecDdl(@"CREATE TABLE IF NOT EXISTS offers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             offer_number TEXT, offer_date TEXT, date_expected TEXT,
-            customer TEXT, amount REAL, probability REAL, description TEXT, status TEXT,
+            customer TEXT, amount_before_discount REAL DEFAULT 0, discount_percent REAL DEFAULT 0,
+            amount REAL, probability REAL, description TEXT, status TEXT,
             payment_delay INTEGER DEFAULT 30, pdf_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        TryMigrate("ALTER TABLE offers ADD COLUMN amount_before_discount REAL DEFAULT 0");
+        TryMigrate("ALTER TABLE offers ADD COLUMN discount_percent REAL DEFAULT 0");
+        Exec("UPDATE offers SET amount_before_discount=amount WHERE (amount_before_discount IS NULL OR amount_before_discount=0) AND COALESCE(amount,0)<>0");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS invoices(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            issue_date TEXT, due_date TEXT, customer TEXT, amount REAL,
+            invoice_number TEXT, issue_date TEXT, due_date TEXT, customer TEXT, amount REAL,
             net_amount REAL DEFAULT 0, vat_amount REAL DEFAULT 0, vat_rate REAL DEFAULT 19,
             description TEXT, paid_date TEXT, paid_amount REAL, status TEXT,
             pdf_path TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN invoice_number TEXT");
         TryMigrate("ALTER TABLE invoices ADD COLUMN net_amount REAL DEFAULT 0");
         TryMigrate("ALTER TABLE invoices ADD COLUMN vat_amount REAL DEFAULT 0");
         TryMigrate("ALTER TABLE invoices ADD COLUMN vat_rate REAL DEFAULT 19");
+        var snapshotJsonType = _dialect is MariaDbDialect ? "LONGTEXT" : "TEXT";
+        ExecDdl($@"CREATE TABLE IF NOT EXISTS document_contents(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            offer_id INTEGER UNIQUE,
+            invoice_id INTEGER UNIQUE,
+            header TEXT,
+            pre_text TEXT,
+            post_text TEXT,
+            internal_note TEXT,
+            source_provider VARCHAR(32),
+            source_entity_type VARCHAR(32),
+            source_external_id VARCHAR(191),
+            source_snapshot_json {snapshotJsonType},
+            last_imported_at TEXT,
+            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+            FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+            UNIQUE(source_provider, source_entity_type, source_external_id),
+            CHECK((offer_id IS NOT NULL AND invoice_id IS NULL) OR
+                  (offer_id IS NULL AND invoice_id IS NOT NULL)))");
+        EnsureMariaDbDocumentSnapshotStorage();
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS document_line_items(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_content_id INTEGER NOT NULL,
+            source_item_id VARCHAR(191),
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            position_number VARCHAR(50),
+            name TEXT,
+            description TEXT,
+            quantity REAL NOT NULL DEFAULT 1,
+            unit VARCHAR(50),
+            unit_price REAL NOT NULL DEFAULT 0,
+            discount_percent REAL NOT NULL DEFAULT 0,
+            tax_rate REAL NOT NULL DEFAULT 0,
+            net_amount REAL NOT NULL DEFAULT 0,
+            gross_amount REAL NOT NULL DEFAULT 0,
+            is_optional INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(document_content_id) REFERENCES document_contents(id) ON DELETE CASCADE,
+            UNIQUE(document_content_id, source_item_id))");
+        Exec("CREATE INDEX IF NOT EXISTS idx_document_line_items_content_sort ON document_line_items(document_content_id,sort_order,id)");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS targets(
             id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, month INTEGER, amount REAL)");
         ExecDdl("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS resources(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL, role TEXT,
             availability REAL DEFAULT 1.0, hourly_rate REAL DEFAULT 0,
             work_start_hour INTEGER DEFAULT 8, work_end_hour INTEGER DEFAULT 17,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL)");
+        TryMigrate("ALTER TABLE resources ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL");
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_resources_user_id ON resources(user_id)");
         TryMigrate("ALTER TABLE resources ADD COLUMN work_start_hour INTEGER DEFAULT 8");
         TryMigrate("ALTER TABLE resources ADD COLUMN work_end_hour INTEGER DEFAULT 17");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS projects(
             id INTEGER PRIMARY KEY AUTOINCREMENT, project_number TEXT, name TEXT NOT NULL,
             client TEXT DEFAULT '', color TEXT DEFAULT '#3498db', start_date TEXT, end_date TEXT,
+            original_budget REAL DEFAULT 0, discount_percent REAL DEFAULT 0,
             budget REAL DEFAULT 0, status TEXT DEFAULT 'active',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         TryMigrate("ALTER TABLE projects ADD COLUMN client TEXT DEFAULT ''");
+        TryMigrate("ALTER TABLE projects ADD COLUMN original_budget REAL DEFAULT 0");
+        TryMigrate("ALTER TABLE projects ADD COLUMN discount_percent REAL DEFAULT 0");
+        Exec("UPDATE projects SET original_budget=budget WHERE (original_budget IS NULL OR original_budget=0) AND COALESCE(budget,0)<>0");
+        TryMigrate("ALTER TABLE offers ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL");
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_offers_project_id ON offers(project_id)");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS resource_allocations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             resource_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
-            date TEXT NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
+            date VARCHAR(50) NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(resource_id) REFERENCES resources(id) ON DELETE CASCADE,
             FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -171,7 +274,7 @@ public sealed class Database : IDisposable {
         ExecDdl(@"CREATE TABLE IF NOT EXISTS hardware_allocations(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             resource_id INTEGER NOT NULL, hardware_id INTEGER NOT NULL, project_id INTEGER NOT NULL,
-            date TEXT NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
+            date VARCHAR(50) NOT NULL, hours REAL DEFAULT 8.0, notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(resource_id) REFERENCES resources(id) ON DELETE CASCADE,
             FOREIGN KEY(hardware_id) REFERENCES hardware_resources(id) ON DELETE CASCADE,
@@ -196,13 +299,14 @@ public sealed class Database : IDisposable {
             description TEXT DEFAULT '')");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS role_permissions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role_id INTEGER NOT NULL, page_key TEXT NOT NULL,
+            role_id INTEGER NOT NULL, page_key VARCHAR(191) NOT NULL,
             access_level TEXT DEFAULT 'none',
             FOREIGN KEY(role_id) REFERENCES roles(id) ON DELETE CASCADE,
             UNIQUE(role_id, page_key))");
         TryMigrate("ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)");
         TryMigrate("ALTER TABLE users ADD COLUMN avatar_data TEXT");
         TryMigrate("ALTER TABLE resources ADD COLUMN avatar_data TEXT");
+        BackfillResourceUserLinks();
         EnsureDefaultRoles();
 
         // User ToDos
@@ -221,7 +325,7 @@ public sealed class Database : IDisposable {
         ExecDdl(@"CREATE TABLE IF NOT EXISTS user_settings(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            `key` TEXT NOT NULL,
+            `key` VARCHAR(191) NOT NULL,
             value TEXT,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             UNIQUE(user_id, `key`))");
@@ -247,10 +351,13 @@ public sealed class Database : IDisposable {
         // Customers / Adressbuch
         ExecDdl(@"CREATE TABLE IF NOT EXISTS customers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_number VARCHAR(100) DEFAULT '',
             company TEXT, contact_name TEXT, email TEXT, phone TEXT,
             street TEXT, zip_code TEXT, city TEXT, country TEXT DEFAULT 'Deutschland',
             tax_id TEXT, status TEXT DEFAULT 'Aktiv', notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        TryMigrate("ALTER TABLE customers ADD COLUMN customer_number VARCHAR(100) DEFAULT ''");
+        Exec("CREATE INDEX IF NOT EXISTS idx_customers_customer_number ON customers(customer_number)");
         TryMigrate("ALTER TABLE invoices ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
         TryMigrate("ALTER TABLE offers ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
 
@@ -606,69 +713,88 @@ public sealed class Database : IDisposable {
     // CRUD: Invoices
     public List<Invoice> GetInvoices() {
         var list = new List<Invoice>();
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at FROM invoices";
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) {
-            list.Add(new Invoice {
-                Id = r.GetInt64(0),
-                IssueDate = r.IsDBNull(1) ? "" : r.GetString(1),
-                DueDate = r.IsDBNull(2) ? "" : r.GetString(2),
-                Customer = r.IsDBNull(3) ? "" : r.GetString(3),
-                Amount = r.IsDBNull(4) ? 0 : r.GetDouble(4),
-                NetAmount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
-                VatAmount = r.IsDBNull(6) ? 0 : r.GetDouble(6),
-                VatRate = r.IsDBNull(7) ? 19 : r.GetDouble(7),
-                Description = r.IsDBNull(8) ? "" : r.GetString(8),
-                PaidDate = r.IsDBNull(9) ? "" : r.GetString(9),
-                PaidAmount = r.IsDBNull(10) ? 0 : r.GetDouble(10),
-                Status = r.IsDBNull(11) ? "" : r.GetString(11),
-                PdfPath = r.IsDBNull(12) ? "" : r.GetString(12),
-                CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13)
-            });
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = @"SELECT id,invoice_number,issue_date,due_date,customer,amount,
+                net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at
+                FROM invoices";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) {
+                list.Add(new Invoice {
+                    Id = r.GetInt64(0),
+                    InvoiceNumber = r.IsDBNull(1) ? "" : r.GetString(1),
+                    IssueDate = r.IsDBNull(2) ? "" : r.GetString(2),
+                    DueDate = r.IsDBNull(3) ? "" : r.GetString(3),
+                    Customer = r.IsDBNull(4) ? "" : r.GetString(4),
+                    Amount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
+                    NetAmount = r.IsDBNull(6) ? 0 : r.GetDouble(6),
+                    VatAmount = r.IsDBNull(7) ? 0 : r.GetDouble(7),
+                    VatRate = r.IsDBNull(8) ? 19 : r.GetDouble(8),
+                    Description = r.IsDBNull(9) ? "" : r.GetString(9),
+                    PaidDate = r.IsDBNull(10) ? "" : r.GetString(10),
+                    PaidAmount = r.IsDBNull(11) ? 0 : r.GetDouble(11),
+                    Status = r.IsDBNull(12) ? "" : r.GetString(12),
+                    PdfPath = r.IsDBNull(13) ? "" : r.GetString(13),
+                    CreatedAt = r.IsDBNull(14) ? "" : r.GetString(14)
+                });
+            }
         }
+
+        foreach (var invoice in list)
+            invoice.Content = LoadDocumentContent(offerId: null, invoiceId: invoice.Id);
+
         return list;
     }
 
     public void AddInvoice(Invoice i) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO invoices(issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at)
-            VALUES(@issue,@due,@cust,@amt,@net,@vat,@vat_rate,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
-        cmd.Parameters.AddWithValue("@issue", (object?)i.IssueDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@due", (object?)i.DueDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@cust", (object?)i.Customer ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@amt", i.Amount);
-        cmd.Parameters.AddWithValue("@net", i.NetAmount);
-        cmd.Parameters.AddWithValue("@vat", i.VatAmount);
-        cmd.Parameters.AddWithValue("@vat_rate", i.VatRate);
-        cmd.Parameters.AddWithValue("@desc", (object?)i.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@paid_d", (object?)i.PaidDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@paid_a", i.PaidAmount);
-        cmd.Parameters.AddWithValue("@status", (object?)i.Status ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@pdf", (object?)i.PdfPath ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
-        i.Id = LastInsertId();
+        i.Content ??= new DocumentContent();
+        var originalInvoiceId = i.Id;
+        var identity = CaptureDocumentIdentity(i.Content);
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"INSERT INTO invoices(invoice_number,issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at)
+                VALUES(@number,@issue,@due,@cust,@amt,@net,@vat,@vat_rate,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
+            AddInvoiceParameters(cmd, i);
+            cmd.ExecuteNonQuery();
+            i.Id = LastInsertId(tx);
+            SaveDocumentContent(i.Content, offerId: null, invoiceId: i.Id, tx, forceInsert: true);
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            i.Id = originalInvoiceId;
+            RestoreDocumentIdentity(i.Content, identity);
+            throw;
+        }
     }
 
     public void UpdateInvoice(Invoice i) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"UPDATE invoices SET issue_date=@issue,due_date=@due,customer=@cust,amount=@amt,
-            net_amount=@net,vat_amount=@vat,vat_rate=@vat_rate,
-            description=@desc,paid_date=@paid_d,paid_amount=@paid_a,status=@status,pdf_path=@pdf WHERE id=@id";
-        cmd.Parameters.AddWithValue("@id", i.Id);
-        cmd.Parameters.AddWithValue("@issue", (object?)i.IssueDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@due", (object?)i.DueDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@cust", (object?)i.Customer ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@amt", i.Amount);
-        cmd.Parameters.AddWithValue("@net", i.NetAmount);
-        cmd.Parameters.AddWithValue("@vat", i.VatAmount);
-        cmd.Parameters.AddWithValue("@vat_rate", i.VatRate);
-        cmd.Parameters.AddWithValue("@desc", (object?)i.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@paid_d", (object?)i.PaidDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@paid_a", i.PaidAmount);
-        cmd.Parameters.AddWithValue("@status", (object?)i.Status ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@pdf", (object?)i.PdfPath ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        if (i.Id <= 0)
+            throw new ArgumentOutOfRangeException(nameof(i), "Die Rechnung wurde noch nicht gespeichert.");
+
+        i.Content ??= new DocumentContent();
+        var identity = CaptureDocumentIdentity(i.Content);
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"UPDATE invoices SET invoice_number=@number,issue_date=@issue,due_date=@due,customer=@cust,amount=@amt,
+                net_amount=@net,vat_amount=@vat,vat_rate=@vat_rate,
+                description=@desc,paid_date=@paid_d,paid_amount=@paid_a,status=@status,pdf_path=@pdf WHERE id=@id";
+            cmd.Parameters.AddWithValue("@id", i.Id);
+            AddInvoiceParameters(cmd, i);
+            if (cmd.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("Die Rechnung wurde nicht gefunden.");
+
+            SaveDocumentContent(i.Content, offerId: null, invoiceId: i.Id, tx, forceInsert: false);
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            RestoreDocumentIdentity(i.Content, identity);
+            throw;
+        }
     }
 
     public void DeleteInvoice(long id) { ExecWithId("DELETE FROM invoices WHERE id=@id", id); }
@@ -676,65 +802,494 @@ public sealed class Database : IDisposable {
     // CRUD: Offers
     public List<Offer> GetOffers() {
         var list = new List<Offer>();
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,offer_number,offer_date,date_expected,customer,amount,probability,description,status,payment_delay,pdf_path,created_at FROM offers";
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) {
-            list.Add(new Offer {
-                Id = r.GetInt64(0),
-                OfferNumber = r.IsDBNull(1) ? "" : r.GetString(1),
-                OfferDate = r.IsDBNull(2) ? "" : r.GetString(2),
-                DateExpected = r.IsDBNull(3) ? "" : r.GetString(3),
-                Customer = r.IsDBNull(4) ? "" : r.GetString(4),
-                Amount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
-                Probability = r.IsDBNull(6) ? 0 : r.GetDouble(6),
-                Description = r.IsDBNull(7) ? "" : r.GetString(7),
-                Status = r.IsDBNull(8) ? "" : r.GetString(8),
-                PaymentDelay = r.IsDBNull(9) ? 30 : r.GetInt32(9),
-                PdfPath = r.IsDBNull(10) ? "" : r.GetString(10),
-                CreatedAt = r.IsDBNull(11) ? "" : r.GetString(11)
-            });
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = @"SELECT o.id,o.offer_number,o.offer_date,o.date_expected,o.customer,
+                o.amount_before_discount,o.discount_percent,o.amount,o.probability,
+                o.description,o.status,o.payment_delay,o.pdf_path,o.created_at,o.project_id,p.project_number
+                FROM offers o LEFT JOIN projects p ON p.id=o.project_id";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) {
+                list.Add(new Offer {
+                    Id = r.GetInt64(0),
+                    OfferNumber = r.IsDBNull(1) ? "" : r.GetString(1),
+                    OfferDate = r.IsDBNull(2) ? "" : r.GetString(2),
+                    DateExpected = r.IsDBNull(3) ? "" : r.GetString(3),
+                    Customer = r.IsDBNull(4) ? "" : r.GetString(4),
+                    AmountBeforeDiscount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
+                    DiscountPercent = r.IsDBNull(6) ? 0 : r.GetDouble(6),
+                    Amount = r.IsDBNull(7) ? 0 : r.GetDouble(7),
+                    Probability = r.IsDBNull(8) ? 0 : r.GetDouble(8),
+                    Description = r.IsDBNull(9) ? "" : r.GetString(9),
+                    Status = r.IsDBNull(10) ? "" : r.GetString(10),
+                    PaymentDelay = r.IsDBNull(11) ? 30 : r.GetInt32(11),
+                    PdfPath = r.IsDBNull(12) ? "" : r.GetString(12),
+                    CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13),
+                    ProjectId = r.IsDBNull(14) ? null : r.GetInt64(14),
+                    ProjectNumber = r.IsDBNull(15) ? "" : r.GetString(15)
+                });
+            }
         }
+
+        foreach (var offer in list)
+            offer.Content = LoadDocumentContent(offerId: offer.Id, invoiceId: null);
+
         return list;
     }
 
     public void AddOffer(Offer o) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO offers(offer_number,offer_date,date_expected,customer,amount,probability,description,status,payment_delay,pdf_path,created_at)
-            VALUES(@onum,@odate,@dexp,@cust,@amt,@prob,@desc,@status,@delay,@pdf,CURRENT_TIMESTAMP)";
-        cmd.Parameters.AddWithValue("@onum", (object?)o.OfferNumber ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@odate", (object?)o.OfferDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@dexp", (object?)o.DateExpected ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@cust", (object?)o.Customer ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@amt", o.Amount);
-        cmd.Parameters.AddWithValue("@prob", o.Probability);
-        cmd.Parameters.AddWithValue("@desc", (object?)o.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@status", (object?)o.Status ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@delay", o.PaymentDelay);
-        cmd.Parameters.AddWithValue("@pdf", (object?)o.PdfPath ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
-        o.Id = LastInsertId();
+        NormalizeOfferDiscount(o);
+        o.Content ??= new DocumentContent();
+        var originalOfferId = o.Id;
+        var identity = CaptureDocumentIdentity(o.Content);
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"INSERT INTO offers(offer_number,offer_date,date_expected,customer,amount_before_discount,discount_percent,amount,probability,description,status,payment_delay,pdf_path,created_at)
+                VALUES(@onum,@odate,@dexp,@cust,@before,@discount,@amt,@prob,@desc,@status,@delay,@pdf,CURRENT_TIMESTAMP)";
+            AddOfferParameters(cmd, o);
+            cmd.ExecuteNonQuery();
+            o.Id = LastInsertId(tx);
+            SaveDocumentContent(o.Content, offerId: o.Id, invoiceId: null, tx, forceInsert: true);
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            o.Id = originalOfferId;
+            RestoreDocumentIdentity(o.Content, identity);
+            throw;
+        }
     }
 
     public void UpdateOffer(Offer o) {
+        if (o.Id <= 0)
+            throw new ArgumentOutOfRangeException(nameof(o), "Das Angebot wurde noch nicht gespeichert.");
+
+        NormalizeOfferDiscount(o);
+        o.Content ??= new DocumentContent();
+        var identity = CaptureDocumentIdentity(o.Content);
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"UPDATE offers SET offer_number=@onum,offer_date=@odate,date_expected=@dexp,customer=@cust,
+                amount_before_discount=@before,discount_percent=@discount,amount=@amt,probability=@prob,
+                description=@desc,status=@status,payment_delay=@delay,pdf_path=@pdf WHERE id=@id";
+            cmd.Parameters.AddWithValue("@id", o.Id);
+            AddOfferParameters(cmd, o);
+            if (cmd.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("Das Angebot wurde nicht gefunden.");
+
+            SaveDocumentContent(o.Content, offerId: o.Id, invoiceId: null, tx, forceInsert: false);
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            RestoreDocumentIdentity(o.Content, identity);
+            throw;
+        }
+    }
+
+    static void AddInvoiceParameters(DbCommand cmd, Invoice invoice) {
+        cmd.Parameters.AddWithValue("@number", (object?)invoice.InvoiceNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@issue", (object?)invoice.IssueDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@due", (object?)invoice.DueDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@cust", (object?)invoice.Customer ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@amt", invoice.Amount);
+        cmd.Parameters.AddWithValue("@net", invoice.NetAmount);
+        cmd.Parameters.AddWithValue("@vat", invoice.VatAmount);
+        cmd.Parameters.AddWithValue("@vat_rate", invoice.VatRate);
+        cmd.Parameters.AddWithValue("@desc", (object?)invoice.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@paid_d", (object?)invoice.PaidDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@paid_a", invoice.PaidAmount);
+        cmd.Parameters.AddWithValue("@status", (object?)invoice.Status ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@pdf", (object?)invoice.PdfPath ?? DBNull.Value);
+    }
+
+    static void AddOfferParameters(DbCommand cmd, Offer offer) {
+        cmd.Parameters.AddWithValue("@onum", (object?)offer.OfferNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@odate", (object?)offer.OfferDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@dexp", (object?)offer.DateExpected ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@cust", (object?)offer.Customer ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@before", offer.AmountBeforeDiscount);
+        cmd.Parameters.AddWithValue("@discount", offer.DiscountPercent);
+        cmd.Parameters.AddWithValue("@amt", offer.Amount);
+        cmd.Parameters.AddWithValue("@prob", offer.Probability);
+        cmd.Parameters.AddWithValue("@desc", (object?)offer.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@status", (object?)offer.Status ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@delay", offer.PaymentDelay);
+        cmd.Parameters.AddWithValue("@pdf", (object?)offer.PdfPath ?? DBNull.Value);
+    }
+
+    DocumentContent LoadDocumentContent(long? offerId, long? invoiceId) {
+        ValidateDocumentOwner(offerId, invoiceId);
+        var content = new DocumentContent();
+
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = offerId.HasValue
+                ? @"SELECT id,header,pre_text,post_text,internal_note,source_provider,source_entity_type,
+                    source_external_id,source_snapshot_json,last_imported_at
+                    FROM document_contents WHERE offer_id=@ownerId"
+                : @"SELECT id,header,pre_text,post_text,internal_note,source_provider,source_entity_type,
+                    source_external_id,source_snapshot_json,last_imported_at
+                    FROM document_contents WHERE invoice_id=@ownerId";
+            cmd.Parameters.AddWithValue("@ownerId", (object?)offerId ?? invoiceId!.Value);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+                return content;
+
+            content.Id = reader.GetInt64(0);
+            content.Header = reader.IsDBNull(1) ? "" : reader.GetString(1);
+            content.PreText = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            content.PostText = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            content.InternalNote = reader.IsDBNull(4) ? "" : reader.GetString(4);
+            content.SourceProvider = reader.IsDBNull(5) ? null : reader.GetString(5);
+            content.SourceEntityType = reader.IsDBNull(6) ? null : reader.GetString(6);
+            content.SourceExternalId = reader.IsDBNull(7) ? null : reader.GetString(7);
+            content.SourceSnapshotJson = reader.IsDBNull(8) ? null : reader.GetString(8);
+            content.LastImportedAt = reader.IsDBNull(9) ? null : reader.GetString(9);
+        }
+
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = @"SELECT id,source_item_id,sort_order,position_number,name,description,quantity,unit,
+                unit_price,discount_percent,tax_rate,net_amount,gross_amount,is_optional
+                FROM document_line_items
+                WHERE document_content_id=@contentId
+                ORDER BY sort_order,id";
+            cmd.Parameters.AddWithValue("@contentId", content.Id);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                content.LineItems.Add(new DocumentLineItem {
+                    Id = reader.GetInt64(0),
+                    SourceItemId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    SortOrder = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                    PositionNumber = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    Name = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    Description = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    Quantity = reader.IsDBNull(6) ? 1 : reader.GetDouble(6),
+                    Unit = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                    UnitPrice = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
+                    DiscountPercent = reader.IsDBNull(9) ? 0 : reader.GetDouble(9),
+                    TaxRate = reader.IsDBNull(10) ? 0 : reader.GetDouble(10),
+                    NetAmount = reader.IsDBNull(11) ? 0 : reader.GetDouble(11),
+                    GrossAmount = reader.IsDBNull(12) ? 0 : reader.GetDouble(12),
+                    IsOptional = !reader.IsDBNull(13) && Convert.ToInt32(reader.GetValue(13), CultureInfo.InvariantCulture) != 0
+                });
+            }
+        }
+
+        return content;
+    }
+
+    void SaveDocumentContent(
+        DocumentContent content,
+        long? offerId,
+        long? invoiceId,
+        DbTransaction tx,
+        bool forceInsert) {
+        ValidateDocumentOwner(offerId, invoiceId);
+        content.LineItems ??= [];
+
+        long? persistedContentId = forceInsert
+            ? null
+            : FindDocumentContentId(offerId, invoiceId, tx);
+        bool updateExistingItems = persistedContentId.HasValue;
+
+        if (persistedContentId.HasValue) {
+            if (content.Id > 0 && content.Id != persistedContentId.Value)
+                throw new InvalidOperationException("Der Dokumentinhalt gehört nicht zu diesem Angebot bzw. dieser Rechnung.");
+
+            content.Id = persistedContentId.Value;
+            using var update = Conn.CreateCommand();
+            update.Transaction = tx;
+            update.CommandText = @"UPDATE document_contents SET
+                header=@header,pre_text=@pre,post_text=@post,internal_note=@note,
+                source_provider=@provider,source_entity_type=@entityType,source_external_id=@externalId,
+                source_snapshot_json=@snapshot,last_imported_at=@lastImported
+                WHERE id=@id";
+            update.Parameters.AddWithValue("@id", content.Id);
+            AddDocumentContentParameters(update, content);
+            if (update.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("Der Dokumentinhalt wurde nicht gefunden.");
+        }
+        else {
+            using var insert = Conn.CreateCommand();
+            insert.Transaction = tx;
+            insert.CommandText = @"INSERT INTO document_contents(
+                offer_id,invoice_id,header,pre_text,post_text,internal_note,
+                source_provider,source_entity_type,source_external_id,source_snapshot_json,last_imported_at)
+                VALUES(@offerId,@invoiceId,@header,@pre,@post,@note,
+                    @provider,@entityType,@externalId,@snapshot,@lastImported)";
+            insert.Parameters.AddWithValue("@offerId", offerId.HasValue ? offerId.Value : DBNull.Value);
+            insert.Parameters.AddWithValue("@invoiceId", invoiceId.HasValue ? invoiceId.Value : DBNull.Value);
+            AddDocumentContentParameters(insert, content);
+            insert.ExecuteNonQuery();
+            content.Id = LastInsertId(tx);
+        }
+
+        SaveDocumentLineItems(content, tx, updateExistingItems);
+    }
+
+    long? FindDocumentContentId(long? offerId, long? invoiceId, DbTransaction tx) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"UPDATE offers SET offer_number=@onum,offer_date=@odate,date_expected=@dexp,customer=@cust,
-            amount=@amt,probability=@prob,description=@desc,status=@status,payment_delay=@delay,pdf_path=@pdf WHERE id=@id";
-        cmd.Parameters.AddWithValue("@id", o.Id);
-        cmd.Parameters.AddWithValue("@onum", (object?)o.OfferNumber ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@odate", (object?)o.OfferDate ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@dexp", (object?)o.DateExpected ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@cust", (object?)o.Customer ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@amt", o.Amount);
-        cmd.Parameters.AddWithValue("@prob", o.Probability);
-        cmd.Parameters.AddWithValue("@desc", (object?)o.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@status", (object?)o.Status ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@delay", o.PaymentDelay);
-        cmd.Parameters.AddWithValue("@pdf", (object?)o.PdfPath ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        cmd.Transaction = tx;
+        cmd.CommandText = offerId.HasValue
+            ? "SELECT id FROM document_contents WHERE offer_id=@ownerId"
+            : "SELECT id FROM document_contents WHERE invoice_id=@ownerId";
+        cmd.Parameters.AddWithValue("@ownerId", (object?)offerId ?? invoiceId!.Value);
+        var result = cmd.ExecuteScalar();
+        return result == null || result == DBNull.Value ? null : Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    static void AddDocumentContentParameters(DbCommand cmd, DocumentContent content) {
+        cmd.Parameters.AddWithValue("@header", (object?)content.Header ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@pre", (object?)content.PreText ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@post", (object?)content.PostText ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@note", (object?)content.InternalNote ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@provider", DbNullIfWhiteSpace(content.SourceProvider));
+        cmd.Parameters.AddWithValue("@entityType", DbNullIfWhiteSpace(content.SourceEntityType));
+        cmd.Parameters.AddWithValue("@externalId", DbNullIfWhiteSpace(content.SourceExternalId));
+        cmd.Parameters.AddWithValue("@snapshot", DbNullIfWhiteSpace(content.SourceSnapshotJson));
+        cmd.Parameters.AddWithValue("@lastImported", DbNullIfWhiteSpace(content.LastImportedAt));
+    }
+
+    void SaveDocumentLineItems(DocumentContent content, DbTransaction tx, bool updateExistingItems) {
+        var persistedIds = updateExistingItems
+            ? GetDocumentLineItemIds(content.Id, tx)
+            : [];
+        var incomingExistingIds = new HashSet<long>();
+        var seenInstances = new HashSet<DocumentLineItem>(ReferenceEqualityComparer.Instance);
+        var sourceItemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in content.LineItems) {
+            if (item == null)
+                throw new InvalidOperationException("Eine Dokumentposition darf nicht null sein.");
+            if (!seenInstances.Add(item))
+                throw new InvalidOperationException("Dieselbe Dokumentposition ist mehrfach in der Liste enthalten.");
+
+            if (!string.IsNullOrWhiteSpace(item.SourceItemId) && !sourceItemIds.Add(item.SourceItemId.Trim()))
+                throw new InvalidOperationException($"Die Quellpositions-ID '{item.SourceItemId.Trim()}' ist mehrfach vorhanden.");
+
+            if (!updateExistingItems || item.Id <= 0)
+                continue;
+            if (!incomingExistingIds.Add(item.Id))
+                throw new InvalidOperationException("Eine Dokumentpositions-ID ist mehrfach vorhanden.");
+            if (!persistedIds.Contains(item.Id))
+                throw new InvalidOperationException("Eine Dokumentposition gehört nicht zu diesem Dokument.");
+        }
+
+        if (updateExistingItems) {
+            foreach (var removedId in persistedIds.Except(incomingExistingIds)) {
+                using var delete = Conn.CreateCommand();
+                delete.Transaction = tx;
+                delete.CommandText = "DELETE FROM document_line_items WHERE id=@id AND document_content_id=@contentId";
+                delete.Parameters.AddWithValue("@id", removedId);
+                delete.Parameters.AddWithValue("@contentId", content.Id);
+                delete.ExecuteNonQuery();
+            }
+
+            // Release source keys before applying the complete new set. This
+            // permits legitimate key swaps and replacement rows in one atomic save.
+            using var releaseSourceKeys = Conn.CreateCommand();
+            releaseSourceKeys.Transaction = tx;
+            releaseSourceKeys.CommandText = "UPDATE document_line_items SET source_item_id=NULL WHERE document_content_id=@contentId";
+            releaseSourceKeys.Parameters.AddWithValue("@contentId", content.Id);
+            releaseSourceKeys.ExecuteNonQuery();
+        }
+
+        foreach (var item in content.LineItems) {
+            var incomingId = item.Id;
+            if (updateExistingItems && incomingId > 0) {
+                using var update = Conn.CreateCommand();
+                update.Transaction = tx;
+                update.CommandText = @"UPDATE document_line_items SET
+                    source_item_id=@sourceItemId,sort_order=@sortOrder,position_number=@positionNumber,
+                    name=@name,description=@description,quantity=@quantity,unit=@unit,unit_price=@unitPrice,
+                    discount_percent=@discountPercent,tax_rate=@taxRate,net_amount=@netAmount,
+                    gross_amount=@grossAmount,is_optional=@isOptional
+                    WHERE id=@id AND document_content_id=@contentId";
+                update.Parameters.AddWithValue("@id", incomingId);
+                update.Parameters.AddWithValue("@contentId", content.Id);
+                AddDocumentLineItemParameters(update, item);
+                if (update.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException("Eine Dokumentposition wurde nicht gefunden.");
+            }
+            else {
+                using var insert = Conn.CreateCommand();
+                insert.Transaction = tx;
+                insert.CommandText = @"INSERT INTO document_line_items(
+                    document_content_id,source_item_id,sort_order,position_number,name,description,
+                    quantity,unit,unit_price,discount_percent,tax_rate,net_amount,gross_amount,is_optional)
+                    VALUES(@contentId,@sourceItemId,@sortOrder,@positionNumber,@name,@description,
+                    @quantity,@unit,@unitPrice,@discountPercent,@taxRate,@netAmount,@grossAmount,@isOptional)";
+                insert.Parameters.AddWithValue("@contentId", content.Id);
+                AddDocumentLineItemParameters(insert, item);
+                insert.ExecuteNonQuery();
+                item.Id = LastInsertId(tx);
+            }
+        }
+    }
+
+    HashSet<long> GetDocumentLineItemIds(long contentId, DbTransaction tx) {
+        var ids = new HashSet<long>();
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT id FROM document_line_items WHERE document_content_id=@contentId";
+        cmd.Parameters.AddWithValue("@contentId", contentId);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            ids.Add(reader.GetInt64(0));
+        return ids;
+    }
+
+    static void AddDocumentLineItemParameters(DbCommand cmd, DocumentLineItem item) {
+        cmd.Parameters.AddWithValue("@sourceItemId", DbNullIfWhiteSpace(item.SourceItemId));
+        cmd.Parameters.AddWithValue("@sortOrder", item.SortOrder);
+        cmd.Parameters.AddWithValue("@positionNumber", (object?)item.PositionNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@name", (object?)item.Name ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@description", (object?)item.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@quantity", item.Quantity);
+        cmd.Parameters.AddWithValue("@unit", (object?)item.Unit ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@unitPrice", item.UnitPrice);
+        cmd.Parameters.AddWithValue("@discountPercent", item.DiscountPercent);
+        cmd.Parameters.AddWithValue("@taxRate", item.TaxRate);
+        cmd.Parameters.AddWithValue("@netAmount", item.NetAmount);
+        cmd.Parameters.AddWithValue("@grossAmount", item.GrossAmount);
+        cmd.Parameters.AddWithValue("@isOptional", item.IsOptional ? 1 : 0);
+    }
+
+    static object DbNullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? DBNull.Value : value.Trim();
+
+    static void ValidateDocumentOwner(long? offerId, long? invoiceId) {
+        if (offerId.HasValue == invoiceId.HasValue)
+            throw new ArgumentException("Ein Dokumentinhalt muss genau einem Angebot oder einer Rechnung zugeordnet sein.");
+    }
+
+    static (long ContentId, long[] ItemIds) CaptureDocumentIdentity(DocumentContent content) {
+        content.LineItems ??= [];
+        return (content.Id, content.LineItems.Select(item => item?.Id ?? 0).ToArray());
+    }
+
+    static void RestoreDocumentIdentity(DocumentContent content, (long ContentId, long[] ItemIds) identity) {
+        content.Id = identity.ContentId;
+        for (var index = 0; index < content.LineItems.Count && index < identity.ItemIds.Length; index++) {
+            if (content.LineItems[index] != null)
+                content.LineItems[index].Id = identity.ItemIds[index];
+        }
+    }
+
+    static void TryRollback(DbTransaction tx) {
+        try { tx.Rollback(); }
+        catch { }
+    }
+
+    static void NormalizeOfferDiscount(Offer offer) {
+        if (offer.DiscountPercent == 0)
+            offer.AmountBeforeDiscount = offer.Amount;
     }
 
     public void DeleteOffer(long id) { ExecWithId("DELETE FROM offers WHERE id=@id", id); }
+
+    /// <summary>
+    /// Creates and persistently links a project from an accepted offer.
+    /// The offer row is locked for the duration of the transaction so that
+    /// concurrent callers cannot create more than one project for an offer.
+    /// </summary>
+    public Project CreateProjectFromOffer(long offerId, string projectName) {
+        projectName = projectName?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(projectName))
+            throw new InvalidOperationException("Bitte geben Sie einen Projektnamen ein.");
+
+        using var tx = BeginWriteTransaction();
+        try {
+            string offerNumber;
+            string offerDate;
+            string dateExpected;
+            string customer;
+            string status;
+            double amountBeforeDiscount;
+            double discountPercent;
+            double amount;
+            long? existingProjectId;
+
+            using (var select = Conn.CreateCommand()) {
+                select.Transaction = tx;
+                select.CommandText = @"SELECT offer_number,offer_date,date_expected,customer,amount_before_discount,discount_percent,
+                    amount,status,project_id
+                    FROM offers WHERE id=@id" + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                select.Parameters.AddWithValue("@id", offerId);
+
+                using var reader = select.ExecuteReader();
+                if (!reader.Read())
+                    throw new InvalidOperationException($"Angebot #{offerId} wurde nicht gefunden.");
+
+                offerNumber = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
+                offerDate = reader.IsDBNull(1) ? "" : reader.GetString(1).Trim();
+                dateExpected = reader.IsDBNull(2) ? "" : reader.GetString(2).Trim();
+                customer = reader.IsDBNull(3) ? "" : reader.GetString(3).Trim();
+                amountBeforeDiscount = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+                discountPercent = reader.IsDBNull(5) ? 0 : reader.GetDouble(5);
+                amount = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
+                status = reader.IsDBNull(7) ? "" : reader.GetString(7);
+                existingProjectId = reader.IsDBNull(8) ? null : reader.GetInt64(8);
+            }
+
+            if (existingProjectId.HasValue)
+                throw new InvalidOperationException($"Angebot #{offerId} ist bereits mit Projekt #{existingProjectId.Value} verkn\u00fcpft.");
+
+            if (!string.Equals(status, "Beauftragt", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Angebot #{offerId} muss den Status 'Beauftragt' haben.");
+
+            var project = new Project {
+                ProjectNumber = offerNumber,
+                Name = projectName,
+                Client = customer,
+                Color = "#3498db",
+                StartDate = (ParseDate(dateExpected) ?? ParseDate(offerDate))?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                EndDate = null,
+                OriginalBudget = amountBeforeDiscount == 0 && discountPercent == 0 ? amount : amountBeforeDiscount,
+                DiscountPercent = discountPercent,
+                Budget = amount,
+                Status = "active"
+            };
+
+            using (var insert = Conn.CreateCommand()) {
+                insert.Transaction = tx;
+                insert.CommandText = @"INSERT INTO projects(project_number,name,client,color,start_date,end_date,original_budget,discount_percent,budget,status,created_at)
+                    VALUES(@pn,@n,@cl,@c,@sd,@ed,@ob,@discount,@b,@s,CURRENT_TIMESTAMP)";
+                insert.Parameters.AddWithValue("@pn", (object?)project.ProjectNumber ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@n", project.Name);
+                insert.Parameters.AddWithValue("@cl", (object?)project.Client ?? "");
+                insert.Parameters.AddWithValue("@c", project.Color);
+                insert.Parameters.AddWithValue("@sd", (object?)project.StartDate ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@ed", DBNull.Value);
+                insert.Parameters.AddWithValue("@ob", project.OriginalBudget);
+                insert.Parameters.AddWithValue("@discount", project.DiscountPercent);
+                insert.Parameters.AddWithValue("@b", project.Budget);
+                insert.Parameters.AddWithValue("@s", project.Status);
+                insert.ExecuteNonQuery();
+            }
+            project.Id = LastInsertId(tx);
+
+            using (var link = Conn.CreateCommand()) {
+                link.Transaction = tx;
+                link.CommandText = @"UPDATE offers SET project_id=@projectId
+                    WHERE id=@offerId AND project_id IS NULL";
+                link.Parameters.AddWithValue("@projectId", project.Id);
+                link.Parameters.AddWithValue("@offerId", offerId);
+                if (link.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException($"Angebot #{offerId} wurde zwischenzeitlich ge\u00e4ndert oder bereits konvertiert.");
+            }
+
+            tx.Commit();
+            return project;
+        }
+        catch {
+            try { tx.Rollback(); } catch { }
+            throw;
+        }
+    }
 
     // CRUD: Targets
     public List<Target> GetTargets_List() {
@@ -776,17 +1331,23 @@ public sealed class Database : IDisposable {
     public List<Resource> GetResources() {
         var list = new List<Resource>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at FROM resources";
+        cmd.CommandText = @"SELECT r.id,r.user_id,r.name,r.role,r.availability,r.hourly_rate,
+            r.work_start_hour,r.work_end_hour,r.created_at,
+            COALESCE(NULLIF(r.avatar_data,''),u.avatar_data)
+            FROM resources r LEFT JOIN users u ON u.id=r.user_id";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Resource {
-                Id = r.GetInt64(0), Name = r.GetString(1),
-                Role = r.IsDBNull(2) ? "" : r.GetString(2),
-                Availability = r.IsDBNull(3) ? 1.0 : r.GetDouble(3),
-                HourlyRate = r.IsDBNull(4) ? 0 : r.GetDouble(4),
-                WorkStartHour = r.IsDBNull(5) ? 8 : r.GetInt32(5),
-                WorkEndHour = r.IsDBNull(6) ? 17 : r.GetInt32(6),
-                CreatedAt = r.IsDBNull(7) ? "" : r.GetString(7)
+                Id = r.GetInt64(0),
+                UserId = r.IsDBNull(1) ? null : r.GetInt64(1),
+                Name = r.GetString(2),
+                Role = r.IsDBNull(3) ? "" : r.GetString(3),
+                Availability = r.IsDBNull(4) ? 1.0 : r.GetDouble(4),
+                HourlyRate = r.IsDBNull(5) ? 0 : r.GetDouble(5),
+                WorkStartHour = r.IsDBNull(6) ? 8 : r.GetInt32(6),
+                WorkEndHour = r.IsDBNull(7) ? 17 : r.GetInt32(7),
+                CreatedAt = r.IsDBNull(8) ? "" : r.GetString(8),
+                AvatarData = r.IsDBNull(9) ? null : r.GetString(9)
             });
         }
         return list;
@@ -794,7 +1355,8 @@ public sealed class Database : IDisposable {
 
     public void AddResource(Resource res) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO resources(name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at) VALUES(@n,@r,@a,@hr,@ws,@we,CURRENT_TIMESTAMP)";
+        cmd.CommandText = "INSERT INTO resources(user_id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at) VALUES(@uid,@n,@r,@a,@hr,@ws,@we,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@uid", res.UserId.HasValue ? (object)res.UserId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@n", res.Name);
         cmd.Parameters.AddWithValue("@r", (object?)res.Role ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@a", res.Availability);
@@ -824,7 +1386,7 @@ public sealed class Database : IDisposable {
     public List<Project> GetProjects() {
         var list = new List<Project>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,project_number,name,client,color,start_date,end_date,budget,status,created_at FROM projects";
+        cmd.CommandText = "SELECT id,project_number,name,client,color,start_date,end_date,original_budget,discount_percent,budget,status,created_at FROM projects";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Project {
@@ -835,24 +1397,29 @@ public sealed class Database : IDisposable {
                 Color = r.IsDBNull(4) ? "#3498db" : r.GetString(4),
                 StartDate = r.IsDBNull(5) ? "" : r.GetString(5),
                 EndDate = r.IsDBNull(6) ? "" : r.GetString(6),
-                Budget = r.IsDBNull(7) ? 0 : r.GetDouble(7),
-                Status = r.IsDBNull(8) ? "active" : r.GetString(8),
-                CreatedAt = r.IsDBNull(9) ? "" : r.GetString(9)
+                OriginalBudget = r.IsDBNull(7) ? 0 : r.GetDouble(7),
+                DiscountPercent = r.IsDBNull(8) ? 0 : r.GetDouble(8),
+                Budget = r.IsDBNull(9) ? 0 : r.GetDouble(9),
+                Status = r.IsDBNull(10) ? "active" : r.GetString(10),
+                CreatedAt = r.IsDBNull(11) ? "" : r.GetString(11)
             });
         }
         return list;
     }
 
     public void AddProject(Project p) {
+        NormalizeProjectDiscount(p);
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO projects(project_number,name,client,color,start_date,end_date,budget,status,created_at)
-            VALUES(@pn,@n,@cl,@c,@sd,@ed,@b,@s,CURRENT_TIMESTAMP)";
+        cmd.CommandText = @"INSERT INTO projects(project_number,name,client,color,start_date,end_date,original_budget,discount_percent,budget,status,created_at)
+            VALUES(@pn,@n,@cl,@c,@sd,@ed,@ob,@discount,@b,@s,CURRENT_TIMESTAMP)";
         cmd.Parameters.AddWithValue("@pn", (object?)p.ProjectNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@n", p.Name);
         cmd.Parameters.AddWithValue("@cl", (object?)p.Client ?? "");
         cmd.Parameters.AddWithValue("@c", (object?)p.Color ?? "#3498db");
         cmd.Parameters.AddWithValue("@sd", (object?)p.StartDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ed", (object?)p.EndDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ob", p.OriginalBudget);
+        cmd.Parameters.AddWithValue("@discount", p.DiscountPercent);
         cmd.Parameters.AddWithValue("@b", p.Budget);
         cmd.Parameters.AddWithValue("@s", (object?)p.Status ?? "active");
         cmd.ExecuteNonQuery();
@@ -860,9 +1427,10 @@ public sealed class Database : IDisposable {
     }
 
     public void UpdateProject(Project p) {
+        NormalizeProjectDiscount(p);
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = @"UPDATE projects SET project_number=@pn,name=@n,client=@cl,color=@c,start_date=@sd,
-            end_date=@ed,budget=@b,status=@s WHERE id=@id";
+            end_date=@ed,original_budget=@ob,discount_percent=@discount,budget=@b,status=@s WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", p.Id);
         cmd.Parameters.AddWithValue("@pn", (object?)p.ProjectNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@n", p.Name);
@@ -870,9 +1438,16 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@c", (object?)p.Color ?? "#3498db");
         cmd.Parameters.AddWithValue("@sd", (object?)p.StartDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ed", (object?)p.EndDate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ob", p.OriginalBudget);
+        cmd.Parameters.AddWithValue("@discount", p.DiscountPercent);
         cmd.Parameters.AddWithValue("@b", p.Budget);
         cmd.Parameters.AddWithValue("@s", (object?)p.Status ?? "active");
         cmd.ExecuteNonQuery();
+    }
+
+    static void NormalizeProjectDiscount(Project project) {
+        if (project.DiscountPercent == 0)
+            project.OriginalBudget = project.Budget;
     }
 
     public void DeleteProject(long id) { ExecWithId("DELETE FROM projects WHERE id=@id", id); }
@@ -1350,6 +1925,13 @@ public sealed class Database : IDisposable {
 
     // Users
     public bool ValidateUser(string username, string password) {
+        // MariaDB commonly uses a case-insensitive collation. Never allow an
+        // alternate spelling such as "Admin" to authenticate as the reserved
+        // lowercase system account.
+        if (!string.Equals(username, "admin", StringComparison.Ordinal) &&
+            string.Equals(username, "admin", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "SELECT password_hash FROM users WHERE username=@u";
         cmd.Parameters.AddWithValue("@u", username);
@@ -1397,6 +1979,210 @@ public sealed class Database : IDisposable {
         cmd.ExecuteNonQuery();
     }
 
+    public Resource AddUserWithResource(string username, string password, string fullName) {
+        username = username?.Trim() ?? "";
+        fullName = fullName?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(username))
+            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
+        if (username.Equals("admin", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Der Benutzername 'admin' ist reserviert.");
+        if (string.IsNullOrWhiteSpace(password))
+            throw new ArgumentException("Passwort darf nicht leer sein.", nameof(password));
+
+        var passwordHash = Services.PasswordHasher.Hash(password);
+        var resourceName = string.IsNullOrWhiteSpace(fullName) ? username : fullName;
+
+        using var tx = BeginWriteTransaction();
+        try {
+            using (var existing = Conn.CreateCommand()) {
+                existing.Transaction = tx;
+                existing.CommandText = "SELECT username FROM users" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                using var reader = existing.ExecuteReader();
+                while (reader.Read()) {
+                    if (string.Equals(reader.GetString(0), username, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException($"Der Benutzername '{username}' ist bereits vergeben.");
+                }
+            }
+
+            var matchingResources = LoadUnlinkedResources(tx)
+                .Where(resource => string.Equals(
+                    resource.Name.Trim(), resourceName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matchingResources.Count > 1) {
+                throw new InvalidOperationException(
+                    $"Mehrere nicht verknüpfte Mitarbeiter heißen '{resourceName}'. " +
+                    "Bitte bereinigen Sie die doppelten Mitarbeitereinträge vor der Benutzeranlage.");
+            }
+
+            long userId;
+            using (var insertUser = Conn.CreateCommand()) {
+                insertUser.Transaction = tx;
+                insertUser.CommandText = "INSERT INTO users(username,password_hash,full_name) VALUES(@u,@p,@f)";
+                insertUser.Parameters.AddWithValue("@u", username);
+                insertUser.Parameters.AddWithValue("@p", passwordHash);
+                insertUser.Parameters.AddWithValue("@f", fullName);
+                insertUser.ExecuteNonQuery();
+                userId = LastInsertId(tx);
+            }
+
+            var resource = new Resource {
+                UserId = userId,
+                Name = resourceName,
+                Role = "",
+                Availability = 1.0,
+                HourlyRate = 0,
+                WorkStartHour = 8,
+                WorkEndHour = 17
+            };
+
+            if (matchingResources.Count == 1) {
+                resource = matchingResources[0];
+                using var linkResource = Conn.CreateCommand();
+                linkResource.Transaction = tx;
+                linkResource.CommandText = "UPDATE resources SET user_id=@uid WHERE id=@rid AND user_id IS NULL";
+                linkResource.Parameters.AddWithValue("@uid", userId);
+                linkResource.Parameters.AddWithValue("@rid", resource.Id);
+                if (linkResource.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException("Der vorhandene Mitarbeiter wurde zwischenzeitlich verknüpft.");
+                resource.UserId = userId;
+            }
+            else {
+                using var insertResource = Conn.CreateCommand();
+                insertResource.Transaction = tx;
+                insertResource.CommandText = @"INSERT INTO resources(user_id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at)
+                    VALUES(@uid,@n,@r,@a,@hr,@ws,@we,CURRENT_TIMESTAMP)";
+                insertResource.Parameters.AddWithValue("@uid", userId);
+                insertResource.Parameters.AddWithValue("@n", resource.Name);
+                insertResource.Parameters.AddWithValue("@r", resource.Role);
+                insertResource.Parameters.AddWithValue("@a", resource.Availability);
+                insertResource.Parameters.AddWithValue("@hr", resource.HourlyRate);
+                insertResource.Parameters.AddWithValue("@ws", resource.WorkStartHour);
+                insertResource.Parameters.AddWithValue("@we", resource.WorkEndHour);
+                insertResource.ExecuteNonQuery();
+                resource.Id = LastInsertId(tx);
+            }
+
+            tx.Commit();
+            return resource;
+        }
+        catch {
+            try { tx.Rollback(); } catch { }
+            throw;
+        }
+    }
+
+    private List<Resource> LoadUnlinkedResources(DbTransaction tx) {
+        var resources = new List<Resource>();
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"SELECT id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at,avatar_data
+            FROM resources WHERE user_id IS NULL" + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            resources.Add(new Resource {
+                Id = reader.GetInt64(0),
+                Name = reader.GetString(1),
+                Role = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                Availability = reader.IsDBNull(3) ? 1.0 : reader.GetDouble(3),
+                HourlyRate = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+                WorkStartHour = reader.IsDBNull(5) ? 8 : reader.GetInt32(5),
+                WorkEndHour = reader.IsDBNull(6) ? 17 : reader.GetInt32(6),
+                CreatedAt = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                AvatarData = reader.IsDBNull(8) ? null : reader.GetString(8)
+            });
+        }
+        return resources;
+    }
+
+    /// <summary>
+    /// Idempotently links legacy users to existing employees by an unambiguous
+    /// display-name match. If no employee with that name exists, each user gets
+    /// a distinct linked employee. Ambiguous existing matches are deliberately
+    /// left untouched for manual resolution.
+    /// Existing rows and their allocation history are never replaced or deleted.
+    /// </summary>
+    private void BackfillResourceUserLinks() {
+        using var tx = BeginWriteTransaction();
+        try {
+            var users = new List<(long Id, string Username, string DisplayName)>();
+            using (var usersCmd = Conn.CreateCommand()) {
+                usersCmd.Transaction = tx;
+                usersCmd.CommandText = "SELECT id,username,full_name FROM users" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                using var reader = usersCmd.ExecuteReader();
+                while (reader.Read()) {
+                    var username = reader.GetString(1).Trim();
+                    var fullName = reader.IsDBNull(2) ? "" : reader.GetString(2).Trim();
+                    users.Add((reader.GetInt64(0), username,
+                        string.IsNullOrWhiteSpace(fullName) ? username : fullName));
+                }
+            }
+
+            var linkedUserIds = new HashSet<long>();
+            using (var linkedCmd = Conn.CreateCommand()) {
+                linkedCmd.Transaction = tx;
+                linkedCmd.CommandText = "SELECT user_id FROM resources WHERE user_id IS NOT NULL" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                using var reader = linkedCmd.ExecuteReader();
+                while (reader.Read())
+                    linkedUserIds.Add(reader.GetInt64(0));
+            }
+
+            var usersByName = users
+                .Where(user => !linkedUserIds.Contains(user.Id) &&
+                    !user.Username.Equals("admin", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(user.DisplayName))
+                .GroupBy(user => user.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+            var unlinkedResources = LoadUnlinkedResources(tx);
+            var resourcesByName = unlinkedResources
+                .Where(resource => !string.IsNullOrWhiteSpace(resource.Name))
+                .GroupBy(resource => resource.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (displayName, matchingUsers) in usersByName) {
+                if (resourcesByName.TryGetValue(displayName, out var matches)) {
+                    // Only a single user and a single existing employee form an
+                    // unambiguous legacy match. Every other existing-name case
+                    // needs explicit administrative resolution.
+                    if (matchingUsers.Count != 1 || matches.Count != 1)
+                        continue;
+
+                    using var link = Conn.CreateCommand();
+                    link.Transaction = tx;
+                    link.CommandText = "UPDATE resources SET user_id=@uid WHERE id=@rid AND user_id IS NULL";
+                    link.Parameters.AddWithValue("@uid", matchingUsers[0].Id);
+                    link.Parameters.AddWithValue("@rid", matches[0].Id);
+                    if (link.ExecuteNonQuery() != 1)
+                        throw new InvalidOperationException($"Mitarbeiter #{matches[0].Id} konnte nicht mit Benutzer #{matchingUsers[0].Id} verknüpft werden.");
+                    continue;
+                }
+
+                // No legacy employee uses this name. Provision one distinct
+                // linked employee per user, even when several users intentionally
+                // share the same display name.
+                foreach (var user in matchingUsers) {
+                    using var insert = Conn.CreateCommand();
+                    insert.Transaction = tx;
+                    insert.CommandText = @"INSERT INTO resources(user_id,name,role,availability,hourly_rate,work_start_hour,work_end_hour,created_at)
+                        VALUES(@uid,@n,'',1.0,0,8,17,CURRENT_TIMESTAMP)";
+                    insert.Parameters.AddWithValue("@uid", user.Id);
+                    insert.Parameters.AddWithValue("@n", displayName);
+                    insert.ExecuteNonQuery();
+                }
+            }
+
+            tx.Commit();
+        }
+        catch {
+            try { tx.Rollback(); } catch { }
+            throw;
+        }
+    }
+
     public void DeleteUser(string username) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = "DELETE FROM users WHERE username=@u";
@@ -1405,11 +2191,50 @@ public sealed class Database : IDisposable {
     }
 
     public void UpdateUserFullName(string username, string fullName) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET full_name=@f WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@f", fullName);
-        cmd.ExecuteNonQuery();
+        username = username?.Trim() ?? "";
+        fullName = fullName?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(username))
+            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
+        if (string.IsNullOrWhiteSpace(fullName))
+            throw new ArgumentException("Der vollständige Name darf nicht leer sein.", nameof(fullName));
+
+        using var tx = BeginWriteTransaction();
+        try {
+            long userId;
+            using (var findUser = Conn.CreateCommand()) {
+                findUser.Transaction = tx;
+                findUser.CommandText = "SELECT id FROM users WHERE username=@u" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                findUser.Parameters.AddWithValue("@u", username);
+                var result = findUser.ExecuteScalar();
+                if (result is null or DBNull)
+                    throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden.");
+                userId = Convert.ToInt64(result);
+            }
+
+            using (var updateUser = Conn.CreateCommand()) {
+                updateUser.Transaction = tx;
+                updateUser.CommandText = "UPDATE users SET full_name=@f WHERE id=@id";
+                updateUser.Parameters.AddWithValue("@id", userId);
+                updateUser.Parameters.AddWithValue("@f", fullName);
+                if (updateUser.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException($"Benutzer '{username}' konnte nicht aktualisiert werden.");
+            }
+
+            using (var updateResource = Conn.CreateCommand()) {
+                updateResource.Transaction = tx;
+                updateResource.CommandText = "UPDATE resources SET name=@n WHERE user_id=@uid";
+                updateResource.Parameters.AddWithValue("@uid", userId);
+                updateResource.Parameters.AddWithValue("@n", fullName);
+                updateResource.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+        catch {
+            try { tx.Rollback(); } catch { }
+            throw;
+        }
     }
 
     public string? GetFullName(string username) {
@@ -1517,32 +2342,35 @@ public sealed class Database : IDisposable {
     public List<Customer> GetCustomers() {
         var list = new List<Customer>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id,company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at FROM customers ORDER BY company,contact_name";
+        cmd.CommandText = "SELECT id,customer_number,company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at FROM customers ORDER BY company,contact_name";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
             list.Add(new Customer {
                 Id = r.GetInt64(0),
-                Company = r.IsDBNull(1) ? "" : r.GetString(1),
-                ContactName = r.IsDBNull(2) ? "" : r.GetString(2),
-                Email = r.IsDBNull(3) ? "" : r.GetString(3),
-                Phone = r.IsDBNull(4) ? "" : r.GetString(4),
-                Street = r.IsDBNull(5) ? "" : r.GetString(5),
-                ZipCode = r.IsDBNull(6) ? "" : r.GetString(6),
-                City = r.IsDBNull(7) ? "" : r.GetString(7),
-                Country = r.IsDBNull(8) ? "" : r.GetString(8),
-                TaxId = r.IsDBNull(9) ? "" : r.GetString(9),
-                Status = r.IsDBNull(10) ? "Aktiv" : r.GetString(10),
-                Notes = r.IsDBNull(11) ? "" : r.GetString(11),
-                CreatedAt = r.IsDBNull(12) ? "" : r.GetString(12)
+                CustomerNumber = r.IsDBNull(1) ? "" : r.GetString(1),
+                Company = r.IsDBNull(2) ? "" : r.GetString(2),
+                ContactName = r.IsDBNull(3) ? "" : r.GetString(3),
+                Email = r.IsDBNull(4) ? "" : r.GetString(4),
+                Phone = r.IsDBNull(5) ? "" : r.GetString(5),
+                Street = r.IsDBNull(6) ? "" : r.GetString(6),
+                ZipCode = r.IsDBNull(7) ? "" : r.GetString(7),
+                City = r.IsDBNull(8) ? "" : r.GetString(8),
+                Country = r.IsDBNull(9) ? "" : r.GetString(9),
+                TaxId = r.IsDBNull(10) ? "" : r.GetString(10),
+                Status = r.IsDBNull(11) ? "Aktiv" : r.GetString(11),
+                Notes = r.IsDBNull(12) ? "" : r.GetString(12),
+                CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13)
             });
         }
         return list;
     }
 
     public void AddCustomer(Customer c) {
+        NormalizeCustomerNumber(c);
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"INSERT INTO customers(company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at)
-            VALUES(@company,@contact,@email,@phone,@street,@zip,@city,@country,@tax,@status,@notes,CURRENT_TIMESTAMP)";
+        cmd.CommandText = @"INSERT INTO customers(customer_number,company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at)
+            VALUES(@customerNumber,@company,@contact,@email,@phone,@street,@zip,@city,@country,@tax,@status,@notes,CURRENT_TIMESTAMP)";
+        cmd.Parameters.AddWithValue("@customerNumber", (object?)c.CustomerNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@company", (object?)c.Company ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@contact", (object?)c.ContactName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@email", (object?)c.Email ?? DBNull.Value);
@@ -1559,10 +2387,12 @@ public sealed class Database : IDisposable {
     }
 
     public void UpdateCustomer(Customer c) {
+        NormalizeCustomerNumber(c);
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"UPDATE customers SET company=@company,contact_name=@contact,email=@email,phone=@phone,
+        cmd.CommandText = @"UPDATE customers SET customer_number=@customerNumber,company=@company,contact_name=@contact,email=@email,phone=@phone,
             street=@street,zip_code=@zip,city=@city,country=@country,tax_id=@tax,status=@status,notes=@notes WHERE id=@id";
         cmd.Parameters.AddWithValue("@id", c.Id);
+        cmd.Parameters.AddWithValue("@customerNumber", (object?)c.CustomerNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@company", (object?)c.Company ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@contact", (object?)c.ContactName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@email", (object?)c.Email ?? DBNull.Value);
@@ -1575,6 +2405,12 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@status", (object?)c.Status ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@notes", (object?)c.Notes ?? DBNull.Value);
         cmd.ExecuteNonQuery();
+    }
+
+    private static void NormalizeCustomerNumber(Customer customer) {
+        customer.CustomerNumber = (customer.CustomerNumber ?? "").Trim();
+        if (customer.CustomerNumber.Length > 100)
+            throw new InvalidOperationException("Die Kundennummer darf höchstens 100 Zeichen lang sein.");
     }
 
     public void DeleteCustomer(long id) { ExecWithId("DELETE FROM customers WHERE id=@id", id); }
@@ -2175,9 +3011,26 @@ public sealed class Database : IDisposable {
         AddHistoricalTimeEntry(demoUserId, project4.Id, "Dokumentation", "Revisionsunterlagen vorbereitet", DateTime.Today.AddDays(-5).AddHours(8), 3.5);
         AddHistoricalTimeEntry(demoUserId, project5.Id, "Abstimmung", "Baustellenlogistik mit Kunde abgestimmt", DateTime.Today.AddDays(-4).AddHours(11), 2.5);
         StartDemoRunningTimer(demoUserId, project1.Id, "Dokumentation", "Demo-Timer laeuft fuer Dashboard");
+
+        // Link the known seeded user/resource pair (Mika) and provision resources
+        // for the remaining non-admin demo users without duplicating existing rows.
+        BackfillResourceUserLinks();
     }
 
     // Helpers
+    DbTransaction BeginWriteTransaction() {
+        if (Conn is Microsoft.Data.Sqlite.SqliteConnection sqlite)
+            return sqlite.BeginTransaction(deferred: false);
+        return Conn.BeginTransaction();
+    }
+
+    long LastInsertId(DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = _dialect.LastInsertIdSql;
+        return Convert.ToInt64(cmd.ExecuteScalar());
+    }
+
     long LastInsertId() {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = _dialect.LastInsertIdSql;

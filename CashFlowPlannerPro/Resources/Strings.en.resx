@@ -30,8 +30,9 @@
   <data name="NavAddressBook" xml:space="preserve"><value>📇  Address Book</value></data>
   <data name="NavIntegrations" xml:space="preserve"><value>🧩  Add-ons</value></data>
   <data name="NavAdmin" xml:space="preserve"><value>🔐  Administration</value></data>
+  <data name="SettingsButton" xml:space="preserve"><value>⚙  Settings</value></data>
   <data name="ProfileButton" xml:space="preserve"><value>👤  My Profile</value></data>
-  <data name="SwitchDatabaseButton" xml:space="preserve"><value>⚙  Switch Database</value></data>
+  <data name="SwitchDatabaseButton" xml:space="preserve"><value>🗄  Switch Database</value></data>
   <data name="BackupButton" xml:space="preserve"><value>💾  Create Backup</value></data>
   <data name="RestoreButton" xml:space="preserve"><value>♻  Restore Backup</value></data>
   <data name="CheckUpdatesButton" xml:space="preserve"><value>⬇  Check for Updates</value></data>
@@ -105,6 +106,16 @@ Financial planning made easy.</value></data>
   <data name="PasswordChangedSuccess" xml:space="preserve"><value>Password changed successfully.</value></data>
   <data name="DoneTitle" xml:space="preserve"><value>Done</value></data>
   <data name="PasswordChangeRequired" xml:space="preserve"><value>Password change is required on first start.</value></data>
+  <data name="SettingsTitle" xml:space="preserve"><value>Settings</value></data>
+  <data name="SettingsAppearance" xml:space="preserve"><value>Appearance</value></data>
+  <data name="SettingsUiSize" xml:space="preserve"><value>Display size</value></data>
+  <data name="SettingsUiSizeHint" xml:space="preserve"><value>Scales text, controls, and spacing throughout the application.</value></data>
+  <data name="SettingsLanguage" xml:space="preserve"><value>Language</value></data>
+  <data name="UiSizeSmall" xml:space="preserve"><value>Small (90%)</value></data>
+  <data name="UiSizeDefault" xml:space="preserve"><value>Default (100%)</value></data>
+  <data name="UiSizeLarge" xml:space="preserve"><value>Large (115%)</value></data>
+  <data name="UiSizeVeryLarge" xml:space="preserve"><value>Very large (130%)</value></data>
+  <data name="SettingsSaveError" xml:space="preserve"><value>The settings could not be saved: {0}</value></data>
   <data name="ProfileTitle" xml:space="preserve"><value>My Profile</value></data>
   <data name="ProfileLoggedInAs" xml:space="preserve"><value>Signed in as</value></data>
   <data name="ProfileDisplayName" xml:space="preserve"><value>Display name</value></data>
@@ -242,16 +253,34 @@ Financial planning made easy.</value></data>
   <data name="IntegrationsDueDate" xml:space="preserve"><value>Due date</value></data>
   <data name="IntegrationsExpectedDate" xml:space="preserve"><value>Expected</value></data>
   <data name="IntegrationsAmount" xml:space="preserve"><value>Amount</value></data>
+  <data name="IntegrationsCurrency" xml:space="preserve"><value>Currency</value></data>
+  <data name="IntegrationsUnsupportedCurrency" xml:space="preserve"><value>Cannot import: {0} (EUR only)</value></data>
   <data name="IntegrationsProbability" xml:space="preserve"><value>Prob. %</value></data>
   <data name="IntegrationsSourceStatus" xml:space="preserve"><value>sevDesk status</value></data>
   <data name="IntegrationsImportState" xml:space="preserve"><value>Import</value></data>
   <data name="IntegrationsImportAction" xml:space="preserve"><value>Import selection</value></data>
   <data name="IntegrationsNothingSelected" xml:space="preserve"><value>Please select at least one record to import.</value></data>
+  <data name="IntegrationsImportProgressPreparing" xml:space="preserve"><value>Preparing import</value></data>
+  <data name="IntegrationsImportProgressCustomers" xml:space="preserve"><value>Importing customers</value></data>
+  <data name="IntegrationsImportProgressInvoices" xml:space="preserve"><value>Importing invoices</value></data>
+  <data name="IntegrationsImportProgressOffers" xml:space="preserve"><value>Importing offers</value></data>
+  <data name="IntegrationsImportProgressCompleted" xml:space="preserve"><value>Import completed</value></data>
+  <data name="IntegrationsImportProgressFailed" xml:space="preserve"><value>Import failed</value></data>
+  <data name="IntegrationsImportProgressCount" xml:space="preserve"><value>{0} / {1}</value></data>
+  <data name="IntegrationsImportFailed" xml:space="preserve"><value>Import failed: {0}</value></data>
   <data name="IntegrationsSelectAllCustomers" xml:space="preserve"><value>Select all customers ({0})</value></data>
   <data name="IntegrationsSelectAllInvoices" xml:space="preserve"><value>Select all invoices ({0})</value></data>
   <data name="IntegrationsSelectAllOffers" xml:space="preserve"><value>Select all offers ({0})</value></data>
   <data name="IntegrationsNew" xml:space="preserve"><value>New</value></data>
   <data name="IntegrationsExisting" xml:space="preserve"><value>Existing</value></data>
+  <data name="IntegrationsCustomerNumber" xml:space="preserve"><value>Customer no.</value></data>
+  <data name="IntegrationsCustomerMissingExternalId" xml:space="preserve"><value>Conflict: sevDesk ID is missing – will not be imported</value></data>
+  <data name="IntegrationsCustomerNumberTooLong" xml:space="preserve"><value>Conflict: customer number exceeds 100 characters – will not be imported</value></data>
+  <data name="IntegrationsCustomerDuplicateExternalId" xml:space="preserve"><value>Conflict: sevDesk ID occurs more than once in this retrieval – will not be imported</value></data>
+  <data name="IntegrationsCustomerDuplicateNumber" xml:space="preserve"><value>Conflict: customer number occurs more than once in this retrieval – will not be imported</value></data>
+  <data name="IntegrationsCustomerSharedLocalMatch" xml:space="preserve"><value>Conflict: multiple sevDesk contacts match the same local customer – will not be imported</value></data>
+  <data name="IntegrationsCustomerForeignSourceMatch" xml:space="preserve"><value>Conflict: local customer is already linked to a different sevDesk contact – will not be imported</value></data>
+  <data name="IntegrationsImportConflict" xml:space="preserve"><value>Conflict: multiple local matches – will not be imported</value></data>
   <data name="IntegrationsImportSuccess" xml:space="preserve"><value>Import completed.
 
 Customers selected: {0} · added/updated: {1}

@@ -2,7 +2,7 @@
 ; Erstellt am 25.03.2026
 
 #define MyAppName "CashFlow Planner Pro"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "Thomas Tian"
 #define MyAppURL "https://cashflowplannerpro.de"
 #define MyAppExeName "CashFlowPlannerPro.exe"
@@ -30,12 +30,11 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 ; UI
 WizardStyle=modern
-WizardResizable=no
 ; Rechte
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-; Mindestversion Windows 10
-MinVersion=10.0
+; Mindestversion Windows 10 Version 2004 (Build 19041)
+MinVersion=10.0.19041
 ; Architektur
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

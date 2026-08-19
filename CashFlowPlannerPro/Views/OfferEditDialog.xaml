@@ -1,0 +1,163 @@
+<Window x:Class="CashFlowPlannerPro.Views.OfferEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        Title="Angebot bearbeiten" WindowStartupLocation="CenterOwner"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
+        Width="720" Height="720" MinWidth="620" MinHeight="480"
+        MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height}"
+        KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="30"
+            BorderBrush="#812B8C" BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="DialogTitle" Text="Angebot bearbeiten" FontSize="20" FontWeight="Bold"
+                       Foreground="#BF247A" Margin="0,0,0,20"/>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                    <TextBlock Text="Angebotsnummer" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbOfferNumber" Style="{StaticResource DarkTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2">
+                    <TextBlock Text="Kunde" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbCustomer" IsEditable="True"
+                              Background="#1E1A40" Foreground="White" BorderBrush="#3D3670"
+                              BorderThickness="1" FontSize="14" Padding="8,6"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Angebotsdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <DatePicker x:Name="DpOfferDate" Loaded="DatePicker_FixStyle"
+                                Background="#1E1A40" Foreground="White" BorderBrush="#3D3670"
+                                BorderThickness="1" FontSize="14" Padding="4"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Erwartetes Datum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <DatePicker x:Name="DpExpectedDate" Loaded="DatePicker_FixStyle"
+                                Background="#1E1A40" Foreground="White" BorderBrush="#3D3670"
+                                BorderThickness="1" FontSize="14" Padding="4"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Ausgangsbetrag (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbAmountBeforeDiscount" Style="{StaticResource DarkTextBox}"
+                             TextChanged="AmountBeforeDiscount_TextChanged"/>
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Endbetrag (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbFinalAmount" Style="{StaticResource DarkTextBox}" IsReadOnly="True"
+                             Background="#342D68" Foreground="#F6C35B" FontWeight="SemiBold"
+                             ToolTip="Wird automatisch aus Ausgangsbetrag und Rabatt berechnet"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Rabatt (%)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbDiscountPercent" Style="{StaticResource DarkTextBox}"
+                             TextChanged="DiscountPercent_TextChanged"/>
+                </StackPanel>
+                <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Rabatt (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbDiscountAmount" Style="{StaticResource DarkTextBox}"
+                             TextChanged="DiscountAmount_TextChanged"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Wahrscheinlichkeit (%)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TbProbability" Style="{StaticResource DarkTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Status" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbStatus" Background="#1E1A40" Foreground="White"
+                              BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="8,6">
+                        <sys:String>Offen</sys:String>
+                        <sys:String>Beauftragt</sys:String>
+                        <sys:String>Abgelehnt</sys:String>
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">
+                    <TextBlock Text="Lokale Kurzbeschreibung" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"
+                               ToolTip="Nur für die lokale Übersicht; getrennt vom eigentlichen Dokumentinhalt"/>
+                    <TextBox x:Name="TbDescription" Style="{StaticResource DarkTextBox}"
+                              MinHeight="78" MaxHeight="120" AcceptsReturn="True"
+                              TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                              ToolTip="Nur für die lokale Übersicht; getrennt vom eigentlichen Dokumentinhalt"/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="6" Grid.Column="0" Margin="0,12,0,12">
+                    <TextBlock Text="Zahlungsziel (Tage)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CbPaymentDelay" IsEditable="True"
+                              Background="#1E1A40" Foreground="White" BorderBrush="#3D3670"
+                              BorderThickness="1" FontSize="14" Padding="8,6">
+                        <sys:Int32>0</sys:Int32>
+                        <sys:Int32>30</sys:Int32>
+                        <sys:Int32>60</sys:Int32>
+                        <sys:Int32>90</sys:Int32>
+                        <sys:Int32>120</sys:Int32>
+                    </ComboBox>
+                </StackPanel>
+
+                <Button x:Name="DocumentContentBtn" Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3"
+                        Content="Dokumentinhalt (0 Positionen)" Click="DocumentContent_Click"
+                        MinHeight="44" Margin="0,4,0,4" Padding="16,10" FontSize="14"
+                        FontWeight="SemiBold" Background="#812B8C" Foreground="White"
+                        AutomationProperties.Name="Dokumentinhalt des Angebots bearbeiten"
+                        ToolTip="Überschrift, Vor- und Nachtext, Positionen sowie interne Notiz bearbeiten"/>
+            </Grid>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
+                        Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
+                        Background="#3D3670" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="SaveBtn" Content="Speichern" Click="Save_Click" MinWidth="100"
+                        Padding="12,8" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Background="#BF247A" Foreground="White" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

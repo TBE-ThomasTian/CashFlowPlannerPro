@@ -81,7 +81,16 @@ public partial class InvoicesView : UserControl
         if (editedInvoice == null)
             return;
 
-        _vm.ApplyInvoiceChanges(_vm.SelectedInvoice, editedInvoice);
+        try
+        {
+            _vm.ApplyInvoiceChanges(_vm.SelectedInvoice, editedInvoice);
+        }
+        catch (Exception ex)
+        {
+            ModernMessageBox.ShowError(
+                $"Die Rechnung konnte nicht gespeichert werden:\n{ex.Message}",
+                "Rechnung speichern");
+        }
     }
 
     private void InvoicesGrid_PreviewKeyDown(object sender, KeyEventArgs e)

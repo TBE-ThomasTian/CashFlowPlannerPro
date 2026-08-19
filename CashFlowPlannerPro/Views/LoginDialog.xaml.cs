@@ -7,6 +7,7 @@ using System.Windows.Input;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Services;
 using Microsoft.Win32;
+using MySqlConnector;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -307,7 +308,7 @@ public partial class LoginDialog : Window
         }
         catch (Exception ex)
         {
-            ShowError(string.Format(LocalizationManager.Get("LoginDatabaseError"), ex.Message));
+            ShowError(string.Format(LocalizationManager.Get("LoginDatabaseError"), FormatDatabaseError(ex)));
         }
         finally
         {
@@ -442,7 +443,7 @@ public partial class LoginDialog : Window
                 ShowError(LocalizationManager.Get("LoginInvalidCredentials"));
             }
         }
-        catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginError"), ex.Message)); }
+        catch (Exception ex) { ShowError(string.Format(LocalizationManager.Get("LoginError"), FormatDatabaseError(ex))); }
         finally
         {
             SetBusy(false);
@@ -519,13 +520,13 @@ public partial class LoginDialog : Window
             UsernameListBox.Items.Clear();
             foreach (var u in _usernames)
                 UsernameListBox.Items.Add(u);
-            TbMariaStatus.Text = "✅ Verbindung erfolgreich!";
+            TbMariaStatus.Text = "✅ Sichere TLS-Verbindung und Datenbankschema erfolgreich!";
             TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0x2E, 0xCC, 0x71));
         }
         catch (Exception ex)
         {
-            TbMariaStatus.Text = $"❌ Fehler: {ex.Message}";
+            TbMariaStatus.Text = $"❌ Fehler: {FormatDatabaseError(ex)}";
             TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
         }
@@ -580,7 +581,7 @@ public partial class LoginDialog : Window
         }
         catch (Exception ex)
         {
-            ShowError($"Import fehlgeschlagen: {ex.Message}");
+            ShowError($"Import fehlgeschlagen: {FormatDatabaseError(ex)}");
         }
     }
 
@@ -618,12 +619,35 @@ public partial class LoginDialog : Window
         }
         catch (Exception ex)
         {
-            ShowError($"Import fehlgeschlagen: {ex.Message}");
+            ShowError($"Import fehlgeschlagen: {FormatDatabaseError(ex)}");
         }
     }
 
     private void ShowError(string msg) { ErrorText.Text = msg; ErrorText.Visibility = Visibility.Visible; }
     private void ClearError() { ErrorText.Text = ""; ErrorText.Visibility = Visibility.Collapsed; }
+
+    private static string FormatDatabaseError(Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException)
+            {
+                return mySqlException.Number switch
+                {
+                    1049 => "Die angegebene Datenbank existiert nicht. Bitte die Datenbank auf dem Server vorab anlegen und den Namen prüfen.",
+                    1045 => "Zugriff verweigert. Bitte DB-Benutzer, Passwort und die Hostfreigabe dieses Benutzers prüfen.",
+                    1044 => "Der DB-Benutzer hat keine Berechtigung für diese Datenbank.",
+                    _ when mySqlException.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase)
+                        || mySqlException.Message.Contains("TLS", StringComparison.OrdinalIgnoreCase)
+                        || mySqlException.InnerException is System.Security.Authentication.AuthenticationException
+                        => $"TLS-Prüfung fehlgeschlagen: {mySqlException.Message}",
+                    _ => $"MariaDB-Fehler {mySqlException.Number}: {mySqlException.Message}"
+                };
+            }
+        }
+
+        return exception.Message;
+    }
 
     private void SetBusy(bool isBusy)
     {

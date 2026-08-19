@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -17,15 +18,19 @@ public partial class ModernMessageBox : Window
         SetIcon(type);
         BuildButtons(type, showCancel);
         Owner = Application.Current.MainWindow?.IsVisible == true ? Application.Current.MainWindow : null;
-        if (Owner != null)
-        {
-            Width = Owner.ActualWidth;
-            Height = Owner.ActualHeight;
-        }
-        else
-        {
-            WindowState = WindowState.Maximized;
-        }
+
+        var scale = UiScaleService.CurrentPercent / 100d;
+        var availableWidth = Owner?.ActualWidth > 0
+            ? Math.Min(Owner.ActualWidth, SystemParameters.WorkArea.Width)
+            : SystemParameters.WorkArea.Width;
+        var availableHeight = Owner?.ActualHeight > 0
+            ? Math.Min(Owner.ActualHeight, SystemParameters.WorkArea.Height)
+            : SystemParameters.WorkArea.Height;
+
+        Width = Math.Min(520 * scale, availableWidth);
+        Height = availableHeight;
+        MaxHeight = availableHeight;
+        Card.MaxHeight = Math.Max(260, availableHeight / scale - 80);
     }
 
     private void SetIcon(MessageBoxType type)

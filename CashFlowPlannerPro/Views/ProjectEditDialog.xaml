@@ -36,8 +36,41 @@
                            VerticalAlignment="Center"/>
             </StackPanel>
 
-            <TextBlock Text="Budget (€)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-            <TextBox x:Name="TbBudget" Style="{StaticResource DarkTextBox}" Margin="0,0,0,12"/>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Ausgangswert (€)"
+                           Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Rabatt (%)"
+                           Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                <TextBox x:Name="TbOriginalBudget" Grid.Row="1" Grid.Column="0"
+                         Style="{StaticResource DarkTextBox}" TextChanged="TbOriginalBudget_TextChanged"
+                         ToolTip="Projektwert vor Abzug des Rabatts"/>
+                <TextBox x:Name="TbDiscountPercent" Grid.Row="1" Grid.Column="2"
+                         Style="{StaticResource DarkTextBox}" TextChanged="TbDiscountPercent_TextChanged"
+                         ToolTip="Rabatt zwischen 0 und 100 Prozent"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Rabatt (€)"
+                           Foreground="#8899AA" FontSize="11" Margin="0,8,0,4"/>
+                <TextBlock Grid.Row="2" Grid.Column="2" Text="Projektbudget / Endbetrag (€)"
+                           Foreground="#8899AA" FontSize="11" Margin="0,8,0,4"/>
+                <TextBox x:Name="TbDiscountAmount" Grid.Row="3" Grid.Column="0"
+                         Style="{StaticResource DarkTextBox}" TextChanged="TbDiscountAmount_TextChanged"
+                         ToolTip="Rabattbetrag zwischen 0 und dem Ausgangswert"/>
+                <TextBox x:Name="TbBudget" Grid.Row="3" Grid.Column="2"
+                         Style="{StaticResource DarkTextBox}" IsReadOnly="True" IsTabStop="False"
+                         Background="#16132F" ToolTip="Automatisch berechneter Endbetrag"/>
+            </Grid>
 
             <Grid Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>

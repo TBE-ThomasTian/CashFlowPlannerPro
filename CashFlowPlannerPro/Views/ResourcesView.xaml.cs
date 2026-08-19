@@ -54,6 +54,8 @@ public partial class ResourcesView : UserControl
         KanbanBtn.ToolTip = TooltipService.Get("Btn_Kanban");
     }
 
+    public void Reload() => _vm.Load();
+
     private void CalendarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (Keyboard.Modifiers == ModifierKeys.Control)

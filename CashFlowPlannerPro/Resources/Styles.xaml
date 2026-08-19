@@ -10,6 +10,9 @@
     <Color x:Key="AccentHoverColor">#6E2478</Color>
     <Color x:Key="PinkColor">#BF247A</Color>
     <Color x:Key="OrangeColor">#D9731A</Color>
+    <Color x:Key="DataGridSelectionColor">#F4B675</Color>
+    <Color x:Key="DataGridSelectionHoverColor">#EDA65C</Color>
+    <Color x:Key="DataGridRowHoverColor">#FFF3E6</Color>
     <Color x:Key="GridLineColor">#E2E0E8</Color>
     <Color x:Key="GreenColor">#D9731A</Color>
     <Color x:Key="RedColor">#BF3939</Color>
@@ -25,6 +28,9 @@
     <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}"/>
     <SolidColorBrush x:Key="PinkBrush" Color="{StaticResource PinkColor}"/>
     <SolidColorBrush x:Key="OrangeBrush" Color="{StaticResource OrangeColor}"/>
+    <SolidColorBrush x:Key="DataGridSelectionBrush" Color="{StaticResource DataGridSelectionColor}"/>
+    <SolidColorBrush x:Key="DataGridSelectionHoverBrush" Color="{StaticResource DataGridSelectionHoverColor}"/>
+    <SolidColorBrush x:Key="DataGridRowHoverBrush" Color="{StaticResource DataGridRowHoverColor}"/>
     <SolidColorBrush x:Key="GridLineBrush" Color="{StaticResource GridLineColor}"/>
     <SolidColorBrush x:Key="GreenBrush" Color="{StaticResource GreenColor}"/>
     <SolidColorBrush x:Key="RedBrush" Color="{StaticResource RedColor}"/>
@@ -96,13 +102,26 @@
 
     <Style TargetType="DataGridRow">
         <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
         <Style.Triggers>
-            <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="#EEF2FF"/>
-            </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="#F1F5F9"/>
+                <Setter Property="Background" Value="{StaticResource DataGridRowHoverBrush}"/>
             </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{StaticResource DataGridSelectionBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource OrangeBrush}"/>
+                <Setter Property="BorderThickness" Value="4,0,0,0"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsSelected" Value="True"/>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{StaticResource DataGridSelectionHoverBrush}"/>
+            </MultiTrigger>
         </Style.Triggers>
     </Style>
 
@@ -166,6 +185,54 @@
 
     <Style x:Key="DeleteButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Background" Value="{StaticResource RedBrush}"/>
+    </Style>
+
+    <Style x:Key="CompactDeleteButton" TargetType="Button">
+        <Setter Property="Width" Value="40"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="MinWidth" Value="40"/>
+        <Setter Property="MinHeight" Value="40"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Background" Value="{StaticResource RedBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="BorderBrush" Value="{StaticResource RedBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="DeleteBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="DeleteBorder" Property="Background" Value="#A82F2F"/>
+                            <Setter TargetName="DeleteBorder" Property="BorderBrush" Value="#A82F2F"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="DeleteBorder" Property="Opacity" Value="0.82"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="DeleteBorder" Property="BorderBrush" Value="{StaticResource ForegroundBrush}"/>
+                            <Setter TargetName="DeleteBorder" Property="BorderThickness" Value="2"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Cursor" Value="Arrow"/>
+                            <Setter Property="Foreground" Value="#64748B"/>
+                            <Setter TargetName="DeleteBorder" Property="Background" Value="#E2E8F0"/>
+                            <Setter TargetName="DeleteBorder" Property="BorderBrush" Value="#CBD5E1"/>
+                            <Setter TargetName="DeleteBorder" Property="Opacity" Value="1"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="NavButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -307,7 +374,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border Background="Transparent">
-                        <Grid Width="28">
+                        <Grid Width="28" HorizontalAlignment="Right">
                             <Path x:Name="Arrow"
                                   Data="M 0 0 L 4 4 L 8 0"
                                   Stretch="None"
@@ -383,7 +450,9 @@
                                          Visibility="Collapsed"
                                          IsReadOnly="{TemplateBinding IsReadOnly}"/>
 
-                                <ToggleButton Grid.Column="1"
+                                <ToggleButton x:Name="DropDownToggle"
+                                              Grid.Column="0"
+                                              Grid.ColumnSpan="2"
                                               Margin="0,0,4,0"
                                               Background="Transparent"
                                               BorderThickness="0"
@@ -434,6 +503,8 @@
                         <Trigger Property="IsEditable" Value="True">
                             <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
                             <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="DropDownToggle" Property="Grid.Column" Value="1"/>
+                            <Setter TargetName="DropDownToggle" Property="Grid.ColumnSpan" Value="1"/>
                         </Trigger>
                         <Trigger Property="HasItems" Value="False">
                             <Setter TargetName="Popup" Property="MinHeight" Value="36"/>

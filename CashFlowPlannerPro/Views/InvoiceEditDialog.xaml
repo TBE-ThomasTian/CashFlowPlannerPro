@@ -3,93 +3,119 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Rechnung bearbeiten" WindowStartupLocation="CenterOwner"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ResizeMode="NoResize" ShowInTaskbar="False"
-        SizeToContent="WidthAndHeight" KeyDown="Window_KeyDown">
-    <Border Background="#2A2359" CornerRadius="12" Padding="32" MinWidth="680"
+        ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
+        Width="720" Height="720" MinWidth="620" MinHeight="480"
+        MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height}"
+        KeyDown="Window_KeyDown">
+    <Border Background="#2A2359" CornerRadius="12" Padding="30"
             BorderBrush="#812B8C" BorderThickness="2">
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.5" Color="Black"/>
         </Border.Effect>
-        <StackPanel>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
             <TextBlock x:Name="DialogTitle" Text="Rechnung bearbeiten" FontSize="20" FontWeight="Bold"
                        Foreground="#BF247A" Margin="0,0,0,20"/>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="20"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto" Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="20"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
-                    <TextBlock Text="Ausstellungsdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbIssueDate" Style="{StaticResource DarkTextBox}"/>
-                </StackPanel>
-                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
-                    <TextBlock Text="Faellig am" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbDueDate" Style="{StaticResource DarkTextBox}"/>
-                </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
+                        <TextBlock Text="Rechnungsnummer" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbInvoiceNumber" Style="{StaticResource DarkTextBox}"
+                                 AutomationProperties.Name="Rechnungsnummer"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
+                        <TextBlock Text="Kunde" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="CbCustomer" IsEditable="True" Background="#1E1A40" Foreground="White"
+                                  BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="8,6"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,12">
-                    <TextBlock Text="Kunde" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <ComboBox x:Name="CbCustomer" IsEditable="True" Background="#1E1A40" Foreground="White"
-                              BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="8,6"/>
-                </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
+                        <TextBlock Text="Ausstellungsdatum" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbIssueDate" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
+                        <TextBlock Text="Fällig am" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbDueDate" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="Betraege" Foreground="#BF247A"
-                           FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="Beträge" Foreground="#BF247A"
+                               FontSize="14" FontWeight="SemiBold" Margin="0,8,0,12"/>
 
-                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,12">
-                    <TextBlock Text="Brutto (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbGross" Style="{StaticResource DarkTextBox}" LostFocus="Gross_LostFocus"/>
-                </StackPanel>
-                <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,0,0,12">
-                    <TextBlock Text="Netto (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbNet" Style="{StaticResource DarkTextBox}" LostFocus="Net_LostFocus"/>
-                </StackPanel>
+                    <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,12">
+                        <TextBlock Text="Brutto (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbGross" Style="{StaticResource DarkTextBox}" LostFocus="Gross_LostFocus"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,0,0,12">
+                        <TextBlock Text="Netto (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbNet" Style="{StaticResource DarkTextBox}" LostFocus="Net_LostFocus"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,0,0,12">
-                    <TextBlock Text="MwSt (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbVat" Style="{StaticResource DarkTextBox}" LostFocus="Vat_LostFocus"/>
-                </StackPanel>
-                <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,0,0,12">
-                    <TextBlock Text="MwSt %" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbVatRate" Style="{StaticResource DarkTextBox}" LostFocus="VatRate_LostFocus"/>
-                </StackPanel>
+                    <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,0,0,12">
+                        <TextBlock Text="MwSt (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbVat" Style="{StaticResource DarkTextBox}" LostFocus="Vat_LostFocus"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,0,0,12">
+                        <TextBlock Text="MwSt %" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbVatRate" Style="{StaticResource DarkTextBox}" LostFocus="VatRate_LostFocus"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,12">
-                    <TextBlock Text="Beschreibung" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbDescription" Style="{StaticResource DarkTextBox}" AcceptsReturn="True"
-                             Height="70" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-                </StackPanel>
+                    <StackPanel Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                        <TextBlock Text="Lokale Kurzbeschreibung" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"
+                                   ToolTip="Nur für die lokale Übersicht; getrennt vom eigentlichen Dokumentinhalt"/>
+                        <TextBox x:Name="TbDescription" Style="{StaticResource DarkTextBox}" AcceptsReturn="True"
+                                 MinHeight="70" MaxHeight="110" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 ToolTip="Nur für die lokale Übersicht; getrennt vom eigentlichen Dokumentinhalt"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Row="6" Grid.Column="0" Margin="0,0,0,20">
-                    <TextBlock Text="Bezahlt am" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbPaidDate" Style="{StaticResource DarkTextBox}"/>
-                </StackPanel>
-                <StackPanel Grid.Row="6" Grid.Column="2" Margin="0,0,0,20">
-                    <TextBlock Text="Bezahlter Betrag (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TbPaidAmount" Style="{StaticResource DarkTextBox}"/>
-                </StackPanel>
+                    <Button x:Name="DocumentContentBtn" Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3"
+                            Content="Dokumentinhalt (0 Positionen)" Click="DocumentContent_Click"
+                            MinHeight="44" Margin="0,0,0,14" Padding="16,10" FontSize="14"
+                            FontWeight="SemiBold" Background="#812B8C" Foreground="White"
+                            AutomationProperties.Name="Dokumentinhalt der Rechnung bearbeiten"
+                            ToolTip="Überschrift, Vor- und Nachtext, Positionen sowie interne Notiz bearbeiten"/>
 
-                <StackPanel Grid.Row="7" Grid.Column="0" Margin="0,0,0,20">
-                    <TextBlock Text="Status" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
-                    <ComboBox x:Name="CbStatus" Background="#1E1A40" Foreground="White"
-                              BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="8,6"/>
-                </StackPanel>
-            </Grid>
+                    <StackPanel Grid.Row="7" Grid.Column="0" Margin="0,0,0,12">
+                        <TextBlock Text="Bezahlt am" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbPaidDate" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="7" Grid.Column="2" Margin="0,0,0,12">
+                        <TextBlock Text="Bezahlter Betrag (EUR)" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <TextBox x:Name="TbPaidAmount" Style="{StaticResource DarkTextBox}"/>
+                    </StackPanel>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <StackPanel Grid.Row="8" Grid.Column="0" Margin="0,0,0,4">
+                        <TextBlock Text="Status" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="CbStatus" Background="#1E1A40" Foreground="White"
+                                  BorderBrush="#3D3670" BorderThickness="1" FontSize="14" Padding="8,6"/>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="CancelBtn" Content="Abbrechen" Click="Cancel_Click" MinWidth="100"
                         Margin="0,0,12,0" Padding="12,8" FontSize="13" Cursor="Hand"
                         Background="#3D3670" Foreground="White" BorderThickness="0">
@@ -113,6 +139,6 @@
                     </Button.Template>
                 </Button>
             </StackPanel>
-        </StackPanel>
+        </Grid>
     </Border>
 </Window>
