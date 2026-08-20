@@ -188,7 +188,18 @@ public partial class SevDeskImportDialog : Window
         }
         catch (Exception ex)
         {
-            LastImportError = ex.GetBaseException().Message;
+            var reference = AppLogger.LogException(
+                "sevdesk.import.failed",
+                ex,
+                new { provider = "sevDesk", selectedCount = selection.Total });
+            AppLogger.Audit(
+                "sevdesk.import.completed",
+                "sevDesk",
+                success: false,
+                new { reference, selectedCount = selection.Total });
+            LastImportError = string.Format(
+                LocalizationManager.Get("ErrorReferenceValue"),
+                reference);
             UpdateProgress(new SevDeskImportProgress(_lastCompleted, _lastTotal, SevDeskImportPhase.Failed));
             SetImporting(false, _lastTotal);
             ModernMessageBox.ShowError(

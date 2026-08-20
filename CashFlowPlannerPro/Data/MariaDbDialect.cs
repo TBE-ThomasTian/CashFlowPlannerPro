@@ -28,8 +28,10 @@ public class MariaDbDialect : IDbDialect
             .Replace(" REAL,", $" {RealType},")
             .Replace(" REAL\n", $" {RealType}\n")
             .Replace(" REAL DEFAULT", $" {RealType} DEFAULT")
-            // MariaDB: TEXT cannot have DEFAULT CURRENT_TIMESTAMP
-            .Replace("TEXT DEFAULT CURRENT_TIMESTAMP", "TEXT")
+            // MariaDB does not support CURRENT_TIMESTAMP as a portable TEXT
+            // default. Keep the default (instead of silently dropping it) by
+            // using the native temporal type for audit timestamps.
+            .Replace("TEXT DEFAULT CURRENT_TIMESTAMP", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
             // MariaDB: TEXT cannot be used in UNIQUE/PRIMARY KEY without length
             // Convert "TEXT UNIQUE NOT NULL" → "VARCHAR(255) UNIQUE NOT NULL"
             .Replace("TEXT UNIQUE NOT NULL", "VARCHAR(255) UNIQUE NOT NULL")

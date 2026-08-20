@@ -18,7 +18,7 @@
                 <Button x:Name="DeleteBtn" Content="&#x1F5D1;&#xFE0F; L&#246;schen" Style="{StaticResource DeleteButton}" Command="{Binding DeleteCommand}"/>
             </StackPanel>
         </Border>
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Taxes}" SelectedItem="{Binding SelectedTransaction}"
+        <DataGrid x:Name="TaxesGrid" Grid.Row="1" ItemsSource="{Binding Taxes}" SelectedItem="{Binding SelectedTransaction}"
                   AutoGenerateColumns="False" CanUserAddRows="False"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>

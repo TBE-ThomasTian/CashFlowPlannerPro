@@ -32,6 +32,7 @@ public partial class TodoView : UserControl
     {
         InitializeComponent();
         AddTodoBtn.ToolTip = TooltipService.Get("Btn_AddTodo");
+        AddTodoBtn.IsEnabled = App.CanEdit(PageKeys.Todos);
         IsVisibleChanged += (_, e) => { if (e.NewValue is true) Refresh(); };
     }
 
@@ -39,12 +40,19 @@ public partial class TodoView : UserControl
     {
         try
         {
+            AddTodoBtn.IsEnabled = App.CanEdit(PageKeys.Todos);
             var userId = App.CurrentUserId;
             _todos = Database.Instance.GetTodos(userId);
             _projects = Database.Instance.GetProjects();
             BuildList();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException("todo.refresh_failed", ex);
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("OperationFailedWithReference"), reference),
+                LocalizationManager.Get("AppErrorTitle"));
+        }
     }
 
     private void Filter_Changed(object sender, SelectionChangedEventArgs e)
@@ -80,6 +88,7 @@ public partial class TodoView : UserControl
 
     private Border CreateTodoCard(UserTodo todo)
     {
+        var canEdit = App.CanEdit(PageKeys.Todos);
         var statusColor = StatusColors.GetValueOrDefault(todo.Status, Color.FromRgb(0x94, 0xA3, 0xB8));
         var prioInfo = Priorities.GetValueOrDefault(todo.Priority, ("🟡 Mittel", Color.FromRgb(0xD9, 0x73, 0x1A)));
 
@@ -90,6 +99,7 @@ public partial class TodoView : UserControl
         var row1 = new DockPanel();
         var checkBox = new CheckBox {
             IsChecked = todo.Status == "Erledigt",
+            IsEnabled = canEdit,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 10, 0)
         };
@@ -179,7 +189,7 @@ public partial class TodoView : UserControl
         // Card border
         var card = new Border {
             Background = Brushes.White, CornerRadius = new CornerRadius(8),
-            Margin = new Thickness(0, 0, 0, 8), Cursor = Cursors.Hand,
+            Margin = new Thickness(0, 0, 0, 8), Cursor = canEdit ? Cursors.Hand : Cursors.Arrow,
             BorderBrush = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)),
             BorderThickness = new Thickness(1),
             Effect = new DropShadowEffect { BlurRadius = 4, ShadowDepth = 1, Opacity = 0.06 },
@@ -199,9 +209,12 @@ public partial class TodoView : UserControl
         var wrapper = new Border { Child = outerGrid, Margin = new Thickness(0, 0, 0, 0) };
 
         // Double-click to edit
-        card.MouseLeftButtonDown += (_, e) => {
-            if (e.ClickCount == 2) { EditTodo(todo); e.Handled = true; }
-        };
+        if (canEdit)
+        {
+            card.MouseLeftButtonDown += (_, e) => {
+                if (e.ClickCount == 2) { EditTodo(todo); e.Handled = true; }
+            };
+        }
 
         // Context menu
         var ctx = new ContextMenu();
@@ -215,7 +228,12 @@ public partial class TodoView : UserControl
         {
             var si = new MenuItem { Header = s, Foreground = Brushes.Black };
             var capturedStatus = s;
-            si.Click += (_, _) => { todo.Status = capturedStatus; Database.Instance.UpdateTodo(todo); Refresh(); };
+            si.Click += (_, _) => {
+                if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.status.update")) return;
+                todo.Status = capturedStatus;
+                Database.Instance.UpdateTodo(todo);
+                Refresh();
+            };
             statusMi.Items.Add(si);
         }
         ctx.Items.Add(statusMi);
@@ -223,17 +241,24 @@ public partial class TodoView : UserControl
 
         var delMi = new MenuItem { Header = "🗑  Löschen", Foreground = Brushes.Black };
         delMi.Click += (_, _) => {
+            if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.delete")) return;
             if (ModernMessageBox.ShowConfirm($"Aufgabe \"{todo.Title}\" löschen?", "Aufgabe löschen"))
-            { Database.Instance.DeleteTodo(todo.Id); Refresh(); }
+            {
+                if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.delete.confirmed")) return;
+                Database.Instance.DeleteTodo(todo.Id);
+                Refresh();
+            }
         };
         ctx.Items.Add(delMi);
-        card.ContextMenu = ctx;
+        if (canEdit)
+            card.ContextMenu = ctx;
 
         return wrapper;
     }
 
     private void ToggleStatus(long todoId, bool completed)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.status.update")) return;
         var todo = _todos.FirstOrDefault(t => t.Id == todoId);
         if (todo == null) return;
         todo.Status = completed ? "Erledigt" : "Offen";
@@ -243,9 +268,11 @@ public partial class TodoView : UserControl
 
     private void EditTodo(UserTodo todo)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.update")) return;
         var dlg = new TodoEditDialog(todo, _projects);
         if (dlg.ShowDialog() == true && dlg.Result != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.update.confirmed")) return;
             Database.Instance.UpdateTodo(dlg.Result);
             Refresh();
         }
@@ -253,10 +280,12 @@ public partial class TodoView : UserControl
 
     private void AddTodo_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.add")) return;
         var newTodo = new UserTodo { UserId = App.CurrentUserId };
         var dlg = new TodoEditDialog(newTodo, _projects);
         if (dlg.ShowDialog() == true && dlg.Result != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Todos, "todo.add.confirmed")) return;
             Database.Instance.AddTodo(dlg.Result);
             Refresh();
         }

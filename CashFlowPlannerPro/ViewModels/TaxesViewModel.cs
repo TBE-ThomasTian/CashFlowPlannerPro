@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -42,6 +43,7 @@ public partial class TaxesViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Taxes, "tax.add")) return;
         var t = new Transaction
         {
             Date = DateTime.Today.ToString("yyyy-MM-dd"),
@@ -60,8 +62,10 @@ public partial class TaxesViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Taxes, "tax.delete")) return;
         if (SelectedTransaction == null) return;
         if (!ModernMessageBox.ShowConfirm("Steuer-Eintrag wirklich loeschen?", "Loeschen")) return;
+        if (!PermissionGuard.DemandEdit(PageKeys.Taxes, "tax.delete.confirmed")) return;
 
         var deleted = SelectedTransaction;
         Database.Instance.DeleteTransaction(deleted.Id);
@@ -71,6 +75,7 @@ public partial class TaxesViewModel : ObservableObject
 
     public void Save(Transaction t)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Taxes, "tax.update")) return;
         var taxType = string.IsNullOrWhiteSpace(t.CategoryName) ? "Umsatzsteuer" : t.CategoryName.Trim();
         t.CategoryName = taxType;
         t.Notes = TaxMarker + taxType;

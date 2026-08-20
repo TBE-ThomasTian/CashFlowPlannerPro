@@ -29,10 +29,17 @@ public partial class InvoicesView : UserControl
         EditBtn.ToolTip = "Ausgewaehlte Rechnung bearbeiten";
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteInvoice");
         ScanPdfBtn.ToolTip = TooltipService.Get("Btn_ScanPdf");
+        var canEdit = App.CanEdit(PageKeys.Invoices);
+        AddBtn.IsEnabled = canEdit;
+        EditBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        ScanPdfBtn.IsEnabled = canEdit;
+        InvoicesGrid.IsReadOnly = !canEdit;
     }
 
     private void ScanPdf_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.scan_import")) return;
         var dlg = new OpenFileDialog {
             Filter = "PDF-Dateien (*.pdf)|*.pdf",
             Title = "Rechnung (PDF) scannen"
@@ -50,7 +57,8 @@ public partial class InvoicesView : UserControl
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError($"Fehler beim Scannen:\n{ex.Message}", "PDF Scan");
+            var reference = AppLogger.LogException("invoice.scan_failed", ex);
+            ModernMessageBox.ShowError($"Die PDF-Datei konnte nicht verarbeitet werden. Referenz: {reference}", "PDF Scan");
         }
     }
 
@@ -71,6 +79,7 @@ public partial class InvoicesView : UserControl
 
     private void EditSelectedInvoice()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.update")) return;
         if (_vm.SelectedInvoice == null)
         {
             ModernMessageBox.Show("Bitte waehle zuerst eine Rechnung aus.", "Rechnungen");
@@ -87,8 +96,9 @@ public partial class InvoicesView : UserControl
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("invoice.save_failed", ex);
             ModernMessageBox.ShowError(
-                $"Die Rechnung konnte nicht gespeichert werden:\n{ex.Message}",
+                $"Die Rechnung konnte nicht gespeichert werden. Referenz: {reference}",
                 "Rechnung speichern");
         }
     }
@@ -107,6 +117,7 @@ public partial class InvoicesView : UserControl
 
     private bool TryDeleteSelection()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.delete")) return false;
         var selectedInvoices = InvoicesGrid.SelectedItems.Cast<Invoice>().Distinct().ToList();
         if (selectedInvoices.Count == 0 && _vm.SelectedInvoice != null)
             selectedInvoices.Add(_vm.SelectedInvoice);

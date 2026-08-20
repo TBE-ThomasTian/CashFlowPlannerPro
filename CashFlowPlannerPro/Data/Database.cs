@@ -3,15 +3,30 @@ using System.Collections.Generic;
 using System.Data.Common;
 using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
 using CashFlowPlannerPro.Models;
 
 namespace CashFlowPlannerPro.Data;
 
 public sealed class Database : IDisposable {
+    private const string DatabaseInstanceIdSettingKey = "database_instance_id";
+    private const string SchemaVersionSettingKey = "schema_version";
+    private const string CurrentSchemaVersion = "2026.08.19.2";
+    private static readonly string[] MariaDbCreatedAtTables = [
+        "users", "transactions", "bank_accounts", "bank_transactions", "offers", "invoices",
+        "resources", "projects", "resource_allocations", "hardware_resources",
+        "hardware_allocations", "project_milestones", "user_todos", "time_entries", "customers"
+    ];
+    private const int SecurityStampByteCount = 32;
+    private static readonly HashSet<string> KnownPermissionPages = new(StringComparer.Ordinal) {
+        "dashboard", "transactions", "bank", "fixkosten", "taxes", "invoices", "offers",
+        "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin"
+    };
     static readonly Lazy<Database> _instance = new(() => new Database());
     public static Database Instance => _instance.Value;
     DbConnection? _conn;
     IDbDialect _dialect = new SqliteDialect();
+    ConnectionConfig? _activeConfig;
     Database() { }
 
     public IDbDialect Dialect => _dialect;
@@ -42,6 +57,8 @@ public sealed class Database : IDisposable {
         {
             OpenConnection(config.ToConnectionString());
         }
+
+        _activeConfig = config.Clone();
     }
 
     private void OpenConnection(string connectionString) {
@@ -57,6 +74,59 @@ public sealed class Database : IDisposable {
         }
     }
 
+    private void OpenSecondary(ConnectionConfig config) {
+        Close();
+        _dialect = config.Backend switch {
+            DatabaseBackend.MariaDB => new MariaDbDialect(),
+            _ => new SqliteDialect()
+        };
+
+        var connection = _dialect.CreateConnection(config.ToConnectionString());
+        try {
+            connection.Open();
+            if (config.Backend == DatabaseBackend.SQLite) {
+                // The primary connection already established WAL mode. A
+                // secondary reader/writer only needs FK enforcement and a
+                // bounded wait; changing journal_mode here could require an
+                // unnecessary exclusive lock.
+                using var configure = connection.CreateCommand();
+                configure.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;";
+                configure.ExecuteNonQuery();
+            }
+            else {
+                _dialect.ConfigureConnection(connection);
+            }
+
+            _conn = connection;
+            _activeConfig = config.Clone();
+        }
+        catch {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Runs database work on a dedicated connection. DbConnection instances
+    /// are not shared across threads, so callers may safely use this from a
+    /// background worker while the UI keeps using the primary connection.
+    /// </summary>
+    public Task<TResult> RunWithIndependentConnectionAsync<TResult>(
+        Func<Database, TResult> operation,
+        CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(operation);
+        var config = _activeConfig?.Clone()
+            ?? throw new InvalidOperationException("Database not open");
+
+        return Task.Run(() => {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var worker = new Database();
+            worker.OpenSecondary(config);
+            cancellationToken.ThrowIfCancellationRequested();
+            return operation(worker);
+        }, cancellationToken);
+    }
+
     public void Open(string path) => Open(new ConnectionConfig {
         Backend = DatabaseBackend.SQLite,
         FilePath = path
@@ -64,6 +134,7 @@ public sealed class Database : IDisposable {
 
     public void Close() {
         if (_conn != null) { _conn.Close(); _conn.Dispose(); _conn = null; }
+        _activeConfig = null;
     }
 
     public void Dispose() => Close();
@@ -105,6 +176,345 @@ public sealed class Database : IDisposable {
             Exec("ALTER TABLE document_contents MODIFY COLUMN source_snapshot_json LONGTEXT NULL");
     }
 
+    private void EnsureMariaDbBankFixedCostForeignKey() {
+        if (_dialect is not MariaDbDialect)
+            return;
+
+        using (var check = Conn.CreateCommand()) {
+            check.CommandText = @"SELECT COUNT(*)
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA=DATABASE()
+                  AND TABLE_NAME='bank_transactions'
+                  AND COLUMN_NAME='fixed_cost_transaction_id'
+                  AND REFERENCED_TABLE_NAME='transactions'
+                  AND REFERENCED_COLUMN_NAME='id'";
+            if (Convert.ToInt64(check.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+                return;
+        }
+
+        Exec(@"ALTER TABLE bank_transactions
+            ADD CONSTRAINT fk_bank_transactions_fixed_cost_transaction
+            FOREIGN KEY(fixed_cost_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL");
+    }
+
+    private void EnsureUserSecurityColumns() {
+        TryMigrate("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1");
+        // SQLite only allows a new NOT NULL column when it has a constant
+        // migration default. Every existing empty value is replaced below;
+        // all application inserts provide a cryptographically random stamp.
+        TryMigrate("ALTER TABLE users ADD COLUMN security_stamp VARCHAR(64) NOT NULL DEFAULT ''");
+
+        using (var tx = BeginWriteTransaction()) {
+            try {
+                var users = new List<(long Id, string Username, int IsActive, string SecurityStamp)>();
+                using (var select = Conn.CreateCommand()) {
+                    select.Transaction = tx;
+                    select.CommandText = "SELECT id,username,is_active,security_stamp FROM users ORDER BY id"
+                        + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                    using var reader = select.ExecuteReader();
+                    while (reader.Read()) {
+                        users.Add((
+                            reader.GetInt64(0),
+                            reader.IsDBNull(1) ? "" : reader.GetString(1),
+                            reader.IsDBNull(2) ? 1 : Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture),
+                            reader.IsDBNull(3) ? "" : reader.GetString(3)));
+                    }
+                }
+
+                foreach (var user in users) {
+                    var normalizedActive = string.Equals(user.Username, "admin", StringComparison.Ordinal)
+                        ? 1
+                        : user.IsActive == 0 ? 0 : 1;
+                    var stamp = IsValidSecurityStamp(user.SecurityStamp)
+                        ? user.SecurityStamp
+                        : CreateSecurityStamp();
+                    if (normalizedActive == user.IsActive && stamp == user.SecurityStamp)
+                        continue;
+
+                    using var update = Conn.CreateCommand();
+                    update.Transaction = tx;
+                    update.CommandText = "UPDATE users SET is_active=@active,security_stamp=@stamp WHERE id=@id";
+                    update.Parameters.AddWithValue("@active", normalizedActive);
+                    update.Parameters.AddWithValue("@stamp", stamp);
+                    update.Parameters.AddWithValue("@id", user.Id);
+                    if (update.ExecuteNonQuery() != 1)
+                        throw new InvalidOperationException($"Sicherheitsstatus für Benutzer #{user.Id} konnte nicht migriert werden.");
+                }
+
+                tx.Commit();
+            }
+            catch {
+                TryRollback(tx);
+                throw;
+            }
+        }
+
+        if (_dialect is MariaDbDialect) {
+            Exec("ALTER TABLE users MODIFY COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1");
+            Exec("ALTER TABLE users MODIFY COLUMN security_stamp VARCHAR(64) NOT NULL");
+        }
+        Exec("CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)");
+    }
+
+    private static string CreateSecurityStamp() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(SecurityStampByteCount));
+
+    private static bool IsValidSecurityStamp(string? value) =>
+        value is { Length: SecurityStampByteCount * 2 }
+        && value.All(character => character is >= '0' and <= '9' or >= 'A' and <= 'F' or >= 'a' and <= 'f');
+
+    private bool HasCurrentSchemaVersion() {
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.CommandText = "SELECT value FROM settings WHERE `key`=@key";
+            cmd.Parameters.AddWithValue("@key", SchemaVersionSettingKey);
+            return string.Equals(cmd.ExecuteScalar()?.ToString(), CurrentSchemaVersion, StringComparison.Ordinal);
+        }
+        catch (DbException) {
+            // A database created by an older release may not have settings yet.
+            // In that case the regular, one-time migration path must run.
+            return false;
+        }
+    }
+
+    private void SetCurrentSchemaVersion() {
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = _dialect is MariaDbDialect
+                ? "INSERT INTO settings(`key`,value) VALUES(@key,@value) ON DUPLICATE KEY UPDATE value=VALUES(value)"
+                : "INSERT INTO settings(`key`,value) VALUES(@key,@value) ON CONFLICT(`key`) DO UPDATE SET value=excluded.value";
+            cmd.Parameters.AddWithValue("@key", SchemaVersionSettingKey);
+            cmd.Parameters.AddWithValue("@value", CurrentSchemaVersion);
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    private void RefreshFirstRunState() {
+        IsFirstRun = false;
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = "SELECT username,password_hash,is_active FROM users";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            if (!string.Equals(reader.GetString(0), "admin", StringComparison.Ordinal))
+                continue;
+
+            var isActive = !reader.IsDBNull(2)
+                && Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) != 0;
+            IsFirstRun = isActive
+                && !reader.IsDBNull(1)
+                && Services.PasswordHasher.Verify("admin", reader.GetString(1));
+            return;
+        }
+    }
+
+    private void EnsureMariaDbCreatedAtColumns() {
+        if (_dialect is not MariaDbDialect)
+            return;
+
+        foreach (var table in MariaDbCreatedAtTables) {
+            string? dataType;
+            string? isNullable;
+            string? defaultValue;
+            using (var inspect = Conn.CreateCommand()) {
+                inspect.CommandText = @"SELECT DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND COLUMN_NAME='created_at'
+                    LIMIT 1";
+                inspect.Parameters.AddWithValue("@table", table);
+                using var reader = inspect.ExecuteReader();
+                if (!reader.Read())
+                    continue;
+                dataType = reader.IsDBNull(0) ? null : reader.GetString(0);
+                isNullable = reader.IsDBNull(1) ? null : reader.GetString(1);
+                defaultValue = reader.IsDBNull(2) ? null : reader.GetValue(2)?.ToString();
+            }
+
+            var alreadySafe = string.Equals(dataType, "datetime", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(isNullable, "NO", StringComparison.OrdinalIgnoreCase)
+                && defaultValue?.Contains("current_timestamp", StringComparison.OrdinalIgnoreCase) == true;
+            if (alreadySafe)
+                continue;
+
+            var quotedTable = QuoteMariaDbIdentifier(table);
+            Exec($@"UPDATE {quotedTable} SET `created_at`=CURRENT_TIMESTAMP
+                WHERE `created_at` IS NULL OR TRIM(CAST(`created_at` AS CHAR))=''");
+            Exec($@"ALTER TABLE {quotedTable}
+                MODIFY COLUMN `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        }
+    }
+
+    private void EnsureMariaDbCustomerForeignKeys() {
+        if (_dialect is not MariaDbDialect)
+            return;
+
+        EnsureMariaDbCustomerForeignKey("invoices", "fk_invoices_customer");
+        EnsureMariaDbCustomerForeignKey("offers", "fk_offers_customer");
+    }
+
+    private void EnsureMariaDbCustomerForeignKey(string table, string desiredConstraintName) {
+        var constraints = new List<(string Name, string DeleteRule)>();
+        using (var inspect = Conn.CreateCommand()) {
+            inspect.CommandText = @"SELECT k.CONSTRAINT_NAME,COALESCE(r.DELETE_RULE,'')
+                FROM information_schema.KEY_COLUMN_USAGE k
+                LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+                  ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA
+                 AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME
+                 AND r.TABLE_NAME=k.TABLE_NAME
+                WHERE k.TABLE_SCHEMA=DATABASE()
+                  AND k.TABLE_NAME=@table
+                  AND k.COLUMN_NAME='customer_id'
+                  AND k.REFERENCED_TABLE_NAME='customers'
+                  AND k.REFERENCED_COLUMN_NAME='id'";
+            inspect.Parameters.AddWithValue("@table", table);
+            using var reader = inspect.ExecuteReader();
+            while (reader.Read())
+                constraints.Add((reader.GetString(0), reader.IsDBNull(1) ? "" : reader.GetString(1)));
+        }
+
+        if (constraints.Count == 1
+            && string.Equals(constraints[0].DeleteRule, "SET NULL", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var quotedTable = QuoteMariaDbIdentifier(table);
+        foreach (var constraint in constraints)
+            Exec($"ALTER TABLE {quotedTable} DROP FOREIGN KEY {QuoteMariaDbIdentifier(constraint.Name)}");
+
+        Exec($@"UPDATE {quotedTable} child
+            LEFT JOIN `customers` parent ON parent.`id`=child.`customer_id`
+            SET child.`customer_id`=NULL
+            WHERE child.`customer_id` IS NOT NULL AND parent.`id` IS NULL");
+        Exec($"ALTER TABLE {quotedTable} MODIFY COLUMN `customer_id` BIGINT NULL");
+        Exec($@"ALTER TABLE {quotedTable}
+            ADD CONSTRAINT {QuoteMariaDbIdentifier(desiredConstraintName)}
+            FOREIGN KEY(`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL");
+    }
+
+    private static string QuoteMariaDbIdentifier(string identifier) {
+        if (string.IsNullOrWhiteSpace(identifier)
+            || identifier.Any(character => !(char.IsLetterOrDigit(character) || character is '_' or '$')))
+            throw new InvalidOperationException($"Ungültiger MariaDB-Bezeichner: {identifier}");
+        return $"`{identifier}`";
+    }
+
+    private void EnsureOfferNumberConstraint() {
+        // Old databases allowed NULL, blank and duplicate numbers. Normalize
+        // them under the database's own comparison rules before adding the
+        // unique index. The lowest ID in every non-empty duplicate group keeps
+        // the original number; later rows receive deterministic, traceable
+        // suffixes. Candidate checks go through the database so this also
+        // respects a MariaDB installation's configured collation.
+        using (var tx = BeginWriteTransaction()) {
+            try {
+                var rows = new List<(long Id, string Number)>();
+                using (var select = Conn.CreateCommand()) {
+                    select.Transaction = tx;
+                    select.CommandText = "SELECT id,offer_number FROM offers ORDER BY id"
+                        + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                    using var reader = select.ExecuteReader();
+                    while (reader.Read()) {
+                        rows.Add((
+                            reader.GetInt64(0),
+                            reader.IsDBNull(1) ? "" : reader.GetString(1)));
+                    }
+                }
+
+                foreach (var row in rows) {
+                    if (string.IsNullOrWhiteSpace(row.Number)) {
+                        UpdateLegacyOfferNumber(
+                            row.Id,
+                            CreateUniqueLegacyOfferNumber("LEGACY", row.Id, duplicate: false, tx),
+                            tx);
+                        continue;
+                    }
+
+                    using var duplicate = Conn.CreateCommand();
+                    duplicate.Transaction = tx;
+                    duplicate.CommandText = @"SELECT COUNT(*) FROM offers
+                        WHERE id<@id AND offer_number=@number";
+                    duplicate.Parameters.AddWithValue("@id", row.Id);
+                    duplicate.Parameters.AddWithValue("@number", row.Number);
+                    if (Convert.ToInt64(duplicate.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+                        continue;
+
+                    UpdateLegacyOfferNumber(
+                        row.Id,
+                        CreateUniqueLegacyOfferNumber(row.Number.Trim(), row.Id, duplicate: true, tx),
+                        tx);
+                }
+
+                tx.Commit();
+            }
+            catch {
+                TryRollback(tx);
+                throw;
+            }
+        }
+
+        if (_dialect is MariaDbDialect)
+            Exec("ALTER TABLE offers MODIFY COLUMN offer_number VARCHAR(191) NOT NULL");
+
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_offers_offer_number ON offers(offer_number)");
+    }
+
+    private string CreateUniqueLegacyOfferNumber(
+        string stem,
+        long id,
+        bool duplicate,
+        DbTransaction transaction) {
+        stem = string.IsNullOrWhiteSpace(stem) ? "LEGACY" : stem;
+        for (long attempt = 0; ; attempt++) {
+            var suffix = duplicate
+                ? attempt == 0
+                    ? $"-DUP-{id}"
+                    : $"-DUP-{id}-{attempt}"
+                : attempt == 0
+                    ? $"-{id}"
+                    : $"-{id}-{attempt}";
+            var maxStemLength = 100 - suffix.Length;
+            if (maxStemLength <= 0)
+                throw new InvalidOperationException("Für die Angebotsnummer konnte kein eindeutiger Migrationswert erzeugt werden.");
+
+            var candidate = TruncateWithoutSplittingSurrogate(stem, maxStemLength) + suffix;
+            using var exists = Conn.CreateCommand();
+            exists.Transaction = transaction;
+            exists.CommandText = "SELECT COUNT(*) FROM offers WHERE id<>@id AND offer_number=@number";
+            exists.Parameters.AddWithValue("@id", id);
+            exists.Parameters.AddWithValue("@number", candidate);
+            if (Convert.ToInt64(exists.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+                return candidate;
+        }
+    }
+
+    private void UpdateLegacyOfferNumber(long id, string number, DbTransaction transaction) {
+        using var update = Conn.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = "UPDATE offers SET offer_number=@number WHERE id=@id";
+        update.Parameters.AddWithValue("@number", number);
+        update.Parameters.AddWithValue("@id", id);
+        if (update.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException($"Angebotsnummer für Angebot #{id} konnte nicht migriert werden.");
+    }
+
+    private static string TruncateWithoutSplittingSurrogate(string value, int maxLength) {
+        if (value.Length <= maxLength)
+            return value;
+
+        var length = maxLength;
+        if (length > 0
+            && char.IsHighSurrogate(value[length - 1])
+            && length < value.Length
+            && char.IsLowSurrogate(value[length]))
+            length--;
+        return value[..length];
+    }
+
     void Exec(string sql) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = sql;
@@ -133,14 +543,71 @@ public sealed class Database : IDisposable {
         return null;
     }
 
+    static IEnumerable<DateTime> EnumerateRecurrenceDates(
+        DateTime start,
+        DateTime windowStart,
+        DateTime windowEnd,
+        int stepMonths,
+        int stepDays) {
+        start = start.Date;
+        windowStart = windowStart.Date;
+        windowEnd = windowEnd.Date;
+        if (windowEnd < windowStart || (stepMonths <= 0 && stepDays <= 0))
+            yield break;
+
+        if (stepDays > 0) {
+            long occurrence = 0;
+            if (start < windowStart) {
+                var daysBehind = (windowStart - start).Days;
+                occurrence = (daysBehind + (long)stepDays - 1) / stepDays;
+            }
+
+            for (var current = start.AddDays(occurrence * stepDays);
+                 current <= windowEnd;
+                 current = current.AddDays(stepDays)) {
+                if (current >= windowStart)
+                    yield return current;
+                if (current > DateTime.MaxValue.Date.AddDays(-stepDays))
+                    yield break;
+            }
+            yield break;
+        }
+
+        // Advance by whole recurrence periods from the original anchor. This
+        // is both efficient for very old plans and avoids Jan-31 -> Feb-28 ->
+        // Mar-28 drift from repeatedly adding clamped months.
+        long monthDistance = (windowStart.Year - (long)start.Year) * 12
+            + windowStart.Month - start.Month;
+        long occurrenceIndex = Math.Max(0, monthDistance / stepMonths);
+        var currentMonth = AddMonthsClamped(start, checked((int)(occurrenceIndex * stepMonths)));
+        while (currentMonth < windowStart) {
+            occurrenceIndex++;
+            currentMonth = AddMonthsClamped(start, checked((int)(occurrenceIndex * stepMonths)));
+        }
+
+        while (currentMonth <= windowEnd) {
+            yield return currentMonth;
+            occurrenceIndex++;
+            currentMonth = AddMonthsClamped(start, checked((int)(occurrenceIndex * stepMonths)));
+        }
+    }
+
     public void EnsureSchema() {
         IsFirstRun = false;
+        if (HasCurrentSchemaVersion()) {
+            RefreshFirstRunState();
+            return;
+        }
+
         ExecDdl(@"CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             full_name TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            security_stamp VARCHAR(64) NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        EnsureUserSecurityColumns();
         using (var cmd = Conn.CreateCommand()) {
             cmd.CommandText = "SELECT COUNT(*) FROM users";
             if (Convert.ToInt64(cmd.ExecuteScalar()) == 0)
@@ -149,18 +616,17 @@ public sealed class Database : IDisposable {
                 // The login dialog will detect legacy format and prompt for change
                 var hashedPw = Services.PasswordHasher.Hash("admin");
                 using var ins = Conn.CreateCommand();
-                ins.CommandText = "INSERT INTO users (username, password_hash, full_name) VALUES ('admin', @p, 'Administrator')";
+                ins.CommandText = @"INSERT INTO users(
+                        username,password_hash,full_name,is_active,security_stamp)
+                    VALUES('admin',@p,'Administrator',1,@stamp)";
                 ins.Parameters.AddWithValue("@p", hashedPw);
+                ins.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
                 ins.ExecuteNonQuery();
                 IsFirstRun = true;
             }
             else
             {
-                using var admin = Conn.CreateCommand();
-                admin.CommandText = "SELECT password_hash FROM users WHERE username = 'admin' LIMIT 1";
-                var storedHash = admin.ExecuteScalar()?.ToString();
-                IsFirstRun = !string.IsNullOrEmpty(storedHash) &&
-                    Services.PasswordHasher.Verify("admin", storedHash);
+                RefreshFirstRunState();
             }
         }
         ExecDdl("CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE NOT NULL)");
@@ -172,13 +638,56 @@ public sealed class Database : IDisposable {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT,
             FOREIGN KEY(category_id) REFERENCES categories(id),
             FOREIGN KEY(person_id) REFERENCES persons(id))");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS bank_accounts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_provider VARCHAR(32) NOT NULL,
+            external_account_id VARCHAR(191) NOT NULL,
+            account_name TEXT,
+            iban_masked VARCHAR(100),
+            currency VARCHAR(3) NOT NULL,
+            balance REAL,
+            last_sync TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            UNIQUE(source_provider, external_account_id))");
+        Exec("CREATE INDEX IF NOT EXISTS idx_bank_accounts_provider ON bank_accounts(source_provider)");
+        ExecDdl(@"CREATE TABLE IF NOT EXISTS bank_transactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bank_account_id INTEGER NOT NULL,
+            source_provider VARCHAR(32) NOT NULL,
+            source_external_id VARCHAR(191) NOT NULL,
+            entry_date VARCHAR(10) NOT NULL,
+            value_date VARCHAR(10),
+            amount REAL NOT NULL,
+            currency VARCHAR(3) NOT NULL,
+            purpose TEXT,
+            payee TEXT,
+            status VARCHAR(50) NOT NULL,
+            fixed_cost_transaction_id INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY(bank_account_id) REFERENCES bank_accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(fixed_cost_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+            UNIQUE(bank_account_id, source_external_id))");
+        if (_dialect is MariaDbDialect) {
+            TryMigrate("ALTER TABLE bank_transactions ADD COLUMN fixed_cost_transaction_id BIGINT NULL");
+            EnsureMariaDbBankFixedCostForeignKey();
+        }
+        else {
+            TryMigrate(@"ALTER TABLE bank_transactions ADD COLUMN fixed_cost_transaction_id INTEGER
+                REFERENCES transactions(id) ON DELETE SET NULL");
+        }
+        Exec("CREATE INDEX IF NOT EXISTS idx_bank_transactions_account_date ON bank_transactions(bank_account_id,entry_date)");
+        Exec("CREATE INDEX IF NOT EXISTS idx_bank_transactions_entry_date ON bank_transactions(entry_date)");
+        Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_bank_transactions_fixed_cost_transaction_id ON bank_transactions(fixed_cost_transaction_id)");
         ExecDdl(@"CREATE TABLE IF NOT EXISTS offers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            offer_number TEXT, offer_date TEXT, date_expected TEXT,
+            offer_number VARCHAR(100) NOT NULL UNIQUE, offer_date TEXT, date_expected TEXT,
             customer TEXT, amount_before_discount REAL DEFAULT 0, discount_percent REAL DEFAULT 0,
             amount REAL, probability REAL, description TEXT, status TEXT,
             payment_delay INTEGER DEFAULT 30, pdf_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        EnsureOfferNumberConstraint();
         TryMigrate("ALTER TABLE offers ADD COLUMN amount_before_discount REAL DEFAULT 0");
         TryMigrate("ALTER TABLE offers ADD COLUMN discount_percent REAL DEFAULT 0");
         Exec("UPDATE offers SET amount_before_discount=amount WHERE (amount_before_discount IS NULL OR amount_before_discount=0) AND COALESCE(amount,0)<>0");
@@ -234,6 +743,7 @@ public sealed class Database : IDisposable {
         ExecDdl(@"CREATE TABLE IF NOT EXISTS targets(
             id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, month INTEGER, amount REAL)");
         ExecDdl("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
+        EnsureDatabaseInstanceId();
         ExecDdl(@"CREATE TABLE IF NOT EXISTS resources(
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL, role TEXT,
             availability REAL DEFAULT 1.0, hourly_rate REAL DEFAULT 0,
@@ -358,16 +868,19 @@ public sealed class Database : IDisposable {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         TryMigrate("ALTER TABLE customers ADD COLUMN customer_number VARCHAR(100) DEFAULT ''");
         Exec("CREATE INDEX IF NOT EXISTS idx_customers_customer_number ON customers(customer_number)");
-        TryMigrate("ALTER TABLE invoices ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
-        TryMigrate("ALTER TABLE offers ADD COLUMN customer_id INTEGER REFERENCES customers(id)");
+        TryMigrate("ALTER TABLE invoices ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL");
+        TryMigrate("ALTER TABLE offers ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL");
+        EnsureMariaDbCustomerForeignKeys();
+        EnsureMariaDbCreatedAtColumns();
 
-        // Migration: ensure "kunden" permission exists for all roles that have "invoices" access
-        try {
-            using var kcmd = Conn.CreateCommand();
+        // Migration: ensure "kunden" permission exists for all roles that have
+        // "invoices" access. Failure must abort schema completion; silently setting
+        // the schema version here could otherwise leave authorization incomplete.
+        using (var kcmd = Conn.CreateCommand()) {
             kcmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO role_permissions(role_id,page_key,access_level)
                 SELECT role_id,'kunden',access_level FROM role_permissions WHERE page_key='invoices'");
             kcmd.ExecuteNonQuery();
-        } catch { }
+        }
 
         var cats = new[] { "Lohn","Kapitalsteuer","Sozialversicherung","Lohnsteuer","Umsatzsteuer","Versicherung","Miete","Strom","Steuerberatung" };
         foreach (var c in cats) {
@@ -376,6 +889,7 @@ public sealed class Database : IDisposable {
             cmd.Parameters.AddWithValue("@n", c);
             cmd.ExecuteNonQuery();
         }
+        SetCurrentSchemaVersion();
     }
 
     // Settings
@@ -413,17 +927,25 @@ public sealed class Database : IDisposable {
 
     // Avatar methods
     public void SaveUserAvatar(string username, string? base64Data) {
+        username = NormalizeUsernameForLookup(username);
+        var user = username.Length == 0 ? null : FindUserExact(username);
+        if (user is not { IsActive: true })
+            throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden oder ist deaktiviert.");
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET avatar_data=@d WHERE username=@u";
+        cmd.CommandText = "UPDATE users SET avatar_data=@d WHERE id=@id";
         cmd.Parameters.AddWithValue("@d", (object?)base64Data ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@u", username);
+        cmd.Parameters.AddWithValue("@id", user.Id);
         cmd.ExecuteNonQuery();
     }
 
     public string? GetUserAvatar(string username) {
+        username = NormalizeUsernameForLookup(username);
+        var user = username.Length == 0 ? null : FindUserExact(username);
+        if (user is not { IsActive: true })
+            return null;
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT avatar_data FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
+        cmd.CommandText = "SELECT avatar_data FROM users WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", user.Id);
         var r = cmd.ExecuteScalar();
         return r != null && r != DBNull.Value ? r.ToString() : null;
     }
@@ -496,8 +1018,6 @@ public sealed class Database : IDisposable {
                 if (!includeRecurring || string.IsNullOrEmpty(it) || it == "once" || it == "einmalig") {
                     evs.Add((d.Value, a));
                 } else {
-                    var cur = d.Value;
-                    evs.Add((cur, a));
                     int stepM = 0;
                     if (it == "monthly" || it == "monatlich") stepM = 1;
                     else if (it == "quarterly" || it == "vierteljährlich") stepM = 3;
@@ -505,17 +1025,21 @@ public sealed class Database : IDisposable {
                     else if (it == "yearly" || it == "jährlich") stepM = 12;
                     else if (isFixkosten) stepM = 1;
                     else if (isSteuer) stepM = 12;
-                    int stepD = it == "biweekly" ? 14 : (it == "weekly" || it == "wöchentlich") ? 7 : 0;
+                    int stepD = it == "daily" || it == "täglich"
+                        ? 1
+                        : it == "biweekly"
+                            ? 14
+                            : it == "weekly" || it == "wöchentlich"
+                                ? 7
+                                : 0;
                     var end = AddMonthsClamped(DateTime.Today, horizonMonths);
                     end = new DateTime(end.Year, end.Month, DateTime.DaysInMonth(end.Year, end.Month));
-                    int maxIter = horizonMonths * 31;
-                    for (int i = 0; i < maxIter; i++) {
-                        if (stepM > 0) cur = AddMonthsClamped(cur, stepM);
-                        else if (stepD > 0) cur = cur.AddDays(stepD);
-                        else break;
-                        if (cur > end) break;
-                        evs.Add((cur, a));
-                    }
+                    if (stepM == 0 && stepD == 0)
+                        evs.Add((d.Value, a));
+                    else
+                        foreach (var occurrence in EnumerateRecurrenceDates(
+                                     d.Value, DateTime.Today, end, stepM, stepD))
+                            evs.Add((occurrence, a));
                 }
             }
         }
@@ -638,16 +1162,27 @@ public sealed class Database : IDisposable {
 
     public string NextOfferNumber() {
         string prefix = $"ANG-{DateTime.Today.Year}-";
+        return FindNextOfferNumber(prefix, transaction: null);
+    }
+
+    string FindNextOfferNumber(string prefix, DbTransaction? transaction) {
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT offer_number FROM offers WHERE offer_number LIKE @p ORDER BY offer_number DESC LIMIT 1";
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT offer_number FROM offers WHERE offer_number LIKE @p";
         cmd.Parameters.AddWithValue("@p", prefix + "%");
-        var val = cmd.ExecuteScalar();
-        if (val != null) {
-            string last = val.ToString()!;
-            string numPart = last[prefix.Length..];
-            if (int.TryParse(numPart, out int n)) return prefix + (n + 1).ToString("D4");
+        long maximum = 0;
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            var value = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
+            if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var suffix = value[prefix.Length..];
+            if (long.TryParse(suffix, NumberStyles.None, CultureInfo.InvariantCulture, out var sequence)
+                && sequence > maximum)
+                maximum = sequence;
         }
-        return prefix + "0001";
+
+        return prefix + checked(maximum + 1).ToString("D4", CultureInfo.InvariantCulture);
     }
 
     // CRUD: Transactions
@@ -710,12 +1245,699 @@ public sealed class Database : IDisposable {
 
     public void DeleteTransaction(long id) { ExecWithId("DELETE FROM transactions WHERE id=@id", id); }
 
+    // Bank data is kept separate from manually entered transactions. Importing
+    // an account statement therefore never changes forecasts or invoice state
+    // without a later, explicit reconciliation step.
+    public List<BankAccount> GetBankAccounts() {
+        var list = new List<BankAccount>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT id,source_provider,external_account_id,account_name,iban_masked,
+            currency,balance,last_sync,created_at,updated_at
+            FROM bank_accounts ORDER BY account_name,external_account_id";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            list.Add(new BankAccount {
+                Id = reader.GetInt64(0),
+                SourceProvider = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                ExternalAccountId = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                AccountName = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                IbanMasked = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                Currency = reader.IsDBNull(5) ? "EUR" : reader.GetString(5),
+                Balance = reader.IsDBNull(6)
+                    ? null
+                    : Convert.ToDouble(reader.GetValue(6), CultureInfo.InvariantCulture),
+                LastSync = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                CreatedAt = reader.IsDBNull(8) ? null : reader.GetString(8),
+                UpdatedAt = reader.IsDBNull(9) ? null : reader.GetString(9)
+            });
+        }
+        return list;
+    }
+
+    public string GetDatabaseInstanceId() {
+        var value = GetSetting(DatabaseInstanceIdSettingKey)?.Trim();
+        if (string.IsNullOrWhiteSpace(value)) {
+            EnsureDatabaseInstanceId();
+            value = GetSetting(DatabaseInstanceIdSettingKey)?.Trim();
+        }
+
+        if (value == null || !Guid.TryParseExact(value, "N", out var parsed))
+            throw new InvalidOperationException("Die Datenbankkennung ist ungültig.");
+
+        return parsed.ToString("N");
+    }
+
+    private void EnsureDatabaseInstanceId() {
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = _dialect is MariaDbDialect
+            ? "INSERT IGNORE INTO settings(`key`,value) VALUES(@k,@v)"
+            : "INSERT OR IGNORE INTO settings(`key`,value) VALUES(@k,@v)";
+        cmd.Parameters.AddWithValue("@k", DatabaseInstanceIdSettingKey);
+        cmd.Parameters.AddWithValue("@v", Guid.NewGuid().ToString("N"));
+        cmd.ExecuteNonQuery();
+    }
+
+    public List<BankTransaction> GetBankTransactions(long? bankAccountId = null) {
+        var list = new List<BankTransaction>();
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT bt.id,bt.bank_account_id,bt.source_provider,bt.source_external_id,
+            bt.entry_date,bt.value_date,bt.amount,bt.currency,bt.purpose,bt.payee,bt.status,
+            bt.fixed_cost_transaction_id,ba.account_name,bt.created_at,bt.updated_at
+            FROM bank_transactions bt
+            INNER JOIN bank_accounts ba ON ba.id=bt.bank_account_id";
+        if (bankAccountId != null) {
+            cmd.CommandText += " WHERE bt.bank_account_id=@accountId";
+            cmd.Parameters.AddWithValue("@accountId", bankAccountId.Value);
+        }
+        cmd.CommandText += " ORDER BY bt.entry_date DESC,bt.id DESC";
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            list.Add(new BankTransaction {
+                Id = reader.GetInt64(0),
+                BankAccountId = reader.GetInt64(1),
+                SourceProvider = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                SourceExternalId = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                EntryDate = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                ValueDate = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Amount = reader.IsDBNull(6)
+                    ? 0
+                    : Convert.ToDouble(reader.GetValue(6), CultureInfo.InvariantCulture),
+                Currency = reader.IsDBNull(7) ? "EUR" : reader.GetString(7),
+                Purpose = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                Payee = reader.IsDBNull(9) ? "" : reader.GetString(9),
+                Status = reader.IsDBNull(10) ? "booked" : reader.GetString(10),
+                FixedCostTransactionId = reader.IsDBNull(11) ? null : reader.GetInt64(11),
+                AccountName = reader.IsDBNull(12) ? "" : reader.GetString(12),
+                CreatedAt = reader.IsDBNull(13) ? null : reader.GetString(13),
+                UpdatedAt = reader.IsDBNull(14) ? null : reader.GetString(14),
+                IsSelected = true
+            });
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Converts one imported debit into a recurring-cost transaction exactly once.
+    /// Repeating the same request returns the already linked transaction.
+    /// </summary>
+    public Transaction CreateFixedCostFromBankTransaction(
+        string provider,
+        string externalAccountId,
+        string externalTransactionId,
+        string interval,
+        string description,
+        long? categoryId) {
+        var normalizedProvider = RequireBankIdentifier(provider, nameof(provider), 32).ToLowerInvariant();
+        var normalizedAccountId = RequireBankIdentifier(
+            externalAccountId, nameof(externalAccountId), 191);
+        var normalizedTransactionId = RequireBankIdentifier(
+            externalTransactionId, nameof(externalTransactionId), 191);
+        var normalizedInterval = NormalizeFixedCostInterval(interval);
+
+        if (categoryId is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(categoryId), "Die Kategorie-ID muss positiv sein.");
+
+        using var tx = BeginWriteTransaction();
+        try {
+            if (categoryId.HasValue) {
+                using var category = Conn.CreateCommand();
+                category.Transaction = tx;
+                category.CommandText = "SELECT COUNT(*) FROM categories WHERE id=@id";
+                category.Parameters.AddWithValue("@id", categoryId.Value);
+                if (Convert.ToInt64(category.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
+                    throw new InvalidOperationException("Die ausgewählte Fixkosten-Kategorie existiert nicht mehr.");
+            }
+
+            BankFixedCostSource source;
+            using (var select = Conn.CreateCommand()) {
+                select.Transaction = tx;
+                select.CommandText = @"SELECT bt.id,bt.entry_date,bt.amount,bt.currency,bt.purpose,bt.payee,
+                        bt.fixed_cost_transaction_id
+                    FROM bank_transactions bt
+                    INNER JOIN bank_accounts ba ON ba.id=bt.bank_account_id
+                    WHERE ba.source_provider=@provider
+                      AND ba.external_account_id=@externalAccountId
+                      AND bt.source_external_id=@externalTransactionId"
+                    + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                select.Parameters.AddWithValue("@provider", normalizedProvider);
+                select.Parameters.AddWithValue("@externalAccountId", normalizedAccountId);
+                select.Parameters.AddWithValue("@externalTransactionId", normalizedTransactionId);
+                using var reader = select.ExecuteReader();
+                if (!reader.Read())
+                    throw new InvalidOperationException("Die ausgewählte Bankbewegung wurde nicht gefunden.");
+
+                source = new BankFixedCostSource(
+                    reader.GetInt64(0),
+                    reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    reader.IsDBNull(2)
+                        ? 0
+                        : Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture),
+                    reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetInt64(6));
+            }
+
+            if (source.FixedCostTransactionId.HasValue) {
+                var existing = ReadTransaction(source.FixedCostTransactionId.Value, tx)
+                    ?? throw new InvalidOperationException(
+                        "Die Bankbewegung verweist auf einen nicht mehr vorhandenen Fixkosten-Eintrag.");
+                tx.Commit();
+                return existing;
+            }
+
+            if (!double.IsFinite(source.Amount) || source.Amount >= 0)
+                throw new InvalidOperationException(
+                    "Nur eine Bankabbuchung mit einem negativen Betrag kann als Fixkosten übernommen werden.");
+            if (!string.Equals(source.Currency.Trim(), "EUR", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Nur EUR-Bankbewegungen können als Fixkosten übernommen werden.");
+
+            var transactionDescription = NormalizeBankText(description);
+            if (string.IsNullOrWhiteSpace(transactionDescription))
+                transactionDescription = !string.IsNullOrWhiteSpace(source.Purpose)
+                    ? source.Purpose
+                    : !string.IsNullOrWhiteSpace(source.Payee)
+                        ? source.Payee
+                        : $"Bankabbuchung {normalizedTransactionId}";
+            if (transactionDescription.Length > 10_000)
+                throw new ArgumentException("Die Fixkosten-Beschreibung darf höchstens 10.000 Zeichen enthalten.", nameof(description));
+
+            var created = new Transaction {
+                Date = NormalizeBankDate(source.EntryDate, required: true, "Buchungsdatum der Bankbewegung"),
+                Description = transactionDescription,
+                // Expenses are negative throughout the Transaction/forecast model.
+                Amount = source.Amount,
+                CategoryId = categoryId,
+                Interval = normalizedInterval,
+                Notes = "FIXKOSTEN:Bankimport"
+            };
+
+            using (var insert = Conn.CreateCommand()) {
+                insert.Transaction = tx;
+                insert.CommandText = @"INSERT INTO transactions(
+                        date,description,amount,category_id,person_id,`interval`,notes,created_at,updated_at)
+                    VALUES(@date,@description,@amount,@categoryId,NULL,@interval,@notes,
+                        CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)";
+                insert.Parameters.AddWithValue("@date", created.Date);
+                insert.Parameters.AddWithValue("@description", created.Description);
+                insert.Parameters.AddWithValue("@amount", created.Amount);
+                insert.Parameters.AddWithValue("@categoryId", (object?)created.CategoryId ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@interval", created.Interval);
+                insert.Parameters.AddWithValue("@notes", created.Notes);
+                insert.ExecuteNonQuery();
+                created.Id = LastInsertId(tx);
+            }
+
+            using (var link = Conn.CreateCommand()) {
+                link.Transaction = tx;
+                link.CommandText = @"UPDATE bank_transactions
+                    SET fixed_cost_transaction_id=@transactionId,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=@bankTransactionId AND fixed_cost_transaction_id IS NULL";
+                link.Parameters.AddWithValue("@transactionId", created.Id);
+                link.Parameters.AddWithValue("@bankTransactionId", source.Id);
+                if (link.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException(
+                        "Die Bankbewegung wurde inzwischen bereits als Fixkosten übernommen.");
+            }
+
+            var stored = ReadTransaction(created.Id, tx)
+                ?? throw new InvalidOperationException("Der Fixkosten-Eintrag konnte nicht wiedergefunden werden.");
+            tx.Commit();
+            return stored;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    private Transaction? ReadTransaction(long id, DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"SELECT id,date,description,amount,category_id,person_id,`interval`,notes,
+                created_at,updated_at
+            FROM transactions WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", id);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return null;
+        return new Transaction {
+            Id = reader.GetInt64(0),
+            Date = reader.IsDBNull(1) ? "" : reader.GetString(1),
+            Description = reader.IsDBNull(2) ? "" : reader.GetString(2),
+            Amount = reader.IsDBNull(3)
+                ? 0
+                : Convert.ToDouble(reader.GetValue(3), CultureInfo.InvariantCulture),
+            CategoryId = reader.IsDBNull(4) ? null : reader.GetInt64(4),
+            PersonId = reader.IsDBNull(5) ? null : reader.GetInt64(5),
+            Interval = reader.IsDBNull(6) ? "" : reader.GetString(6),
+            Notes = reader.IsDBNull(7) ? "" : reader.GetString(7),
+            CreatedAt = reader.IsDBNull(8) ? null : reader.GetValue(8)?.ToString(),
+            UpdatedAt = reader.IsDBNull(9) ? null : reader.GetValue(9)?.ToString()
+        };
+    }
+
+    private static string NormalizeFixedCostInterval(string? value) {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized switch {
+            "once" or "einmalig" => "einmalig",
+            "monthly" or "monatlich" => "monatlich",
+            "quarterly" or "vierteljährlich" => "vierteljährlich",
+            "semiannual" or "semi-annually" or "halbjahr" or "halbjährlich" => "halbjährlich",
+            "yearly" or "jährlich" => "jährlich",
+            _ => throw new ArgumentException(
+                "Das Fixkosten-Intervall muss einmalig, monatlich, vierteljährlich, halbjährlich oder jährlich sein.",
+                nameof(value))
+        };
+    }
+
+    public HashSet<string> GetBankTransactionSourceIds(
+        string sourceProvider,
+        string externalAccountId) {
+        var provider = RequireBankIdentifier(sourceProvider, nameof(sourceProvider), 32).ToLowerInvariant();
+        var accountExternalId = RequireBankIdentifier(
+            externalAccountId,
+            nameof(externalAccountId),
+            191);
+        var result = new HashSet<string>(StringComparer.Ordinal);
+
+        using var cmd = Conn.CreateCommand();
+        cmd.CommandText = @"SELECT bt.source_external_id
+            FROM bank_transactions bt
+            INNER JOIN bank_accounts ba ON ba.id=bt.bank_account_id
+            WHERE ba.source_provider=@provider AND ba.external_account_id=@externalAccountId";
+        cmd.Parameters.AddWithValue("@provider", provider);
+        cmd.Parameters.AddWithValue("@externalAccountId", accountExternalId);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            if (!reader.IsDBNull(0))
+                result.Add(reader.GetString(0));
+        }
+
+        return result;
+    }
+
+    public Task<HashSet<string>> GetBankTransactionSourceIdsAsync(
+        string sourceProvider,
+        string externalAccountId,
+        CancellationToken cancellationToken = default) {
+        var config = _activeConfig?.Clone()
+            ?? throw new InvalidOperationException("Database not open");
+        var providerSnapshot = sourceProvider;
+        var accountIdSnapshot = externalAccountId;
+
+        return Task.Run(() => {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var worker = new Database();
+            worker.OpenSecondary(config);
+            cancellationToken.ThrowIfCancellationRequested();
+            return worker.GetBankTransactionSourceIds(providerSnapshot, accountIdSnapshot);
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Atomically stores the account snapshot and every selected movement.
+    /// Re-importing the same provider transaction updates changed data or skips
+    /// an identical row; it can never create a second row for the same account.
+    /// </summary>
+    public BankImportResult ImportBankTransactions(
+        BankAccount account,
+        IEnumerable<BankTransaction> transactions) {
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(transactions);
+
+        var normalizedAccount = NormalizeBankAccount(account);
+        var selected = transactions.Where(item => item?.IsSelected == true).ToList();
+        var normalizedItems = new List<NormalizedBankTransaction>(selected.Count);
+        var uniqueItems = new Dictionary<string, NormalizedBankTransaction>(StringComparer.Ordinal);
+        var duplicateCount = 0;
+
+        // Validate the complete batch before making any database change.
+        foreach (var item in selected) {
+            var normalized = NormalizeBankTransaction(item!, normalizedAccount.Currency);
+            if (uniqueItems.TryGetValue(normalized.SourceExternalId, out var duplicate)) {
+                if (duplicate != normalized) {
+                    throw new InvalidOperationException(
+                        $"Die Bankbewegung {normalized.SourceExternalId} ist im Import mehrfach mit unterschiedlichen Daten enthalten.");
+                }
+                duplicateCount++;
+                continue;
+            }
+
+            uniqueItems.Add(normalized.SourceExternalId, normalized);
+            normalizedItems.Add(normalized);
+        }
+
+        var result = new BankImportResult {
+            Selected = selected.Count,
+            Skipped = duplicateCount
+        };
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var accountId = UpsertBankAccount(normalizedAccount, tx);
+            result.BankAccountId = accountId;
+
+            foreach (var item in normalizedItems) {
+                var existing = ReadNormalizedBankTransaction(accountId, item.SourceExternalId, tx);
+                if (existing == item) {
+                    result.Skipped++;
+                    continue;
+                }
+
+                if (existing == null) {
+                    if (InsertBankTransaction(accountId, normalizedAccount.SourceProvider, item, tx))
+                        result.Added++;
+                    else {
+                        // A concurrent MariaDB client may have inserted the key
+                        // after our read. Updating it preserves idempotence.
+                        UpdateBankTransaction(accountId, normalizedAccount.SourceProvider, item, tx);
+                        result.Updated++;
+                    }
+                }
+                else {
+                    UpdateBankTransaction(accountId, normalizedAccount.SourceProvider, item, tx);
+                    result.Updated++;
+                }
+            }
+
+            tx.Commit();
+
+            account.Id = accountId;
+            account.SourceProvider = normalizedAccount.SourceProvider;
+            account.ExternalAccountId = normalizedAccount.ExternalAccountId;
+            account.AccountName = normalizedAccount.AccountName;
+            account.IbanMasked = normalizedAccount.IbanMasked;
+            account.Currency = normalizedAccount.Currency;
+            account.Balance = normalizedAccount.Balance;
+            account.LastSync = normalizedAccount.LastSync;
+            return result;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    public Task<BankImportResult> ImportBankTransactionsAsync(
+        BankAccount account,
+        IEnumerable<BankTransaction> transactions,
+        CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(transactions);
+
+        var config = _activeConfig?.Clone()
+            ?? throw new InvalidOperationException("Database not open");
+        var accountSnapshot = new BankAccount {
+            SourceProvider = account.SourceProvider,
+            ExternalAccountId = account.ExternalAccountId,
+            AccountName = account.AccountName,
+            IbanMasked = account.IbanMasked,
+            Currency = account.Currency,
+            Balance = account.Balance,
+            LastSync = account.LastSync
+        };
+        var transactionSnapshots = transactions.Select(item => new BankTransaction {
+            SourceProvider = item.SourceProvider,
+            SourceExternalId = item.SourceExternalId,
+            EntryDate = item.EntryDate,
+            ValueDate = item.ValueDate,
+            Amount = item.Amount,
+            Currency = item.Currency,
+            Purpose = item.Purpose,
+            Payee = item.Payee,
+            Status = item.Status,
+            IsSelected = item.IsSelected
+        }).ToList();
+
+        return Task.Run(() => {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var worker = new Database();
+            worker.OpenSecondary(config);
+            cancellationToken.ThrowIfCancellationRequested();
+            return worker.ImportBankTransactions(accountSnapshot, transactionSnapshots);
+        }, cancellationToken);
+    }
+
+    long UpsertBankAccount(NormalizedBankAccount account, DbTransaction tx) {
+        using (var upsert = Conn.CreateCommand()) {
+            upsert.Transaction = tx;
+            upsert.CommandText = _dialect is MariaDbDialect
+                ? @"INSERT INTO bank_accounts(source_provider,external_account_id,account_name,iban_masked,
+                        currency,balance,last_sync,created_at,updated_at)
+                    VALUES(@provider,@externalId,@name,@iban,@currency,@balance,@lastSync,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE account_name=VALUES(account_name),iban_masked=VALUES(iban_masked),
+                        currency=VALUES(currency),balance=COALESCE(VALUES(balance),balance),
+                        last_sync=VALUES(last_sync),updated_at=CURRENT_TIMESTAMP"
+                : @"INSERT INTO bank_accounts(source_provider,external_account_id,account_name,iban_masked,
+                        currency,balance,last_sync,created_at,updated_at)
+                    VALUES(@provider,@externalId,@name,@iban,@currency,@balance,@lastSync,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                    ON CONFLICT(source_provider,external_account_id) DO UPDATE SET
+                        account_name=excluded.account_name,iban_masked=excluded.iban_masked,
+                        currency=excluded.currency,balance=COALESCE(excluded.balance,bank_accounts.balance),
+                        last_sync=excluded.last_sync,updated_at=CURRENT_TIMESTAMP";
+            AddBankAccountParameters(upsert, account);
+            upsert.ExecuteNonQuery();
+        }
+
+        using var select = Conn.CreateCommand();
+        select.Transaction = tx;
+        select.CommandText = @"SELECT id FROM bank_accounts
+            WHERE source_provider=@provider AND external_account_id=@externalId";
+        select.Parameters.AddWithValue("@provider", account.SourceProvider);
+        select.Parameters.AddWithValue("@externalId", account.ExternalAccountId);
+        return Convert.ToInt64(select.ExecuteScalar()
+            ?? throw new InvalidOperationException("Das importierte Bankkonto konnte nicht wiedergefunden werden."),
+            CultureInfo.InvariantCulture);
+    }
+
+    static void AddBankAccountParameters(DbCommand cmd, NormalizedBankAccount account) {
+        cmd.Parameters.AddWithValue("@provider", account.SourceProvider);
+        cmd.Parameters.AddWithValue("@externalId", account.ExternalAccountId);
+        cmd.Parameters.AddWithValue("@name", account.AccountName);
+        cmd.Parameters.AddWithValue("@iban", account.IbanMasked);
+        cmd.Parameters.AddWithValue("@currency", account.Currency);
+        cmd.Parameters.AddWithValue("@balance", (object?)account.Balance ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@lastSync", account.LastSync);
+    }
+
+    NormalizedBankTransaction? ReadNormalizedBankTransaction(
+        long accountId,
+        string sourceExternalId,
+        DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"SELECT source_external_id,entry_date,value_date,amount,currency,purpose,payee,status
+            FROM bank_transactions WHERE bank_account_id=@accountId AND source_external_id=@externalId";
+        cmd.Parameters.AddWithValue("@accountId", accountId);
+        cmd.Parameters.AddWithValue("@externalId", sourceExternalId);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+
+        return new NormalizedBankTransaction(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? "" : reader.GetString(2),
+            Convert.ToDouble(reader.GetValue(3), CultureInfo.InvariantCulture),
+            reader.GetString(4),
+            reader.IsDBNull(5) ? "" : reader.GetString(5),
+            reader.IsDBNull(6) ? "" : reader.GetString(6),
+            reader.GetString(7));
+    }
+
+    bool InsertBankTransaction(
+        long accountId,
+        string sourceProvider,
+        NormalizedBankTransaction item,
+        DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO bank_transactions(
+            bank_account_id,source_provider,source_external_id,entry_date,value_date,amount,
+            currency,purpose,payee,status,created_at,updated_at)
+            VALUES(@accountId,@provider,@externalId,@entryDate,@valueDate,@amount,
+                @currency,@purpose,@payee,@status,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        AddBankTransactionParameters(cmd, accountId, sourceProvider, item);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    void UpdateBankTransaction(
+        long accountId,
+        string sourceProvider,
+        NormalizedBankTransaction item,
+        DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"UPDATE bank_transactions SET source_provider=@provider,entry_date=@entryDate,
+            value_date=@valueDate,amount=@amount,currency=@currency,purpose=@purpose,payee=@payee,
+            status=@status,updated_at=CURRENT_TIMESTAMP
+            WHERE bank_account_id=@accountId AND source_external_id=@externalId";
+        AddBankTransactionParameters(cmd, accountId, sourceProvider, item);
+        if (cmd.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException($"Die Bankbewegung {item.SourceExternalId} konnte nicht aktualisiert werden.");
+    }
+
+    static void AddBankTransactionParameters(
+        DbCommand cmd,
+        long accountId,
+        string sourceProvider,
+        NormalizedBankTransaction item) {
+        cmd.Parameters.AddWithValue("@accountId", accountId);
+        cmd.Parameters.AddWithValue("@provider", sourceProvider);
+        cmd.Parameters.AddWithValue("@externalId", item.SourceExternalId);
+        cmd.Parameters.AddWithValue("@entryDate", item.EntryDate);
+        cmd.Parameters.AddWithValue("@valueDate", string.IsNullOrEmpty(item.ValueDate)
+            ? DBNull.Value
+            : item.ValueDate);
+        cmd.Parameters.AddWithValue("@amount", item.Amount);
+        cmd.Parameters.AddWithValue("@currency", item.Currency);
+        cmd.Parameters.AddWithValue("@purpose", item.Purpose);
+        cmd.Parameters.AddWithValue("@payee", item.Payee);
+        cmd.Parameters.AddWithValue("@status", item.Status);
+    }
+
+    static NormalizedBankAccount NormalizeBankAccount(BankAccount account) {
+        var provider = RequireBankIdentifier(account.SourceProvider, nameof(account.SourceProvider), 32)
+            .ToLowerInvariant();
+        var externalId = RequireBankIdentifier(account.ExternalAccountId, nameof(account.ExternalAccountId), 191);
+        var currency = NormalizeBankCurrency(account.Currency, "EUR");
+        if (account.Balance is { } balance && !double.IsFinite(balance))
+            throw new ArgumentOutOfRangeException(nameof(account), "Der Kontostand muss eine endliche Zahl sein.");
+
+        return new NormalizedBankAccount(
+            provider,
+            externalId,
+            NormalizeBankText(account.AccountName),
+            NormalizeMaskedIban(account.IbanMasked),
+            currency,
+            account.Balance is 0d ? 0d : account.Balance,
+            NormalizeBankTimestamp(account.LastSync));
+    }
+
+    static NormalizedBankTransaction NormalizeBankTransaction(BankTransaction item, string accountCurrency) {
+        var externalId = RequireBankIdentifier(item.SourceExternalId, nameof(item.SourceExternalId), 191);
+        if (!double.IsFinite(item.Amount))
+            throw new ArgumentOutOfRangeException(nameof(item),
+                $"Der Betrag der Bankbewegung {externalId} muss eine endliche Zahl sein.");
+
+        var status = NormalizeBankText(item.Status).ToLowerInvariant();
+        if (string.IsNullOrEmpty(status)) status = "booked";
+        if (status.Length > 50)
+            throw new ArgumentException($"Der Status der Bankbewegung {externalId} ist zu lang.", nameof(item));
+
+        return new NormalizedBankTransaction(
+            externalId,
+            NormalizeBankDate(item.EntryDate, required: true, $"Buchungsdatum der Bankbewegung {externalId}"),
+            NormalizeBankDate(item.ValueDate, required: false, $"Wertstellungsdatum der Bankbewegung {externalId}"),
+            item.Amount == 0d ? 0d : item.Amount,
+            NormalizeBankCurrency(item.Currency, accountCurrency),
+            NormalizeBankText(item.Purpose),
+            NormalizeBankText(item.Payee),
+            status);
+    }
+
+    static string RequireBankIdentifier(string? value, string parameterName, int maximumLength) {
+        var normalized = (value ?? "").Trim();
+        if (normalized.Length == 0)
+            throw new ArgumentException("Eine stabile externe ID ist für einen sicheren Bankimport erforderlich.", parameterName);
+        if (normalized.Length > maximumLength)
+            throw new ArgumentException($"Die externe ID darf höchstens {maximumLength} Zeichen enthalten.", parameterName);
+        return normalized;
+    }
+
+    static string NormalizeBankCurrency(string? value, string fallback) {
+        var normalized = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim().ToUpperInvariant();
+        if (normalized.Length != 3 || normalized.Any(c => c is < 'A' or > 'Z'))
+            throw new ArgumentException($"'{normalized}' ist kein gültiger dreistelliger Währungscode.");
+        return normalized;
+    }
+
+    static string NormalizeBankDate(string? value, bool required, string fieldName) {
+        var normalized = (value ?? "").Trim();
+        if (normalized.Length == 0) {
+            if (required) throw new ArgumentException($"{fieldName} fehlt.");
+            return "";
+        }
+
+        string[] formats = ["yyyy-MM-dd", "dd.MM.yyyy", "yyyyMMdd"];
+        if (DateTime.TryParseExact(normalized, formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces, out var date))
+            return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        if (DateTimeOffset.TryParse(normalized, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces, out var timestamp))
+            return timestamp.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        throw new ArgumentException($"{fieldName} '{normalized}' ist ungültig.");
+    }
+
+    static string NormalizeBankTimestamp(string? value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        if (!DateTimeOffset.TryParse(value.Trim(), CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var timestamp))
+            throw new ArgumentException($"Der Synchronisierungszeitpunkt '{value}' ist ungültig.");
+
+        return timestamp.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+    }
+
+    static string NormalizeBankText(string? value) =>
+        (value ?? "").Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n').Trim();
+
+    static string NormalizeMaskedIban(string? value) {
+        var compact = new string((value ?? "")
+            .Where(c => char.IsLetterOrDigit(c) || c == '*')
+            .Select(char.ToUpperInvariant)
+            .ToArray());
+        if (compact.Length == 0) return "";
+        if (compact.Length > 100)
+            throw new ArgumentException("Die maskierte IBAN darf höchstens 100 Zeichen enthalten.", nameof(value));
+        if (compact.Contains('*')) return compact;
+
+        var suffix = compact.Length <= 4 ? compact : compact[^4..];
+        var country = compact.Length >= 2 && char.IsLetter(compact[0]) && char.IsLetter(compact[1])
+            ? compact[..2] + " "
+            : "";
+        return $"{country}**** {suffix}";
+    }
+
+    sealed record NormalizedBankAccount(
+        string SourceProvider,
+        string ExternalAccountId,
+        string AccountName,
+        string IbanMasked,
+        string Currency,
+        double? Balance,
+        string LastSync);
+
+    sealed record NormalizedBankTransaction(
+        string SourceExternalId,
+        string EntryDate,
+        string ValueDate,
+        double Amount,
+        string Currency,
+        string Purpose,
+        string Payee,
+        string Status);
+
+    sealed record BankFixedCostSource(
+        long Id,
+        string EntryDate,
+        double Amount,
+        string Currency,
+        string Purpose,
+        string Payee,
+        long? FixedCostTransactionId);
+
     // CRUD: Invoices
     public List<Invoice> GetInvoices() {
         var list = new List<Invoice>();
         using (var cmd = Conn.CreateCommand()) {
             cmd.CommandText = @"SELECT id,invoice_number,issue_date,due_date,customer,amount,
-                net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at
+                net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at,customer_id
                 FROM invoices";
             using var r = cmd.ExecuteReader();
             while (r.Read()) {
@@ -734,7 +1956,8 @@ public sealed class Database : IDisposable {
                     PaidAmount = r.IsDBNull(11) ? 0 : r.GetDouble(11),
                     Status = r.IsDBNull(12) ? "" : r.GetString(12),
                     PdfPath = r.IsDBNull(13) ? "" : r.GetString(13),
-                    CreatedAt = r.IsDBNull(14) ? "" : r.GetString(14)
+                    CreatedAt = r.IsDBNull(14) ? "" : r.GetString(14),
+                    CustomerId = r.IsDBNull(15) ? null : r.GetInt64(15)
                 });
             }
         }
@@ -746,6 +1969,7 @@ public sealed class Database : IDisposable {
     }
 
     public void AddInvoice(Invoice i) {
+        NormalizeInvoiceCustomerReference(i);
         i.Content ??= new DocumentContent();
         var originalInvoiceId = i.Id;
         var identity = CaptureDocumentIdentity(i.Content);
@@ -753,8 +1977,8 @@ public sealed class Database : IDisposable {
         try {
             using var cmd = Conn.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = @"INSERT INTO invoices(invoice_number,issue_date,due_date,customer,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at)
-                VALUES(@number,@issue,@due,@cust,@amt,@net,@vat,@vat_rate,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
+            cmd.CommandText = @"INSERT INTO invoices(invoice_number,issue_date,due_date,customer,customer_id,amount,net_amount,vat_amount,vat_rate,description,paid_date,paid_amount,status,pdf_path,created_at)
+                VALUES(@number,@issue,@due,@cust,@customerId,@amt,@net,@vat,@vat_rate,@desc,@paid_d,@paid_a,@status,@pdf,CURRENT_TIMESTAMP)";
             AddInvoiceParameters(cmd, i);
             cmd.ExecuteNonQuery();
             i.Id = LastInsertId(tx);
@@ -773,13 +1997,14 @@ public sealed class Database : IDisposable {
         if (i.Id <= 0)
             throw new ArgumentOutOfRangeException(nameof(i), "Die Rechnung wurde noch nicht gespeichert.");
 
+        NormalizeInvoiceCustomerReference(i);
         i.Content ??= new DocumentContent();
         var identity = CaptureDocumentIdentity(i.Content);
         using var tx = BeginWriteTransaction();
         try {
             using var cmd = Conn.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = @"UPDATE invoices SET invoice_number=@number,issue_date=@issue,due_date=@due,customer=@cust,amount=@amt,
+            cmd.CommandText = @"UPDATE invoices SET invoice_number=@number,issue_date=@issue,due_date=@due,customer=@cust,customer_id=@customerId,amount=@amt,
                 net_amount=@net,vat_amount=@vat,vat_rate=@vat_rate,
                 description=@desc,paid_date=@paid_d,paid_amount=@paid_a,status=@status,pdf_path=@pdf WHERE id=@id";
             cmd.Parameters.AddWithValue("@id", i.Id);
@@ -800,16 +2025,19 @@ public sealed class Database : IDisposable {
     public void DeleteInvoice(long id) { ExecWithId("DELETE FROM invoices WHERE id=@id", id); }
 
     // CRUD: Offers
-    public List<Offer> GetOffers() {
+    public List<Offer> GetOffers() => GetOffers(Conn);
+
+    static List<Offer> GetOffers(DbConnection connection) {
         var list = new List<Offer>();
-        using (var cmd = Conn.CreateCommand()) {
+        var offersById = new Dictionary<long, Offer>();
+        using (var cmd = connection.CreateCommand()) {
             cmd.CommandText = @"SELECT o.id,o.offer_number,o.offer_date,o.date_expected,o.customer,
                 o.amount_before_discount,o.discount_percent,o.amount,o.probability,
-                o.description,o.status,o.payment_delay,o.pdf_path,o.created_at,o.project_id,p.project_number
+                o.description,o.status,o.payment_delay,o.pdf_path,o.created_at,o.project_id,p.project_number,o.customer_id
                 FROM offers o LEFT JOIN projects p ON p.id=o.project_id";
             using var r = cmd.ExecuteReader();
             while (r.Read()) {
-                list.Add(new Offer {
+                var offer = new Offer {
                     Id = r.GetInt64(0),
                     OfferNumber = r.IsDBNull(1) ? "" : r.GetString(1),
                     OfferDate = r.IsDBNull(2) ? "" : r.GetString(2),
@@ -825,28 +2053,102 @@ public sealed class Database : IDisposable {
                     PdfPath = r.IsDBNull(12) ? "" : r.GetString(12),
                     CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13),
                     ProjectId = r.IsDBNull(14) ? null : r.GetInt64(14),
-                    ProjectNumber = r.IsDBNull(15) ? "" : r.GetString(15)
-                });
+                    ProjectNumber = r.IsDBNull(15) ? "" : r.GetString(15),
+                    CustomerId = r.IsDBNull(16) ? null : r.GetInt64(16)
+                };
+                list.Add(offer);
+                offersById[offer.Id] = offer;
             }
         }
 
-        foreach (var offer in list)
-            offer.Content = LoadDocumentContent(offerId: offer.Id, invoiceId: null);
+        var contentsById = new Dictionary<long, DocumentContent>();
+        using (var cmd = connection.CreateCommand()) {
+            cmd.CommandText = @"SELECT offer_id,id,header,pre_text,post_text,internal_note,source_provider,
+                source_entity_type,source_external_id,source_snapshot_json,last_imported_at
+                FROM document_contents
+                WHERE offer_id IS NOT NULL AND invoice_id IS NULL
+                ORDER BY id";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                var offerId = reader.GetInt64(0);
+                if (!offersById.TryGetValue(offerId, out var offer))
+                    continue;
+
+                var content = ReadDocumentContent(reader, 1);
+                offer.Content = content;
+                contentsById[content.Id] = content;
+            }
+        }
+
+        using (var cmd = connection.CreateCommand()) {
+            cmd.CommandText = @"SELECT li.document_content_id,li.id,li.source_item_id,li.sort_order,
+                li.position_number,li.name,li.description,li.quantity,li.unit,li.unit_price,
+                li.discount_percent,li.tax_rate,li.net_amount,li.gross_amount,li.is_optional
+                FROM document_line_items li
+                INNER JOIN document_contents dc ON dc.id=li.document_content_id
+                WHERE dc.offer_id IS NOT NULL AND dc.invoice_id IS NULL
+                ORDER BY li.document_content_id,li.sort_order,li.id";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                var contentId = reader.GetInt64(0);
+                if (contentsById.TryGetValue(contentId, out var content))
+                    content.LineItems.Add(ReadDocumentLineItem(reader, 1));
+            }
+        }
 
         return list;
     }
 
+    public Task<(List<Offer> Offers, List<Customer> Customers)> GetOffersPageDataAsync(
+        CancellationToken cancellationToken = default) {
+        var config = _activeConfig?.Clone()
+            ?? throw new InvalidOperationException("Database not open");
+
+        return Task.Run(() => {
+            cancellationToken.ThrowIfCancellationRequested();
+            IDbDialect dialect = config.Backend switch {
+                DatabaseBackend.MariaDB => new MariaDbDialect(),
+                _ => new SqliteDialect()
+            };
+
+            using var connection = dialect.CreateConnection(config.ToConnectionString());
+            connection.Open();
+            if (config.Backend == DatabaseBackend.SQLite) {
+                // The primary connection already enabled WAL. Repeating
+                // PRAGMA journal_mode while another operation is active can
+                // require an unnecessary exclusive lock for this read-only
+                // connection, so only configure its wait policy here.
+                using var configure = connection.CreateCommand();
+                configure.CommandText = "PRAGMA busy_timeout=5000;";
+                configure.ExecuteNonQuery();
+            }
+            else {
+                dialect.ConfigureConnection(connection);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var offers = GetOffers(connection);
+            cancellationToken.ThrowIfCancellationRequested();
+            var customers = GetCustomers(connection);
+            return (offers, customers);
+        }, cancellationToken);
+    }
+
     public void AddOffer(Offer o) {
         NormalizeOfferDiscount(o);
+        NormalizeOfferNumber(o);
+        NormalizeOfferCustomerReference(o);
         o.Content ??= new DocumentContent();
         var originalOfferId = o.Id;
+        var originalOfferNumber = o.OfferNumber;
         var identity = CaptureDocumentIdentity(o.Content);
         using var tx = BeginWriteTransaction();
         try {
+            PrepareOfferNumberForInsert(o, tx);
             using var cmd = Conn.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = @"INSERT INTO offers(offer_number,offer_date,date_expected,customer,amount_before_discount,discount_percent,amount,probability,description,status,payment_delay,pdf_path,created_at)
-                VALUES(@onum,@odate,@dexp,@cust,@before,@discount,@amt,@prob,@desc,@status,@delay,@pdf,CURRENT_TIMESTAMP)";
+            cmd.CommandText = @"INSERT INTO offers(offer_number,offer_date,date_expected,customer,customer_id,amount_before_discount,discount_percent,amount,probability,description,status,payment_delay,pdf_path,created_at)
+                VALUES(@onum,@odate,@dexp,@cust,@customerId,@before,@discount,@amt,@prob,@desc,@status,@delay,@pdf,CURRENT_TIMESTAMP)";
             AddOfferParameters(cmd, o);
             cmd.ExecuteNonQuery();
             o.Id = LastInsertId(tx);
@@ -856,6 +2158,7 @@ public sealed class Database : IDisposable {
         catch {
             TryRollback(tx);
             o.Id = originalOfferId;
+            o.OfferNumber = originalOfferNumber;
             RestoreDocumentIdentity(o.Content, identity);
             throw;
         }
@@ -866,13 +2169,15 @@ public sealed class Database : IDisposable {
             throw new ArgumentOutOfRangeException(nameof(o), "Das Angebot wurde noch nicht gespeichert.");
 
         NormalizeOfferDiscount(o);
+        NormalizeOfferNumber(o);
+        NormalizeOfferCustomerReference(o);
         o.Content ??= new DocumentContent();
         var identity = CaptureDocumentIdentity(o.Content);
         using var tx = BeginWriteTransaction();
         try {
             using var cmd = Conn.CreateCommand();
             cmd.Transaction = tx;
-            cmd.CommandText = @"UPDATE offers SET offer_number=@onum,offer_date=@odate,date_expected=@dexp,customer=@cust,
+            cmd.CommandText = @"UPDATE offers SET offer_number=@onum,offer_date=@odate,date_expected=@dexp,customer=@cust,customer_id=@customerId,
                 amount_before_discount=@before,discount_percent=@discount,amount=@amt,probability=@prob,
                 description=@desc,status=@status,payment_delay=@delay,pdf_path=@pdf WHERE id=@id";
             cmd.Parameters.AddWithValue("@id", o.Id);
@@ -895,6 +2200,7 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@issue", (object?)invoice.IssueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@due", (object?)invoice.DueDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@cust", (object?)invoice.Customer ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@customerId", (object?)invoice.CustomerId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@amt", invoice.Amount);
         cmd.Parameters.AddWithValue("@net", invoice.NetAmount);
         cmd.Parameters.AddWithValue("@vat", invoice.VatAmount);
@@ -911,6 +2217,7 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@odate", (object?)offer.OfferDate ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@dexp", (object?)offer.DateExpected ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@cust", (object?)offer.Customer ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@customerId", (object?)offer.CustomerId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@before", offer.AmountBeforeDiscount);
         cmd.Parameters.AddWithValue("@discount", offer.DiscountPercent);
         cmd.Parameters.AddWithValue("@amt", offer.Amount);
@@ -938,16 +2245,7 @@ public sealed class Database : IDisposable {
             if (!reader.Read())
                 return content;
 
-            content.Id = reader.GetInt64(0);
-            content.Header = reader.IsDBNull(1) ? "" : reader.GetString(1);
-            content.PreText = reader.IsDBNull(2) ? "" : reader.GetString(2);
-            content.PostText = reader.IsDBNull(3) ? "" : reader.GetString(3);
-            content.InternalNote = reader.IsDBNull(4) ? "" : reader.GetString(4);
-            content.SourceProvider = reader.IsDBNull(5) ? null : reader.GetString(5);
-            content.SourceEntityType = reader.IsDBNull(6) ? null : reader.GetString(6);
-            content.SourceExternalId = reader.IsDBNull(7) ? null : reader.GetString(7);
-            content.SourceSnapshotJson = reader.IsDBNull(8) ? null : reader.GetString(8);
-            content.LastImportedAt = reader.IsDBNull(9) ? null : reader.GetString(9);
+            content = ReadDocumentContent(reader);
         }
 
         using (var cmd = Conn.CreateCommand()) {
@@ -958,27 +2256,46 @@ public sealed class Database : IDisposable {
                 ORDER BY sort_order,id";
             cmd.Parameters.AddWithValue("@contentId", content.Id);
             using var reader = cmd.ExecuteReader();
-            while (reader.Read()) {
-                content.LineItems.Add(new DocumentLineItem {
-                    Id = reader.GetInt64(0),
-                    SourceItemId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    SortOrder = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-                    PositionNumber = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                    Name = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                    Description = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                    Quantity = reader.IsDBNull(6) ? 1 : reader.GetDouble(6),
-                    Unit = reader.IsDBNull(7) ? "" : reader.GetString(7),
-                    UnitPrice = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
-                    DiscountPercent = reader.IsDBNull(9) ? 0 : reader.GetDouble(9),
-                    TaxRate = reader.IsDBNull(10) ? 0 : reader.GetDouble(10),
-                    NetAmount = reader.IsDBNull(11) ? 0 : reader.GetDouble(11),
-                    GrossAmount = reader.IsDBNull(12) ? 0 : reader.GetDouble(12),
-                    IsOptional = !reader.IsDBNull(13) && Convert.ToInt32(reader.GetValue(13), CultureInfo.InvariantCulture) != 0
-                });
-            }
+            while (reader.Read())
+                content.LineItems.Add(ReadDocumentLineItem(reader));
         }
 
         return content;
+    }
+
+    static DocumentContent ReadDocumentContent(DbDataReader reader, int offset = 0) {
+        return new DocumentContent {
+            Id = reader.GetInt64(offset),
+            Header = reader.IsDBNull(offset + 1) ? "" : reader.GetString(offset + 1),
+            PreText = reader.IsDBNull(offset + 2) ? "" : reader.GetString(offset + 2),
+            PostText = reader.IsDBNull(offset + 3) ? "" : reader.GetString(offset + 3),
+            InternalNote = reader.IsDBNull(offset + 4) ? "" : reader.GetString(offset + 4),
+            SourceProvider = reader.IsDBNull(offset + 5) ? null : reader.GetString(offset + 5),
+            SourceEntityType = reader.IsDBNull(offset + 6) ? null : reader.GetString(offset + 6),
+            SourceExternalId = reader.IsDBNull(offset + 7) ? null : reader.GetString(offset + 7),
+            SourceSnapshotJson = reader.IsDBNull(offset + 8) ? null : reader.GetString(offset + 8),
+            LastImportedAt = reader.IsDBNull(offset + 9) ? null : reader.GetString(offset + 9)
+        };
+    }
+
+    static DocumentLineItem ReadDocumentLineItem(DbDataReader reader, int offset = 0) {
+        return new DocumentLineItem {
+            Id = reader.GetInt64(offset),
+            SourceItemId = reader.IsDBNull(offset + 1) ? null : reader.GetString(offset + 1),
+            SortOrder = reader.IsDBNull(offset + 2) ? 0 : reader.GetInt32(offset + 2),
+            PositionNumber = reader.IsDBNull(offset + 3) ? "" : reader.GetString(offset + 3),
+            Name = reader.IsDBNull(offset + 4) ? "" : reader.GetString(offset + 4),
+            Description = reader.IsDBNull(offset + 5) ? "" : reader.GetString(offset + 5),
+            Quantity = reader.IsDBNull(offset + 6) ? 1 : reader.GetDouble(offset + 6),
+            Unit = reader.IsDBNull(offset + 7) ? "" : reader.GetString(offset + 7),
+            UnitPrice = reader.IsDBNull(offset + 8) ? 0 : reader.GetDouble(offset + 8),
+            DiscountPercent = reader.IsDBNull(offset + 9) ? 0 : reader.GetDouble(offset + 9),
+            TaxRate = reader.IsDBNull(offset + 10) ? 0 : reader.GetDouble(offset + 10),
+            NetAmount = reader.IsDBNull(offset + 11) ? 0 : reader.GetDouble(offset + 11),
+            GrossAmount = reader.IsDBNull(offset + 12) ? 0 : reader.GetDouble(offset + 12),
+            IsOptional = !reader.IsDBNull(offset + 13) &&
+                Convert.ToInt32(reader.GetValue(offset + 13), CultureInfo.InvariantCulture) != 0
+        };
     }
 
     void SaveDocumentContent(
@@ -1187,6 +2504,88 @@ public sealed class Database : IDisposable {
     static void NormalizeOfferDiscount(Offer offer) {
         if (offer.DiscountPercent == 0)
             offer.AmountBeforeDiscount = offer.Amount;
+    }
+
+    static void NormalizeOfferNumber(Offer offer) {
+        offer.OfferNumber = (offer.OfferNumber ?? "").Trim();
+        if (offer.OfferNumber.Length == 0)
+            throw new InvalidOperationException("Bitte geben Sie eine Angebotsnummer ein.");
+        if (offer.OfferNumber.Length > 191)
+            throw new InvalidOperationException("Die Angebotsnummer darf höchstens 191 Zeichen lang sein.");
+    }
+
+    void PrepareOfferNumberForInsert(Offer offer, DbTransaction tx) {
+        if (!TryParseGeneratedOfferNumber(offer.OfferNumber, out var prefix, out var requestedSequence))
+            return;
+
+        var counterKey = "offer_number_counter:" + prefix;
+        using (var ensureCounter = Conn.CreateCommand()) {
+            ensureCounter.Transaction = tx;
+            ensureCounter.CommandText = _dialect.InsertOrIgnore(
+                "INSERT OR IGNORE INTO settings(`key`,value) VALUES(@key,'0')");
+            ensureCounter.Parameters.AddWithValue("@key", counterKey);
+            ensureCounter.ExecuteNonQuery();
+        }
+
+        long counterValue;
+        using (var readCounter = Conn.CreateCommand()) {
+            readCounter.Transaction = tx;
+            readCounter.CommandText = "SELECT value FROM settings WHERE `key`=@key"
+                + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+            readCounter.Parameters.AddWithValue("@key", counterKey);
+            var raw = readCounter.ExecuteScalar()?.ToString();
+            counterValue = long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : 0;
+        }
+
+        var nextNumber = FindNextOfferNumber(prefix, tx);
+        if (!TryParseGeneratedOfferNumber(nextNumber, out _, out var nextSequence))
+            throw new InvalidOperationException("Die nächste Angebotsnummer konnte nicht ermittelt werden.");
+        var maximumExisting = nextSequence - 1;
+
+        bool alreadyExists;
+        using (var duplicate = Conn.CreateCommand()) {
+            duplicate.Transaction = tx;
+            duplicate.CommandText = "SELECT COUNT(*) FROM offers WHERE offer_number=@number";
+            duplicate.Parameters.AddWithValue("@number", offer.OfferNumber);
+            alreadyExists = Convert.ToInt64(duplicate.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+        }
+
+        var finalSequence = alreadyExists
+            ? checked(Math.Max(counterValue, maximumExisting) + 1)
+            : requestedSequence;
+        if (alreadyExists)
+            offer.OfferNumber = prefix + finalSequence.ToString("D4", CultureInfo.InvariantCulture);
+
+        using var updateCounter = Conn.CreateCommand();
+        updateCounter.Transaction = tx;
+        updateCounter.CommandText = "UPDATE settings SET value=@value WHERE `key`=@key";
+        updateCounter.Parameters.AddWithValue("@key", counterKey);
+        updateCounter.Parameters.AddWithValue("@value",
+            Math.Max(Math.Max(counterValue, maximumExisting), finalSequence)
+                .ToString(CultureInfo.InvariantCulture));
+        if (updateCounter.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("Der Angebotsnummernzähler konnte nicht aktualisiert werden.");
+    }
+
+    static bool TryParseGeneratedOfferNumber(string? value, out string prefix, out long sequence) {
+        prefix = "";
+        sequence = 0;
+        var normalized = value?.Trim() ?? "";
+        if (normalized.Length <= 9
+            || !normalized.StartsWith("ANG-", StringComparison.OrdinalIgnoreCase)
+            || normalized[8] != '-'
+            || !normalized.AsSpan(4, 4).ToString().All(char.IsDigit)
+            || !normalized.AsSpan(9).ToString().All(char.IsDigit))
+            return false;
+
+        if (!long.TryParse(normalized.AsSpan(9), NumberStyles.None,
+                CultureInfo.InvariantCulture, out sequence))
+            return false;
+
+        prefix = normalized[..9];
+        return true;
     }
 
     public void DeleteOffer(long id) { ExecWithId("DELETE FROM offers WHERE id=@id", id); }
@@ -1471,6 +2870,16 @@ public sealed class Database : IDisposable {
         return list;
     }
 
+    public (DateTime Start, DateTime End, double StartHours, double EndHours)? GetAllocationRange(
+        long resourceId, long projectId, DateTime anchorDate) {
+        return GetContiguousAllocationRange(
+            "resource_allocations",
+            "resource_id=@rid AND project_id=@pid",
+            anchorDate,
+            ("@rid", resourceId),
+            ("@pid", projectId));
+    }
+
     public void AddAllocation(ResourceAllocation a) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = @"INSERT INTO resource_allocations(resource_id,project_id,date,hours,notes,created_at)
@@ -1482,6 +2891,131 @@ public sealed class Database : IDisposable {
         cmd.Parameters.AddWithValue("@n", (object?)a.Notes ?? DBNull.Value);
         cmd.ExecuteNonQuery();
         a.Id = LastInsertId();
+    }
+
+    public void MoveAllocations(
+        long fromResourceId,
+        long toResourceId,
+        long projectId,
+        DateTime from,
+        DateTime to) {
+        if (fromResourceId <= 0) throw new ArgumentOutOfRangeException(nameof(fromResourceId));
+        if (toResourceId <= 0) throw new ArgumentOutOfRangeException(nameof(toResourceId));
+        if (projectId <= 0) throw new ArgumentOutOfRangeException(nameof(projectId));
+        if (fromResourceId == toResourceId) return;
+
+        var start = from.Date;
+        var end = to.Date;
+        if (end < start) return;
+
+        using var tx = BeginWriteTransaction();
+        try {
+            using (var conflicts = Conn.CreateCommand()) {
+                conflicts.Transaction = tx;
+                conflicts.CommandText = @"SELECT COUNT(*) FROM resource_allocations target
+                    WHERE target.resource_id=@toResourceId
+                      AND target.project_id=@projectId
+                      AND target.date>=@from AND target.date<=@to
+                      AND EXISTS(
+                          SELECT 1 FROM resource_allocations source
+                          WHERE source.resource_id=@fromResourceId
+                            AND source.project_id=target.project_id
+                            AND source.date=target.date)" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                conflicts.Parameters.AddWithValue("@fromResourceId", fromResourceId);
+                conflicts.Parameters.AddWithValue("@toResourceId", toResourceId);
+                conflicts.Parameters.AddWithValue("@projectId", projectId);
+                conflicts.Parameters.AddWithValue("@from", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                conflicts.Parameters.AddWithValue("@to", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                if (Convert.ToInt64(conflicts.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+                    throw new InvalidOperationException(
+                        "Die Zielressource enthält im gewählten Zeitraum bereits Zuordnungen für dieses Projekt.");
+            }
+
+            using (var move = Conn.CreateCommand()) {
+                move.Transaction = tx;
+                move.CommandText = @"UPDATE resource_allocations SET resource_id=@toResourceId
+                    WHERE resource_id=@fromResourceId AND project_id=@projectId
+                      AND date>=@from AND date<=@to";
+                move.Parameters.AddWithValue("@fromResourceId", fromResourceId);
+                move.Parameters.AddWithValue("@toResourceId", toResourceId);
+                move.Parameters.AddWithValue("@projectId", projectId);
+                move.Parameters.AddWithValue("@from", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                move.Parameters.AddWithValue("@to", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                move.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    public void AddAllocationsRange(long resourceId, long projectId, DateTime from, DateTime to, double hours = 8.0) {
+        var start = from.Date;
+        var end = to.Date;
+        if (end < start) return;
+        ValidateAllocationHours(hours);
+
+        using var tx = BeginWriteTransaction();
+        try {
+            const int batchSize = 100;
+            var batchStart = start;
+            while (true) {
+                var dates = BuildDateBatch(batchStart, end, batchSize);
+                using var cmd = Conn.CreateCommand();
+                cmd.Transaction = tx;
+                var values = new List<string>(dates.Count);
+                cmd.Parameters.AddWithValue("@rid", resourceId);
+                cmd.Parameters.AddWithValue("@pid", projectId);
+                cmd.Parameters.AddWithValue("@h", hours);
+                for (int i = 0; i < dates.Count; i++) {
+                    var parameterName = $"@d{i}";
+                    values.Add($"(@rid,@pid,{parameterName},@h,NULL,CURRENT_TIMESTAMP)");
+                    cmd.Parameters.AddWithValue(parameterName,
+                        dates[i].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                }
+                cmd.CommandText = _dialect.InsertOrIgnore(
+                    "INSERT OR IGNORE INTO resource_allocations(resource_id,project_id,date,hours,notes,created_at) VALUES "
+                    + string.Join(',', values));
+                cmd.ExecuteNonQuery();
+
+                if (dates[^1] == end) break;
+                batchStart = dates[^1].AddDays(1);
+            }
+
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    public void DeleteAllocationsRange(long resourceId, long projectId, DateTime from, DateTime to) {
+        var start = from.Date;
+        var end = to.Date;
+        if (end < start) return;
+
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"DELETE FROM resource_allocations
+                WHERE resource_id=@rid AND project_id=@pid AND date>=@from AND date<=@to";
+            cmd.Parameters.AddWithValue("@rid", resourceId);
+            cmd.Parameters.AddWithValue("@pid", projectId);
+            cmd.Parameters.AddWithValue("@from", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("@to", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public void DeleteAllocation(long id) { ExecWithId("DELETE FROM resource_allocations WHERE id=@id", id); }
@@ -1558,6 +3092,17 @@ public sealed class Database : IDisposable {
         return list;
     }
 
+    public (DateTime Start, DateTime End, double StartHours, double EndHours)? GetHardwareAllocationRange(
+        long resourceId, long hardwareId, long projectId, DateTime anchorDate) {
+        return GetContiguousAllocationRange(
+            "hardware_allocations",
+            "resource_id=@rid AND hardware_id=@hid AND project_id=@pid",
+            anchorDate,
+            ("@rid", resourceId),
+            ("@hid", hardwareId),
+            ("@pid", projectId));
+    }
+
     public void AddHardwareAllocation(HardwareAllocation a) {
         using var cmd = Conn.CreateCommand();
         cmd.CommandText = _dialect.InsertOrIgnore(@"INSERT OR IGNORE INTO hardware_allocations(resource_id,hardware_id,project_id,date,hours,notes,created_at)
@@ -1572,7 +3117,156 @@ public sealed class Database : IDisposable {
         a.Id = LastInsertId();
     }
 
+    public void AddHardwareAllocationsRange(long resourceId, long hardwareId, long projectId, DateTime from, DateTime to, double hours = 8.0) {
+        var start = from.Date;
+        var end = to.Date;
+        if (end < start) return;
+        ValidateAllocationHours(hours);
+
+        using var tx = BeginWriteTransaction();
+        try {
+            const int batchSize = 100;
+            var batchStart = start;
+            while (true) {
+                var dates = BuildDateBatch(batchStart, end, batchSize);
+                using var cmd = Conn.CreateCommand();
+                cmd.Transaction = tx;
+                var values = new List<string>(dates.Count);
+                cmd.Parameters.AddWithValue("@rid", resourceId);
+                cmd.Parameters.AddWithValue("@hid", hardwareId);
+                cmd.Parameters.AddWithValue("@pid", projectId);
+                cmd.Parameters.AddWithValue("@h", hours);
+                for (int i = 0; i < dates.Count; i++) {
+                    var parameterName = $"@d{i}";
+                    values.Add($"(@rid,@hid,@pid,{parameterName},@h,NULL,CURRENT_TIMESTAMP)");
+                    cmd.Parameters.AddWithValue(parameterName,
+                        dates[i].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                }
+                cmd.CommandText = _dialect.InsertOrIgnore(
+                    "INSERT OR IGNORE INTO hardware_allocations(resource_id,hardware_id,project_id,date,hours,notes,created_at) VALUES "
+                    + string.Join(',', values));
+                cmd.ExecuteNonQuery();
+
+                if (dates[^1] == end) break;
+                batchStart = dates[^1].AddDays(1);
+            }
+
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    public void DeleteHardwareAllocationsRange(long resourceId, long hardwareId, long projectId, DateTime from, DateTime to) {
+        var start = from.Date;
+        var end = to.Date;
+        if (end < start) return;
+
+        using var tx = BeginWriteTransaction();
+        try {
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"DELETE FROM hardware_allocations
+                WHERE resource_id=@rid AND hardware_id=@hid AND project_id=@pid AND date>=@from AND date<=@to";
+            cmd.Parameters.AddWithValue("@rid", resourceId);
+            cmd.Parameters.AddWithValue("@hid", hardwareId);
+            cmd.Parameters.AddWithValue("@pid", projectId);
+            cmd.Parameters.AddWithValue("@from", start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("@to", end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
     public void DeleteHardwareAllocation(long id) { ExecWithId("DELETE FROM hardware_allocations WHERE id=@id", id); }
+
+    static void ValidateAllocationHours(double hours) {
+        if (!double.IsFinite(hours) || hours < 0)
+            throw new ArgumentOutOfRangeException(nameof(hours), "Zuordnungsstunden müssen eine endliche, nicht negative Zahl sein.");
+    }
+
+    static List<DateTime> BuildDateBatch(DateTime start, DateTime end, int maximumCount) {
+        var dates = new List<DateTime>(maximumCount);
+        var date = start.Date;
+        while (dates.Count < maximumCount) {
+            dates.Add(date);
+            if (date == end.Date) break;
+            date = date.AddDays(1);
+        }
+        return dates;
+    }
+
+    (DateTime Start, DateTime End, double StartHours, double EndHours)? GetContiguousAllocationRange(
+        string tableName,
+        string keyPredicate,
+        DateTime anchorDate,
+        params (string Name, object Value)[] keyParameters) {
+        var anchor = anchorDate.Date;
+        using var tx = Conn.BeginTransaction();
+        try {
+            var startBoundary = ReadContiguousAllocationBoundary(
+                tx, tableName, keyPredicate, anchor, true, keyParameters);
+            if (startBoundary == null) {
+                tx.Commit();
+                return null;
+            }
+
+            var endBoundary = ReadContiguousAllocationBoundary(
+                tx, tableName, keyPredicate, anchor, false, keyParameters);
+            if (endBoundary == null)
+                throw new InvalidOperationException("Die Zuordnung am Ankerdatum wurde während der Bereichsabfrage inkonsistent gelesen.");
+
+            tx.Commit();
+            return (startBoundary.Value.Date, endBoundary.Value.Date,
+                startBoundary.Value.Hours, endBoundary.Value.Hours);
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    (DateTime Date, double Hours)? ReadContiguousAllocationBoundary(
+        DbTransaction tx,
+        string tableName,
+        string keyPredicate,
+        DateTime anchor,
+        bool searchBackwards,
+        params (string Name, object Value)[] keyParameters) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        var comparison = searchBackwards ? "<=" : ">=";
+        var order = searchBackwards ? "DESC" : "ASC";
+        cmd.CommandText = $@"SELECT date,hours FROM {tableName}
+            WHERE {keyPredicate} AND date{comparison}@anchor
+            ORDER BY date {order}";
+        foreach (var (name, value) in keyParameters)
+            cmd.Parameters.AddWithValue(name, value);
+        cmd.Parameters.AddWithValue("@anchor", anchor.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+        using var reader = cmd.ExecuteReader();
+        var expected = anchor;
+        (DateTime Date, double Hours)? boundary = null;
+        while (reader.Read()) {
+            if (!DateTime.TryParseExact(reader.GetString(0), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var date) || date != expected)
+                break;
+
+            boundary = (date, reader.IsDBNull(1) ? 8.0 : reader.GetDouble(1));
+            if ((searchBackwards && date == DateTime.MinValue.Date) ||
+                (!searchBackwards && date == DateTime.MaxValue.Date))
+                break;
+            expected = date.AddDays(searchBackwards ? -1 : 1);
+        }
+
+        return boundary;
+    }
 
     // CRUD: ProjectMilestones
     public List<ProjectMilestone> GetMilestones(long projectId) {
@@ -1852,47 +3546,134 @@ public sealed class Database : IDisposable {
     }
 
     public long StartTimeEntry(long userId, long projectId, string activityType, string? description) {
-        using var tx = Conn.BeginTransaction();
-        using (var stopCmd = Conn.CreateCommand()) {
-            stopCmd.Transaction = tx;
-            stopCmd.CommandText = $@"UPDATE time_entries
-                SET is_running=0,
-                    end_time=@now,
-                    duration_hours={_dialect.DurationHoursExpr("start_time", "@now")}
-                WHERE user_id=@uid AND is_running=1";
-            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            stopCmd.Parameters.AddWithValue("@uid", userId);
-            stopCmd.Parameters.AddWithValue("@now", now);
-            stopCmd.ExecuteNonQuery();
-        }
+        var nowUtc = DateTimeOffset.UtcNow;
+        var storedNow = FormatUtcTime(nowUtc);
+        using var tx = BeginWriteTransaction();
+        try {
+            var running = new List<(long Id, string? StartTime)>();
+            using (var select = Conn.CreateCommand()) {
+                select.Transaction = tx;
+                select.CommandText = @"SELECT id,start_time FROM time_entries
+                    WHERE user_id=@uid AND is_running=1"
+                    + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                select.Parameters.AddWithValue("@uid", userId);
+                using var reader = select.ExecuteReader();
+                while (reader.Read())
+                    running.Add((reader.GetInt64(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
+            }
 
-        using (var cmd = Conn.CreateCommand()) {
-            cmd.Transaction = tx;
-            cmd.CommandText = @"INSERT INTO time_entries(user_id,project_id,activity_type,description,entry_date,start_time,is_running,created_at)
-                VALUES(@uid,@pid,@act,@desc,@date,@start,1,CURRENT_TIMESTAMP)";
-            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            cmd.Parameters.AddWithValue("@uid", userId);
-            cmd.Parameters.AddWithValue("@pid", projectId);
-            cmd.Parameters.AddWithValue("@act", activityType);
-            cmd.Parameters.AddWithValue("@desc", (object?)description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@date", DateTime.Today.ToString("yyyy-MM-dd"));
-            cmd.Parameters.AddWithValue("@start", now);
-            cmd.ExecuteNonQuery();
+            foreach (var entry in running) {
+                using var stop = Conn.CreateCommand();
+                stop.Transaction = tx;
+                stop.CommandText = @"UPDATE time_entries
+                    SET is_running=0,end_time=@now,duration_hours=@duration
+                    WHERE id=@id AND is_running=1";
+                stop.Parameters.AddWithValue("@id", entry.Id);
+                stop.Parameters.AddWithValue("@now", storedNow);
+                stop.Parameters.AddWithValue("@duration", CalculateStoredDurationHours(entry.StartTime, nowUtc));
+                stop.ExecuteNonQuery();
+            }
+
+            using (var cmd = Conn.CreateCommand()) {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"INSERT INTO time_entries(user_id,project_id,activity_type,description,entry_date,start_time,is_running,created_at)
+                    VALUES(@uid,@pid,@act,@desc,@date,@start,1,CURRENT_TIMESTAMP)";
+                cmd.Parameters.AddWithValue("@uid", userId);
+                cmd.Parameters.AddWithValue("@pid", projectId);
+                cmd.Parameters.AddWithValue("@act", activityType);
+                cmd.Parameters.AddWithValue("@desc", (object?)description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@date", nowUtc.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                cmd.Parameters.AddWithValue("@start", storedNow);
+                cmd.ExecuteNonQuery();
+            }
+
+            var id = LastInsertId(tx);
+            tx.Commit();
+            return id;
         }
-        tx.Commit();
-        return LastInsertId();
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public void StopTimeEntry(long id) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = $@"UPDATE time_entries
-            SET is_running=0,
-                end_time=@now,
-                duration_hours={_dialect.DurationHoursExpr("start_time", "@now")}
-            WHERE id=@id AND is_running=1";
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@now", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-        cmd.ExecuteNonQuery();
+        var nowUtc = DateTimeOffset.UtcNow;
+        using var tx = BeginWriteTransaction();
+        try {
+            string? startTime;
+            using (var select = Conn.CreateCommand()) {
+                select.Transaction = tx;
+                select.CommandText = "SELECT start_time FROM time_entries WHERE id=@id AND is_running=1"
+                    + (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                select.Parameters.AddWithValue("@id", id);
+                var value = select.ExecuteScalar();
+                if (value == null || value == DBNull.Value) {
+                    tx.Commit();
+                    return;
+                }
+                startTime = value.ToString();
+            }
+
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"UPDATE time_entries
+                SET is_running=0,end_time=@now,duration_hours=@duration
+                WHERE id=@id AND is_running=1";
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@now", FormatUtcTime(nowUtc));
+            cmd.Parameters.AddWithValue("@duration", CalculateStoredDurationHours(startTime, nowUtc));
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    static string FormatUtcTime(DateTimeOffset value) =>
+        value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+
+    static double CalculateStoredDurationHours(string? storedStart, DateTimeOffset endUtc) {
+        if (!TryParseStoredTimeUtc(storedStart, out var startUtc))
+            return 0;
+        return Math.Max(0, (endUtc.ToUniversalTime() - startUtc).TotalHours);
+    }
+
+    internal static bool TryParseStoredTimeUtc(string? value, out DateTimeOffset utcValue) {
+        utcValue = default;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var normalized = value.Trim();
+        if (normalized.EndsWith('Z')
+            && DateTimeOffset.TryParse(normalized, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal |
+                DateTimeStyles.AdjustToUniversal, out var explicitUtc)) {
+            utcValue = explicitUtc.ToUniversalTime();
+            return true;
+        }
+
+        // Legacy rows were stored as local wall-clock time without an offset.
+        if (!DateTime.TryParse(normalized, CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces, out var legacyLocal))
+            return false;
+
+        legacyLocal = DateTime.SpecifyKind(legacyLocal, DateTimeKind.Unspecified);
+        try {
+            utcValue = new DateTimeOffset(
+                TimeZoneInfo.ConvertTimeToUtc(legacyLocal, TimeZoneInfo.Local),
+                TimeSpan.Zero);
+            return true;
+        }
+        catch (ArgumentException) {
+            // A legacy timestamp can fall into the local DST gap. Treat it as
+            // local using the applicable offset rather than breaking timers.
+            utcValue = new DateTimeOffset(legacyLocal, TimeZoneInfo.Local.GetUtcOffset(legacyLocal))
+                .ToUniversalTime();
+            return true;
+        }
     }
 
     // Categories
@@ -1924,87 +3705,341 @@ public sealed class Database : IDisposable {
     }
 
     // Users
-    public bool ValidateUser(string username, string password) {
-        // MariaDB commonly uses a case-insensitive collation. Never allow an
-        // alternate spelling such as "Admin" to authenticate as the reserved
-        // lowercase system account.
-        if (!string.Equals(username, "admin", StringComparison.Ordinal) &&
-            string.Equals(username, "admin", StringComparison.OrdinalIgnoreCase))
-            return false;
+    sealed record AuthUser(
+        long Id,
+        string Username,
+        string PasswordHash,
+        bool IsActive,
+        string SecurityStamp,
+        long? RoleId);
+
+    sealed record AuthorizationUser(long Id, string Username, bool IsActive, long? RoleId);
+    sealed record AuthorizationPermission(long RoleId, string PageKey, string AccessLevel);
+
+    static string NormalizeUsernameForLookup(string? username) => (username ?? "").Trim();
+
+    static string ValidateNewUsername(string? username) {
+        var normalized = NormalizeUsernameForLookup(username);
+        if (normalized.Length == 0)
+            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
+        if (normalized.Length > 191)
+            throw new ArgumentException("Der Benutzername darf höchstens 191 Zeichen lang sein.", nameof(username));
+        if (normalized.Any(char.IsControl))
+            throw new ArgumentException("Der Benutzername enthält unzulässige Steuerzeichen.", nameof(username));
+        if (string.Equals(normalized, "admin", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Der Benutzername 'admin' ist reserviert.");
+        return normalized;
+    }
+
+    static void ValidatePasswordPolicy(string password, string username) {
+        if (!Services.PasswordPolicy.TryValidate(password, username, out var error))
+            throw new ArgumentException(error, nameof(password));
+    }
+
+    AuthUser? FindUserExact(string username, DbTransaction? tx = null, bool forUpdate = false) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"SELECT id,username,password_hash,is_active,security_stamp,role_id
+            FROM users WHERE username=@u" +
+            (forUpdate && _dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        cmd.Parameters.AddWithValue("@u", username);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            var storedUsername = reader.IsDBNull(1) ? "" : reader.GetString(1);
+            if (!string.Equals(storedUsername, username, StringComparison.Ordinal))
+                continue;
+
+            return new AuthUser(
+                reader.GetInt64(0),
+                storedUsername,
+                reader.IsDBNull(2) ? "" : reader.GetString(2),
+                !reader.IsDBNull(3) && Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture) != 0,
+                reader.IsDBNull(4) ? "" : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetInt64(5));
+        }
+        return null;
+    }
+
+    AuthUser? FindUserById(long userId, DbTransaction? tx = null, bool forUpdate = false) {
+        if (userId <= 0)
+            return null;
 
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT password_hash FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        var result = cmd.ExecuteScalar();
-        if (result == null || result == DBNull.Value) return false;
-        var storedHash = result.ToString()!;
-        var valid = Services.PasswordHasher.Verify(password, storedHash);
-        // Auto-migrate legacy plaintext passwords to PBKDF2
-        if (valid && Services.PasswordHasher.IsLegacyFormat(storedHash))
-            ChangePassword(username, password);
-        return valid;
+        cmd.Transaction = tx;
+        cmd.CommandText = @"SELECT id,username,password_hash,is_active,security_stamp,role_id
+            FROM users WHERE id=@id" +
+            (forUpdate && _dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        cmd.Parameters.AddWithValue("@id", userId);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return null;
+
+        return new AuthUser(
+            reader.GetInt64(0),
+            reader.IsDBNull(1) ? "" : reader.GetString(1),
+            reader.IsDBNull(2) ? "" : reader.GetString(2),
+            !reader.IsDBNull(3) && Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture) != 0,
+            reader.IsDBNull(4) ? "" : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetInt64(5));
+    }
+
+    UserSessionState BuildSessionState(AuthUser user, DbTransaction transaction) => new() {
+        UserId = user.Id,
+        Username = user.Username,
+        IsActive = user.IsActive,
+        SecurityStamp = user.SecurityStamp,
+        Permissions = LoadRolePermissionMap(user.RoleId, transaction)
+    };
+
+    void EnsureUsernameAvailable(string username, DbTransaction tx) {
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT username FROM users ORDER BY id" +
+            (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            if (string.Equals(reader.GetString(0), username, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Der Benutzername '{username}' ist bereits vergeben.");
+        }
+    }
+
+    public UserSessionState? GetUserSessionState(long userId) {
+        if (userId <= 0)
+            return null;
+
+        using var tx = Conn.BeginTransaction();
+        try {
+            long? roleId;
+            string username;
+            bool isActive;
+            string securityStamp;
+            using (var cmd = Conn.CreateCommand()) {
+                cmd.Transaction = tx;
+                cmd.CommandText = "SELECT username,is_active,security_stamp,role_id FROM users WHERE id=@id";
+                cmd.Parameters.AddWithValue("@id", userId);
+                using var reader = cmd.ExecuteReader();
+                if (!reader.Read()) {
+                    tx.Commit();
+                    return null;
+                }
+                username = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                isActive = !reader.IsDBNull(1)
+                    && Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture) != 0;
+                securityStamp = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                roleId = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+            }
+
+            var state = new UserSessionState {
+                UserId = userId,
+                Username = username,
+                IsActive = isActive,
+                SecurityStamp = securityStamp,
+                Permissions = LoadRolePermissionMap(roleId, tx)
+            };
+            tx.Commit();
+            return state;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    public UserSessionState? AuthenticateUser(string username, string password) {
+        username = NormalizeUsernameForLookup(username);
+        if (username.Length == 0 || password is null)
+            return null;
+
+        AuthUser? authenticatedUser;
+        UserSessionState? state;
+        using (var tx = Conn.BeginTransaction()) {
+            try {
+                authenticatedUser = FindUserExact(username, tx);
+                if (authenticatedUser is null || !authenticatedUser.IsActive ||
+                    !Services.PasswordHasher.Verify(password, authenticatedUser.PasswordHash)) {
+                    tx.Commit();
+                    return null;
+                }
+
+                // Password, active flag, security stamp and effective permissions are
+                // captured from one database snapshot. A concurrent credential or
+                // permission change therefore invalidates this returned stamp instead
+                // of silently granting the new session state to an old password.
+                state = BuildSessionState(authenticatedUser, tx);
+                tx.Commit();
+            }
+            catch {
+                TryRollback(tx);
+                throw;
+            }
+        }
+
+        // Preserve the legacy-password migration without changing the authenticated
+        // security stamp. The conditional update refuses to overwrite a concurrent
+        // password change.
+        if (Services.PasswordHasher.IsLegacyFormat(authenticatedUser.PasswordHash))
+            RehashLegacyPassword(authenticatedUser.Id, authenticatedUser.PasswordHash, password);
+        return state;
+    }
+
+    public bool ValidateUser(string username, string password) =>
+        AuthenticateUser(username, password) is not null;
+
+    void RehashLegacyPassword(long userId, string expectedHash, string password) {
+        var replacementHash = Services.PasswordHasher.Hash(password);
+        using var tx = BeginWriteTransaction();
+        try {
+            string? currentHash = null;
+            bool isActive = false;
+            using (var find = Conn.CreateCommand()) {
+                find.Transaction = tx;
+                find.CommandText = "SELECT password_hash,is_active FROM users WHERE id=@id" +
+                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+                find.Parameters.AddWithValue("@id", userId);
+                using var reader = find.ExecuteReader();
+                if (reader.Read()) {
+                    currentHash = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                    isActive = !reader.IsDBNull(1)
+                        && Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture) != 0;
+                }
+            }
+
+            if (isActive
+                && currentHash is not null
+                && string.Equals(currentHash, expectedHash, StringComparison.Ordinal)
+                && Services.PasswordHasher.IsLegacyFormat(currentHash)) {
+                using var update = Conn.CreateCommand();
+                update.Transaction = tx;
+                update.CommandText = "UPDATE users SET password_hash=@hash WHERE id=@id";
+                update.Parameters.AddWithValue("@hash", replacementHash);
+                update.Parameters.AddWithValue("@id", userId);
+                update.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public long GetUserId(string username) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT id FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        var result = cmd.ExecuteScalar();
-        return result != null ? Convert.ToInt64(result) : 0;
+        username = NormalizeUsernameForLookup(username);
+        var user = username.Length == 0 ? null : FindUserExact(username);
+        return user is { IsActive: true } ? user.Id : 0;
     }
 
     public List<string> GetUsernames() {
         var list = new List<string>();
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT username FROM users ORDER BY username";
+        cmd.CommandText = "SELECT username FROM users WHERE is_active=1 ORDER BY username";
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(r.GetString(0));
         return list;
     }
 
-    public void ChangePassword(string username, string newPassword) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET password_hash=@p WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", Services.PasswordHasher.Hash(newPassword));
-        cmd.ExecuteNonQuery();
+    public UserSessionState ChangePassword(
+        long userId,
+        string expectedSecurityStamp,
+        string currentPassword,
+        string newPassword) {
+        if (userId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(userId));
+        if (string.IsNullOrWhiteSpace(expectedSecurityStamp))
+            throw new UnauthorizedAccessException("Die Sitzung ist nicht mehr gültig.");
+        if (currentPassword is null)
+            throw new ArgumentNullException(nameof(currentPassword));
+
+        var passwordHash = Services.PasswordHasher.Hash(newPassword);
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var user = FindUserById(userId, tx, forUpdate: true)
+                ?? throw new UnauthorizedAccessException("Die Sitzung ist nicht mehr gültig.");
+            if (!user.IsActive ||
+                !string.Equals(user.SecurityStamp, expectedSecurityStamp, StringComparison.Ordinal) ||
+                !Services.PasswordHasher.Verify(currentPassword, user.PasswordHash))
+                throw new UnauthorizedAccessException("Die Sitzung oder das aktuelle Passwort ist nicht mehr gültig.");
+
+            ValidatePasswordPolicy(newPassword, user.Username);
+            var newStamp = CreateSecurityStamp();
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"UPDATE users SET password_hash=@password,security_stamp=@stamp
+                WHERE id=@id AND is_active=1 AND security_stamp=@expectedStamp";
+            cmd.Parameters.AddWithValue("@password", passwordHash);
+            cmd.Parameters.AddWithValue("@stamp", newStamp);
+            cmd.Parameters.AddWithValue("@id", user.Id);
+            cmd.Parameters.AddWithValue("@expectedStamp", expectedSecurityStamp);
+            if (cmd.ExecuteNonQuery() != 1)
+                throw new UnauthorizedAccessException("Die Sitzung ist nicht mehr gültig.");
+
+            var state = BuildSessionState(user with {
+                PasswordHash = passwordHash,
+                SecurityStamp = newStamp
+            }, tx);
+            tx.Commit();
+            return state;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public void AddUser(string username, string password, string fullName) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO users(username, password_hash, full_name) VALUES(@u, @p, @f)";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", Services.PasswordHasher.Hash(password));
-        cmd.Parameters.AddWithValue("@f", fullName);
-        cmd.ExecuteNonQuery();
+        username = ValidateNewUsername(username);
+        AddUserCore(username, password, fullName, passwordPolicyBypass: false);
+    }
+
+    void AddSeedUser(string username, string password, string fullName) {
+        username = ValidateNewUsername(username);
+        AddUserCore(username, password, fullName, passwordPolicyBypass: true);
+    }
+
+    void AddUserCore(
+        string username,
+        string password,
+        string? fullName,
+        bool passwordPolicyBypass) {
+        if (!passwordPolicyBypass)
+            ValidatePasswordPolicy(password, username);
+        if (password is null)
+            throw new ArgumentNullException(nameof(password));
+
+        var passwordHash = Services.PasswordHasher.Hash(password);
+        using var tx = BeginWriteTransaction();
+        try {
+            EnsureUsernameAvailable(username, tx);
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"INSERT INTO users(
+                    username,password_hash,full_name,is_active,security_stamp)
+                VALUES(@username,@password,@fullName,1,@stamp)";
+            cmd.Parameters.AddWithValue("@username", username);
+            cmd.Parameters.AddWithValue("@password", passwordHash);
+            cmd.Parameters.AddWithValue("@fullName", (fullName ?? "").Trim());
+            cmd.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public Resource AddUserWithResource(string username, string password, string fullName) {
-        username = username?.Trim() ?? "";
+        username = ValidateNewUsername(username);
         fullName = fullName?.Trim() ?? "";
-
-        if (string.IsNullOrWhiteSpace(username))
-            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
-        if (username.Equals("admin", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Der Benutzername 'admin' ist reserviert.");
-        if (string.IsNullOrWhiteSpace(password))
-            throw new ArgumentException("Passwort darf nicht leer sein.", nameof(password));
+        ValidatePasswordPolicy(password, username);
 
         var passwordHash = Services.PasswordHasher.Hash(password);
         var resourceName = string.IsNullOrWhiteSpace(fullName) ? username : fullName;
 
         using var tx = BeginWriteTransaction();
         try {
-            using (var existing = Conn.CreateCommand()) {
-                existing.Transaction = tx;
-                existing.CommandText = "SELECT username FROM users" +
-                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
-                using var reader = existing.ExecuteReader();
-                while (reader.Read()) {
-                    if (string.Equals(reader.GetString(0), username, StringComparison.OrdinalIgnoreCase))
-                        throw new InvalidOperationException($"Der Benutzername '{username}' ist bereits vergeben.");
-                }
-            }
+            EnsureUsernameAvailable(username, tx);
 
             var matchingResources = LoadUnlinkedResources(tx)
                 .Where(resource => string.Equals(
@@ -2019,10 +4054,13 @@ public sealed class Database : IDisposable {
             long userId;
             using (var insertUser = Conn.CreateCommand()) {
                 insertUser.Transaction = tx;
-                insertUser.CommandText = "INSERT INTO users(username,password_hash,full_name) VALUES(@u,@p,@f)";
+                insertUser.CommandText = @"INSERT INTO users(
+                        username,password_hash,full_name,is_active,security_stamp)
+                    VALUES(@u,@p,@f,1,@stamp)";
                 insertUser.Parameters.AddWithValue("@u", username);
                 insertUser.Parameters.AddWithValue("@p", passwordHash);
                 insertUser.Parameters.AddWithValue("@f", fullName);
+                insertUser.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
                 insertUser.ExecuteNonQuery();
                 userId = LastInsertId(tx);
             }
@@ -2184,10 +4222,47 @@ public sealed class Database : IDisposable {
     }
 
     public void DeleteUser(string username) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.ExecuteNonQuery();
+        DeactivateUser(username);
+    }
+
+    public void DeactivateUser(string username) {
+        username = NormalizeUsernameForLookup(username);
+        if (username.Length == 0)
+            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
+        if (string.Equals(username, "admin", StringComparison.Ordinal))
+            throw new InvalidOperationException("Der reservierte Administrator kann nicht deaktiviert werden.");
+        if (string.Equals(username, global::CashFlowPlannerPro.App.CurrentUsername, StringComparison.Ordinal))
+            throw new InvalidOperationException("Sie können Ihr eigenes Benutzerkonto nicht deaktivieren.");
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var (users, permissions) = LoadAuthorizationState(tx);
+            var user = users.FirstOrDefault(candidate =>
+                string.Equals(candidate.Username, username, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden.");
+            if (!user.IsActive) {
+                tx.Commit();
+                return;
+            }
+
+            var resultingUsers = users
+                .Select(candidate => candidate.Id == user.Id ? candidate with { IsActive = false } : candidate)
+                .ToList();
+            EnsureActiveAdministratorRemains(resultingUsers, permissions);
+
+            using var update = Conn.CreateCommand();
+            update.Transaction = tx;
+            update.CommandText = "UPDATE users SET is_active=0,security_stamp=@stamp WHERE id=@id";
+            update.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+            update.Parameters.AddWithValue("@id", user.Id);
+            if (update.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException($"Benutzer '{username}' konnte nicht deaktiviert werden.");
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public void UpdateUserFullName(string username, string fullName) {
@@ -2200,17 +4275,8 @@ public sealed class Database : IDisposable {
 
         using var tx = BeginWriteTransaction();
         try {
-            long userId;
-            using (var findUser = Conn.CreateCommand()) {
-                findUser.Transaction = tx;
-                findUser.CommandText = "SELECT id FROM users WHERE username=@u" +
-                    (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
-                findUser.Parameters.AddWithValue("@u", username);
-                var result = findUser.ExecuteScalar();
-                if (result is null or DBNull)
-                    throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden.");
-                userId = Convert.ToInt64(result);
-            }
+            var userId = FindUserExact(username, tx, forUpdate: true)?.Id
+                ?? throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden.");
 
             using (var updateUser = Conn.CreateCommand()) {
                 updateUser.Transaction = tx;
@@ -2238,26 +4304,67 @@ public sealed class Database : IDisposable {
     }
 
     public string? GetFullName(string username) {
+        username = NormalizeUsernameForLookup(username);
+        var user = username.Length == 0 ? null : FindUserExact(username);
+        if (user is not { IsActive: true })
+            return null;
         using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT full_name FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
+        cmd.CommandText = "SELECT full_name FROM users WHERE id=@id";
+        cmd.Parameters.AddWithValue("@id", user.Id);
         return cmd.ExecuteScalar() as string;
     }
 
     public void SetUserRole(string username, long? roleId) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET role_id=@r WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@r", roleId.HasValue ? (object)roleId.Value : DBNull.Value);
-        cmd.ExecuteNonQuery();
+        username = NormalizeUsernameForLookup(username);
+        if (username.Length == 0)
+            throw new ArgumentException("Benutzername darf nicht leer sein.", nameof(username));
+        if (roleId is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(roleId));
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var (users, permissions) = LoadAuthorizationState(tx);
+            var user = users.FirstOrDefault(candidate =>
+                string.Equals(candidate.Username, username, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Benutzer '{username}' wurde nicht gefunden.");
+            EnsureRoleExists(roleId, tx);
+
+            var oldPermissions = BuildRolePermissionMap(user.RoleId, permissions);
+            var newPermissions = BuildRolePermissionMap(roleId, permissions);
+            if (string.Equals(username, global::CashFlowPlannerPro.App.CurrentUsername, StringComparison.Ordinal)
+                && HasPermissionReduction(oldPermissions, newPermissions)) {
+                throw new InvalidOperationException("Sie können Ihre eigenen Berechtigungen nicht herabsetzen.");
+            }
+            if (string.Equals(username, "admin", StringComparison.Ordinal)
+                && !HasFullAdminPermission(roleId, permissions)) {
+                throw new InvalidOperationException("Der reservierte Administrator muss vollständigen Admin-Zugriff behalten.");
+            }
+
+            var resultingUsers = users
+                .Select(candidate => candidate.Id == user.Id ? candidate with { RoleId = roleId } : candidate)
+                .ToList();
+            EnsureActiveAdministratorRemains(resultingUsers, permissions);
+
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE users SET role_id=@role,security_stamp=@stamp WHERE id=@id";
+            cmd.Parameters.AddWithValue("@id", user.Id);
+            cmd.Parameters.AddWithValue("@role", roleId.HasValue ? roleId.Value : DBNull.Value);
+            cmd.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+            if (cmd.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException($"Die Rolle für '{username}' konnte nicht geändert werden.");
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public long? GetUserRoleId(string username) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "SELECT role_id FROM users WHERE username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        var result = cmd.ExecuteScalar();
-        return result is DBNull or null ? null : Convert.ToInt64(result);
+        username = NormalizeUsernameForLookup(username);
+        var user = username.Length == 0 ? null : FindUserExact(username);
+        return user is { IsActive: true } ? user.RoleId : null;
     }
 
     // Roles CRUD
@@ -2274,24 +4381,160 @@ public sealed class Database : IDisposable {
     }
 
     public void AddRole(Role role) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO roles(name,description) VALUES(@n,@d)";
-        cmd.Parameters.AddWithValue("@n", role.Name);
-        cmd.Parameters.AddWithValue("@d", role.Description);
-        cmd.ExecuteNonQuery();
-        role.Id = LastInsertId();
+        ArgumentNullException.ThrowIfNull(role);
+        var normalizedName = ValidateRoleName(role.Name);
+        if (string.Equals(normalizedName, "Admin", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Der Rollenname 'Admin' ist reserviert.");
+        var description = (role.Description ?? "").Trim();
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var roles = LoadRoleIdentities(tx);
+            EnsureRoleNameAvailable(normalizedName, roles, exceptRoleId: null);
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO roles(name,description) VALUES(@name,@description)";
+            cmd.Parameters.AddWithValue("@name", normalizedName);
+            cmd.Parameters.AddWithValue("@description", description);
+            cmd.ExecuteNonQuery();
+            var roleId = LastInsertId(tx);
+            tx.Commit();
+            role.Id = roleId;
+            role.Name = normalizedName;
+            role.Description = description;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public void UpdateRole(Role role) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE roles SET name=@n,description=@d WHERE id=@id";
-        cmd.Parameters.AddWithValue("@id", role.Id);
-        cmd.Parameters.AddWithValue("@n", role.Name);
-        cmd.Parameters.AddWithValue("@d", role.Description);
-        cmd.ExecuteNonQuery();
+        ArgumentNullException.ThrowIfNull(role);
+        if (role.Id <= 0)
+            throw new ArgumentOutOfRangeException(nameof(role));
+        var normalizedName = ValidateRoleName(role.Name);
+        var description = (role.Description ?? "").Trim();
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var roles = LoadRoleIdentities(tx);
+            var existingRole = roles.FirstOrDefault(candidate => candidate.Id == role.Id)
+                ?? throw new InvalidOperationException($"Rolle #{role.Id} wurde nicht gefunden.");
+            if (string.Equals(existingRole.Name, "Admin", StringComparison.Ordinal)
+                && !string.Equals(normalizedName, "Admin", StringComparison.Ordinal)) {
+                throw new InvalidOperationException("Die reservierte Adminrolle kann nicht umbenannt werden.");
+            }
+            if (!string.Equals(existingRole.Name, "Admin", StringComparison.Ordinal)
+                && string.Equals(normalizedName, "Admin", StringComparison.OrdinalIgnoreCase)) {
+                throw new InvalidOperationException("Der Rollenname 'Admin' ist reserviert.");
+            }
+            EnsureRoleNameAvailable(normalizedName, roles, role.Id);
+
+            using var cmd = Conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE roles SET name=@name,description=@description WHERE id=@id";
+            cmd.Parameters.AddWithValue("@id", role.Id);
+            cmd.Parameters.AddWithValue("@name", normalizedName);
+            cmd.Parameters.AddWithValue("@description", description);
+            if (cmd.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException($"Rolle #{role.Id} konnte nicht aktualisiert werden.");
+            tx.Commit();
+            role.Name = normalizedName;
+            role.Description = description;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
-    public void DeleteRole(long id) { ExecWithId("DELETE FROM roles WHERE id=@id", id); }
+    public void DeleteRole(long id) {
+        if (id <= 0)
+            throw new ArgumentOutOfRangeException(nameof(id));
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var (users, permissions) = LoadAuthorizationState(tx);
+            var roles = LoadRoleIdentities(tx);
+            var role = roles.FirstOrDefault(candidate => candidate.Id == id)
+                ?? throw new InvalidOperationException($"Rolle #{id} wurde nicht gefunden.");
+            if (string.Equals(role.Name, "Admin", StringComparison.Ordinal))
+                throw new InvalidOperationException("Die reservierte Adminrolle kann nicht gelöscht werden.");
+
+            var affectedUsers = users.Where(user => user.RoleId == id).ToList();
+            if (affectedUsers.Any(user => user.IsActive
+                && string.Equals(user.Username, global::CashFlowPlannerPro.App.CurrentUsername, StringComparison.Ordinal))) {
+                throw new InvalidOperationException("Sie können Ihre eigene aktive Rolle nicht löschen.");
+            }
+
+            var resultingUsers = users
+                .Select(user => user.RoleId == id ? user with { RoleId = null } : user)
+                .ToList();
+            var resultingPermissions = permissions
+                .Where(permission => permission.RoleId != id)
+                .ToList();
+            EnsureActiveAdministratorRemains(resultingUsers, resultingPermissions);
+
+            foreach (var affectedUser in affectedUsers) {
+                using var unlink = Conn.CreateCommand();
+                unlink.Transaction = tx;
+                unlink.CommandText = "UPDATE users SET role_id=NULL,security_stamp=@stamp WHERE id=@id";
+                unlink.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+                unlink.Parameters.AddWithValue("@id", affectedUser.Id);
+                if (unlink.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException($"Benutzer '{affectedUser.Username}' konnte nicht sicher von der Rolle getrennt werden.");
+            }
+
+            using (var delete = Conn.CreateCommand()) {
+                delete.Transaction = tx;
+                delete.CommandText = "DELETE FROM roles WHERE id=@id";
+                delete.Parameters.AddWithValue("@id", id);
+                if (delete.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException($"Rolle #{id} konnte nicht gelöscht werden.");
+            }
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    sealed record RoleIdentity(long Id, string Name);
+
+    List<RoleIdentity> LoadRoleIdentities(DbTransaction transaction) {
+        var roles = new List<RoleIdentity>();
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT id,name FROM roles ORDER BY id" +
+            (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            roles.Add(new RoleIdentity(reader.GetInt64(0), reader.IsDBNull(1) ? "" : reader.GetString(1)));
+        return roles;
+    }
+
+    static string ValidateRoleName(string? roleName) {
+        var normalized = (roleName ?? "").Trim();
+        if (normalized.Length == 0)
+            throw new ArgumentException("Der Rollenname darf nicht leer sein.", nameof(roleName));
+        if (normalized.Length > 191)
+            throw new ArgumentException("Der Rollenname darf höchstens 191 Zeichen lang sein.", nameof(roleName));
+        if (normalized.Any(char.IsControl))
+            throw new ArgumentException("Der Rollenname enthält unzulässige Steuerzeichen.", nameof(roleName));
+        return normalized;
+    }
+
+    static void EnsureRoleNameAvailable(
+        string roleName,
+        IEnumerable<RoleIdentity> roles,
+        long? exceptRoleId) {
+        if (roles.Any(role => role.Id != exceptRoleId
+            && string.Equals(role.Name, roleName, StringComparison.OrdinalIgnoreCase))) {
+            throw new InvalidOperationException($"Der Rollenname '{roleName}' ist bereits vergeben.");
+        }
+    }
 
     public List<RolePermission> GetRolePermissions(long roleId) {
         var list = new List<RolePermission>();
@@ -2307,41 +4550,219 @@ public sealed class Database : IDisposable {
     }
 
     public void SetRolePermission(long roleId, string pageKey, string accessLevel) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = _dialect.UpsertRolePermission();
-        cmd.Parameters.AddWithValue("@rid", roleId);
-        cmd.Parameters.AddWithValue("@pk", pageKey);
-        cmd.Parameters.AddWithValue("@a", accessLevel);
-        cmd.ExecuteNonQuery();
+        if (roleId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(roleId));
+        pageKey = NormalizePermissionPage(pageKey);
+        accessLevel = NormalizeAccessLevel(accessLevel, rejectInvalid: true);
+
+        using var tx = BeginWriteTransaction();
+        try {
+            var (users, permissions) = LoadAuthorizationState(tx);
+            EnsureRoleExists(roleId, tx);
+
+            var previousAccess = permissions
+                .FirstOrDefault(permission => permission.RoleId == roleId
+                    && string.Equals(permission.PageKey, pageKey, StringComparison.Ordinal))
+                ?.AccessLevel ?? "none";
+            var currentUser = users.FirstOrDefault(candidate =>
+                string.Equals(candidate.Username, global::CashFlowPlannerPro.App.CurrentUsername, StringComparison.Ordinal));
+            if (currentUser is { IsActive: true, RoleId: not null }
+                && currentUser.RoleId.Value == roleId
+                && AccessRank(accessLevel) < AccessRank(previousAccess)) {
+                throw new InvalidOperationException("Sie können Ihre eigenen Berechtigungen nicht herabsetzen.");
+            }
+
+            var resultingPermissions = permissions
+                .Where(permission => permission.RoleId != roleId
+                    || !string.Equals(permission.PageKey, pageKey, StringComparison.Ordinal))
+                .Append(new AuthorizationPermission(roleId, pageKey, accessLevel))
+                .ToList();
+            EnsureActiveAdministratorRemains(users, resultingPermissions);
+
+            using (var cmd = Conn.CreateCommand()) {
+                cmd.Transaction = tx;
+                cmd.CommandText = _dialect.UpsertRolePermission();
+                cmd.Parameters.AddWithValue("@rid", roleId);
+                cmd.Parameters.AddWithValue("@pk", pageKey);
+                cmd.Parameters.AddWithValue("@a", accessLevel);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var affectedUser in users.Where(candidate => candidate.RoleId == roleId)) {
+                using var rotate = Conn.CreateCommand();
+                rotate.Transaction = tx;
+                rotate.CommandText = "UPDATE users SET security_stamp=@stamp WHERE id=@id";
+                rotate.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+                rotate.Parameters.AddWithValue("@id", affectedUser.Id);
+                if (rotate.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException($"Die Sitzung von Benutzer '{affectedUser.Username}' konnte nicht aktualisiert werden.");
+            }
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
     public string GetUserAccessLevel(string username, string pageKey) {
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"SELECT rp.access_level FROM users u
-            JOIN role_permissions rp ON rp.role_id=u.role_id
-            WHERE u.username=@u AND rp.page_key=@p";
-        cmd.Parameters.AddWithValue("@u", username);
-        cmd.Parameters.AddWithValue("@p", pageKey);
-        var result = cmd.ExecuteScalar();
-        return result as string ?? "none";
+        pageKey = (pageKey ?? "").Trim().ToLowerInvariant();
+        return GetUserPermissions(username).GetValueOrDefault(pageKey, "none");
     }
 
     public Dictionary<string, string> GetUserPermissions(string username) {
-        var perms = new Dictionary<string, string>();
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = @"SELECT rp.page_key,rp.access_level FROM users u
-            JOIN role_permissions rp ON rp.role_id=u.role_id
-            WHERE u.username=@u";
-        cmd.Parameters.AddWithValue("@u", username);
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) perms[r.GetString(0)] = r.GetString(1);
-        return perms;
+        username = NormalizeUsernameForLookup(username);
+        if (username.Length == 0)
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+
+        using var tx = Conn.BeginTransaction();
+        try {
+            var user = FindUserExact(username, tx);
+            var permissions = user is { IsActive: true }
+                ? LoadRolePermissionMap(user.RoleId, tx)
+                : new Dictionary<string, string>(StringComparer.Ordinal);
+            tx.Commit();
+            return permissions;
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
     }
 
-    // CRUD: Customers
-    public List<Customer> GetCustomers() {
-        var list = new List<Customer>();
+    Dictionary<string, string> LoadRolePermissionMap(long? roleId, DbTransaction? transaction) {
+        var permissions = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (roleId is null)
+            return permissions;
+
         using var cmd = Conn.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT page_key,access_level FROM role_permissions WHERE role_id=@role ORDER BY id";
+        cmd.Parameters.AddWithValue("@role", roleId.Value);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read()) {
+            var page = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
+            if (page.Length == 0)
+                continue;
+            permissions[page] = NormalizeAccessLevel(
+                reader.IsDBNull(1) ? "none" : reader.GetString(1),
+                rejectInvalid: false);
+        }
+        return permissions;
+    }
+
+    (List<AuthorizationUser> Users, List<AuthorizationPermission> Permissions)
+        LoadAuthorizationState(DbTransaction transaction) {
+        var users = new List<AuthorizationUser>();
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "SELECT id,username,is_active,role_id FROM users ORDER BY id" +
+                (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                users.Add(new AuthorizationUser(
+                    reader.GetInt64(0),
+                    reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    !reader.IsDBNull(2)
+                        && Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) != 0,
+                    reader.IsDBNull(3) ? null : reader.GetInt64(3)));
+            }
+        }
+
+        var permissions = new List<AuthorizationPermission>();
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "SELECT role_id,page_key,access_level FROM role_permissions ORDER BY role_id,id" +
+                (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                permissions.Add(new AuthorizationPermission(
+                    reader.GetInt64(0),
+                    reader.IsDBNull(1) ? "" : reader.GetString(1).Trim(),
+                    NormalizeAccessLevel(reader.IsDBNull(2) ? "none" : reader.GetString(2), rejectInvalid: false)));
+            }
+        }
+        return (users, permissions);
+    }
+
+    void EnsureRoleExists(long? roleId, DbTransaction transaction) {
+        if (roleId is null)
+            return;
+        using var cmd = Conn.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT id FROM roles WHERE id=@id" +
+            (_dialect is MariaDbDialect ? " FOR UPDATE" : "");
+        cmd.Parameters.AddWithValue("@id", roleId.Value);
+        if (cmd.ExecuteScalar() is null or DBNull)
+            throw new InvalidOperationException($"Rolle #{roleId.Value} wurde nicht gefunden.");
+    }
+
+    static Dictionary<string, string> BuildRolePermissionMap(
+        long? roleId,
+        IEnumerable<AuthorizationPermission> permissions) {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (roleId is null)
+            return result;
+        foreach (var permission in permissions.Where(candidate => candidate.RoleId == roleId.Value))
+            result[permission.PageKey] = NormalizeAccessLevel(permission.AccessLevel, rejectInvalid: false);
+        return result;
+    }
+
+    static bool HasPermissionReduction(
+        IReadOnlyDictionary<string, string> previous,
+        IReadOnlyDictionary<string, string> replacement) {
+        foreach (var page in previous.Keys.Concat(replacement.Keys).Distinct(StringComparer.Ordinal)) {
+            if (AccessRank(replacement.GetValueOrDefault(page, "none"))
+                < AccessRank(previous.GetValueOrDefault(page, "none")))
+                return true;
+        }
+        return false;
+    }
+
+    static bool HasFullAdminPermission(
+        long? roleId,
+        IEnumerable<AuthorizationPermission> permissions) =>
+        roleId.HasValue && permissions.Any(permission =>
+            permission.RoleId == roleId.Value
+            && string.Equals(permission.PageKey, "admin", StringComparison.Ordinal)
+            && string.Equals(permission.AccessLevel, "full", StringComparison.Ordinal));
+
+    static void EnsureActiveAdministratorRemains(
+        IEnumerable<AuthorizationUser> users,
+        IEnumerable<AuthorizationPermission> permissions) {
+        if (!users.Any(user => user.IsActive && HasFullAdminPermission(user.RoleId, permissions)))
+            throw new InvalidOperationException("Mindestens ein aktiver Benutzer mit vollständigem Admin-Zugriff muss erhalten bleiben.");
+    }
+
+    static string NormalizePermissionPage(string? pageKey) {
+        var normalized = (pageKey ?? "").Trim().ToLowerInvariant();
+        if (!KnownPermissionPages.Contains(normalized))
+            throw new ArgumentException("Unbekannter Berechtigungsbereich.", nameof(pageKey));
+        return normalized;
+    }
+
+    static string NormalizeAccessLevel(string? accessLevel, bool rejectInvalid) {
+        var normalized = (accessLevel ?? "").Trim().ToLowerInvariant();
+        if (normalized is "none" or "read" or "full")
+            return normalized;
+        if (rejectInvalid)
+            throw new ArgumentException("Die Zugriffsstufe muss 'none', 'read' oder 'full' sein.", nameof(accessLevel));
+        return "none";
+    }
+
+    static int AccessRank(string? accessLevel) =>
+        NormalizeAccessLevel(accessLevel, rejectInvalid: false) switch {
+            "read" => 1,
+            "full" => 2,
+            _ => 0
+        };
+
+    // CRUD: Customers
+    public List<Customer> GetCustomers() => GetCustomers(Conn);
+
+    static List<Customer> GetCustomers(DbConnection connection) {
+        var list = new List<Customer>();
+        using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT id,customer_number,company,contact_name,email,phone,street,zip_code,city,country,tax_id,status,notes,created_at FROM customers ORDER BY company,contact_name";
         using var r = cmd.ExecuteReader();
         while (r.Read()) {
@@ -2364,6 +4785,134 @@ public sealed class Database : IDisposable {
         }
         return list;
     }
+
+    /// <summary>
+    /// Resolves an imported or user-selected customer to one stable local ID.
+    /// Source identity wins over customer number and display name. Ambiguous
+    /// matches are rejected instead of silently linking a document incorrectly.
+    /// </summary>
+    public long? ResolveCustomerId(
+        string? displayName,
+        string? customerNumber = null,
+        string? sourceProvider = null,
+        string? sourceExternalId = null) {
+        var normalizedName = NormalizeCustomerLookupText(displayName);
+        var normalizedNumber = (customerNumber ?? "").Trim();
+        var normalizedProvider = (sourceProvider ?? "").Trim();
+        var normalizedExternalId = (sourceExternalId ?? "").Trim();
+
+        if (string.IsNullOrEmpty(normalizedProvider) != string.IsNullOrEmpty(normalizedExternalId))
+            throw new ArgumentException("Quellanbieter und externe Kunden-ID müssen gemeinsam angegeben werden.");
+        if (normalizedProvider.Length > 32)
+            throw new ArgumentException("Der Quellanbieter darf höchstens 32 Zeichen enthalten.", nameof(sourceProvider));
+        if (normalizedExternalId.Length > 191)
+            throw new ArgumentException("Die externe Kunden-ID darf höchstens 191 Zeichen enthalten.", nameof(sourceExternalId));
+        if (normalizedNumber.Length > 100)
+            throw new ArgumentException("Die Kundennummer darf höchstens 100 Zeichen enthalten.", nameof(customerNumber));
+
+        var candidates = new List<CustomerIdentityCandidate>();
+        using (var cmd = Conn.CreateCommand()) {
+            cmd.CommandText = "SELECT id,customer_number,company,contact_name,notes FROM customers";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                var company = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                var contact = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                candidates.Add(new CustomerIdentityCandidate(
+                    reader.GetInt64(0),
+                    reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    string.IsNullOrWhiteSpace(company) ? contact : company,
+                    reader.IsDBNull(4) ? "" : reader.GetString(4)));
+            }
+        }
+
+        if (!string.IsNullOrEmpty(normalizedProvider)) {
+            var sourceMarker = normalizedProvider + ":" + normalizedExternalId;
+            var matches = candidates
+                .Where(candidate => ContainsExactCustomerSourceMarker(candidate.Notes, sourceMarker))
+                .Select(candidate => candidate.Id)
+                .Distinct()
+                .ToList();
+            if (matches.Count > 0)
+                return RequireUniqueCustomerMatch(matches, "Quellkennung");
+        }
+
+        if (!string.IsNullOrEmpty(normalizedNumber)) {
+            var matches = candidates
+                .Where(candidate => string.Equals(
+                    candidate.CustomerNumber.Trim(), normalizedNumber, StringComparison.OrdinalIgnoreCase))
+                .Select(candidate => candidate.Id)
+                .Distinct()
+                .ToList();
+            if (matches.Count > 0)
+                return RequireUniqueCustomerMatch(matches, "Kundennummer");
+        }
+
+        if (!string.IsNullOrEmpty(normalizedName)) {
+            var matches = candidates
+                .Where(candidate => string.Equals(
+                    NormalizeCustomerLookupText(candidate.DisplayName), normalizedName,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(candidate => candidate.Id)
+                .Distinct()
+                .ToList();
+            if (matches.Count > 0)
+                return RequireUniqueCustomerMatch(matches, "Kundenname");
+        }
+
+        return null;
+    }
+
+    private long? NormalizeDocumentCustomerReference(long? currentCustomerId, string? displayName) {
+        var normalizedName = NormalizeCustomerLookupText(displayName);
+        if (string.IsNullOrEmpty(normalizedName))
+            return null;
+
+        if (currentCustomerId is > 0) {
+            using var current = Conn.CreateCommand();
+            current.CommandText = "SELECT company,contact_name FROM customers WHERE id=@id";
+            current.Parameters.AddWithValue("@id", currentCustomerId.Value);
+            using var reader = current.ExecuteReader();
+            if (reader.Read()) {
+                var company = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var contact = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var currentName = string.IsNullOrWhiteSpace(company) ? contact : company;
+                if (string.Equals(
+                        NormalizeCustomerLookupText(currentName), normalizedName,
+                        StringComparison.OrdinalIgnoreCase))
+                    return currentCustomerId;
+            }
+        }
+
+        return ResolveCustomerId(displayName);
+    }
+
+    private void NormalizeInvoiceCustomerReference(Invoice invoice) {
+        invoice.Customer = (invoice.Customer ?? "").Trim();
+        invoice.CustomerId = NormalizeDocumentCustomerReference(invoice.CustomerId, invoice.Customer);
+    }
+
+    private void NormalizeOfferCustomerReference(Offer offer) {
+        offer.Customer = (offer.Customer ?? "").Trim();
+        offer.CustomerId = NormalizeDocumentCustomerReference(offer.CustomerId, offer.Customer);
+    }
+
+    private static long RequireUniqueCustomerMatch(IReadOnlyCollection<long> matches, string criterion) {
+        if (matches.Count != 1)
+            throw new InvalidOperationException(
+                $"Die {criterion} ist mehreren Kunden zugeordnet. Bitte wählen Sie den Kunden eindeutig aus.");
+        return matches.First();
+    }
+
+    private static bool ContainsExactCustomerSourceMarker(string? notes, string marker) =>
+        (notes ?? "")
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(line => string.Equals(line, marker, StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeCustomerLookupText(string? value) =>
+        string.Join(' ', (value ?? "")
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     public void AddCustomer(Customer c) {
         NormalizeCustomerNumber(c);
@@ -2413,7 +4962,38 @@ public sealed class Database : IDisposable {
             throw new InvalidOperationException("Die Kundennummer darf höchstens 100 Zeichen lang sein.");
     }
 
-    public void DeleteCustomer(long id) { ExecWithId("DELETE FROM customers WHERE id=@id", id); }
+    public void DeleteCustomer(long id) {
+        if (id <= 0)
+            throw new ArgumentOutOfRangeException(nameof(id));
+
+        using var tx = BeginWriteTransaction();
+        try {
+            foreach (var table in new[] { "invoices", "offers" }) {
+                using var unlink = Conn.CreateCommand();
+                unlink.Transaction = tx;
+                unlink.CommandText = $"UPDATE {table} SET customer_id=NULL WHERE customer_id=@id";
+                unlink.Parameters.AddWithValue("@id", id);
+                unlink.ExecuteNonQuery();
+            }
+
+            using var delete = Conn.CreateCommand();
+            delete.Transaction = tx;
+            delete.CommandText = "DELETE FROM customers WHERE id=@id";
+            delete.Parameters.AddWithValue("@id", id);
+            delete.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch {
+            TryRollback(tx);
+            throw;
+        }
+    }
+
+    sealed record CustomerIdentityCandidate(
+        long Id,
+        string CustomerNumber,
+        string DisplayName,
+        string Notes);
 
     public void SeedDemoData() {
         using (var cmd = Conn.CreateCommand()) {
@@ -2424,11 +5004,11 @@ public sealed class Database : IDisposable {
 
         var adminRoleId = EnsureRole("Admin", "Vollzugriff auf alle Bereiche");
 
-        AddUser("demo", "demo", "Demo Benutzer");
+        AddSeedUser("demo", "demo", "Demo Benutzer");
         SetUserRole("demo", adminRoleId);
-        AddUser("anna", "demo", "Anna Weber");
+        AddSeedUser("anna", "demo", "Anna Weber");
         SetUserRole("anna", EnsureRole("Accounting", "Finanzen, Rechnungen, Angebote und Steuern"));
-        AddUser("mika", "demo", "Mika Schneider");
+        AddSeedUser("mika", "demo", "Mika Schneider");
         SetUserRole("mika", EnsureRole("Ingenieur", "Projekt-, Ressourcen- und Aufgabenbearbeitung"));
 
         SetSettingStartBalance(19531.47);
@@ -3045,7 +5625,7 @@ public sealed class Database : IDisposable {
     }
 
     void EnsureDefaultRoles() {
-        var allPages = new[] { "dashboard", "transactions", "fixkosten", "taxes", "invoices", "offers", "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin" };
+        var allPages = new[] { "dashboard", "transactions", "bank", "fixkosten", "taxes", "invoices", "offers", "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin" };
 
         long adminRoleId = EnsureRole("Admin", "Vollzugriff auf alle Bereiche");
         foreach (var page in allPages)
@@ -3062,6 +5642,7 @@ public sealed class Database : IDisposable {
         long accountingRoleId = EnsureRole("Accounting", "Finanzen, Rechnungen, Angebote und Steuern");
         EnsureRolePermission(accountingRoleId, "dashboard", "read");
         EnsureRolePermission(accountingRoleId, "transactions", "full");
+        EnsureRolePermission(accountingRoleId, "bank", "full");
         EnsureRolePermission(accountingRoleId, "fixkosten", "full");
         EnsureRolePermission(accountingRoleId, "taxes", "full");
         EnsureRolePermission(accountingRoleId, "invoices", "full");
@@ -3076,6 +5657,7 @@ public sealed class Database : IDisposable {
         long managementRoleId = EnsureRole("Management", "Lesender Zugriff auf relevante Bereiche");
         EnsureRolePermission(managementRoleId, "dashboard", "read");
         EnsureRolePermission(managementRoleId, "transactions", "read");
+        EnsureRolePermission(managementRoleId, "bank", "read");
         EnsureRolePermission(managementRoleId, "fixkosten", "read");
         EnsureRolePermission(managementRoleId, "taxes", "read");
         EnsureRolePermission(managementRoleId, "invoices", "read");
@@ -3087,10 +5669,15 @@ public sealed class Database : IDisposable {
         EnsureRolePermission(managementRoleId, "kunden", "read");
         EnsureRolePermission(managementRoleId, "integrations", "read");
 
-        using var cmd = Conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET role_id=@rid WHERE username='admin' AND (role_id IS NULL OR role_id=0)";
-        cmd.Parameters.AddWithValue("@rid", adminRoleId);
-        cmd.ExecuteNonQuery();
+        var reservedAdmin = FindUserExact("admin");
+        if (reservedAdmin is not null && reservedAdmin.RoleId != adminRoleId) {
+            using var cmd = Conn.CreateCommand();
+            cmd.CommandText = "UPDATE users SET role_id=@rid,security_stamp=@stamp WHERE id=@id";
+            cmd.Parameters.AddWithValue("@rid", adminRoleId);
+            cmd.Parameters.AddWithValue("@stamp", CreateSecurityStamp());
+            cmd.Parameters.AddWithValue("@id", reservedAdmin.Id);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     long EnsureRole(string name, string description) {

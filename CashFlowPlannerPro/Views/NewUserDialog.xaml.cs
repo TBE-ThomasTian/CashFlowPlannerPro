@@ -25,14 +25,23 @@ public partial class NewUserDialog : Window
             ModernMessageBox.ShowError("Bitte geben Sie einen Benutzernamen ein.", "Pflichtfeld");
             return;
         }
-        if (string.IsNullOrEmpty(PbPassword.Password))
+        if (string.Equals(Username, "admin", StringComparison.OrdinalIgnoreCase))
         {
-            ModernMessageBox.ShowError("Bitte geben Sie ein Passwort ein.", "Pflichtfeld");
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("ReservedAdminUsername"),
+                LocalizationManager.Get("AppErrorTitle"));
             return;
         }
-        if (PbPassword.Password != PbConfirm.Password)
+        if (!PasswordPolicy.TryValidate(PbPassword.Password, Username, out var passwordError))
         {
-            ModernMessageBox.ShowError("Die Passwörter stimmen nicht überein.", "Passwort");
+            ModernMessageBox.ShowError(passwordError, LocalizationManager.Get("PasswordTitle"));
+            return;
+        }
+        if (!string.Equals(PbPassword.Password, PbConfirm.Password, StringComparison.Ordinal))
+        {
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("PasswordsDoNotMatch"),
+                LocalizationManager.Get("PasswordTitle"));
             return;
         }
         Saved = true;

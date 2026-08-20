@@ -110,6 +110,7 @@
                                         Cursor="Hand" Click="NewDbButton_Click"/>
                             </Grid>
                             <Button x:Name="ImportServerBtn" Content="📥 Von Server importieren" Click="ImportFromMariaDb_Click" Height="30"
+                                    Visibility="Collapsed"
                                     Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
                                     Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
                         </StackPanel>
@@ -137,7 +138,7 @@
                             <TextBox x:Name="TbMariaDatabase" Text="cashflow" FontSize="13" Foreground="White" CaretBrush="White"
                                      Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
                             <TextBlock Text="DB-Benutzer" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
-                            <TextBox x:Name="TbMariaUser" Text="root" FontSize="13" Foreground="White" CaretBrush="White"
+                            <TextBox x:Name="TbMariaUser" Text="" FontSize="13" Foreground="White" CaretBrush="White"
                                      Background="#3A3370" BorderBrush="#4A4380" Padding="10,8" Margin="0,0,0,6"/>
                             <TextBlock Text="DB-Passwort" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,3"/>
                             <PasswordBox x:Name="PbMariaPassword" FontSize="13" Foreground="White" CaretBrush="White"
@@ -148,6 +149,7 @@
                             <TextBlock x:Name="TbMariaStatus" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,0,0,4"
                                        TextWrapping="Wrap" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
                             <Button x:Name="ImportLocalBtn" Content="📥 Lokale DB importieren" Click="ImportFromSqlite_Click" Height="30"
+                                    Visibility="Collapsed"
                                     Background="Transparent" Foreground="#64748B" BorderBrush="#4A4380" BorderThickness="1"
                                     Cursor="Hand" FontSize="11" Margin="0,0,0,4"/>
                         </StackPanel>
@@ -275,7 +277,7 @@
                         Margin="0,10,0,0"
                         Click="DemoButton_Click" />
 
-                <TextBlock x:Name="VersionText" Text="v2.1.0"
+                <TextBlock x:Name="VersionText" Text="v2.2.0"
                            Foreground="#4A4380" FontSize="11"
                            HorizontalAlignment="Left" Margin="0,20,0,0"/>
             </StackPanel>

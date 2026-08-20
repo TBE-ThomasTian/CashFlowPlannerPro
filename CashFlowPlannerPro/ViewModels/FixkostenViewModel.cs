@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -34,14 +35,17 @@ public partial class FixkostenViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.add")) return;
         AddFixkosten(CreateDefaultFixkosten());
     }
 
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.delete")) return;
         if (SelectedTransaction == null) return;
         if (!ModernMessageBox.ShowConfirm("Fixkosten-Eintrag wirklich loeschen?", "Loeschen")) return;
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.delete.confirmed")) return;
         Database.Instance.DeleteTransaction(SelectedTransaction.Id);
         Fixkosten.Remove(SelectedTransaction);
         SelectedTransaction = Fixkosten.FirstOrDefault();
@@ -59,6 +63,7 @@ public partial class FixkostenViewModel : ObservableObject
 
     public void AddFixkosten(Transaction t)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.add")) return;
         Save(t);
         Fixkosten.Insert(0, t);
         SelectedTransaction = t;
@@ -66,6 +71,7 @@ public partial class FixkostenViewModel : ObservableObject
 
     public void ApplyFixkostenChanges(Transaction target, Transaction source)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.update")) return;
         var index = Fixkosten.IndexOf(target);
         if (index < 0)
             return;
@@ -92,6 +98,7 @@ public partial class FixkostenViewModel : ObservableObject
 
     public void Save(Transaction t)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.save")) return;
         NormalizeFixkosten(t);
         t.CategoryId = ResolveCategoryId(t.CategoryName);
 

@@ -3,56 +3,136 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
   workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-windows-release:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      app_version: ${{ steps.release.outputs.app_version }}
+      asset_version: ${{ steps.release.outputs.asset_version }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - name: Validate release version
+      - name: Resolve and validate release version
+        id: release
+        shell: pwsh
+        env:
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Get-ProjectVersion([string]$path) {
+            [xml]$project = Get-Content -LiteralPath $path -Raw
+            $node = $project.SelectSingleNode('/Project/PropertyGroup/Version')
+            if ($null -eq $node) { throw "Missing <Version> in $path" }
+            return $node.InnerText.Trim()
+          }
+
+          $appVersion = Get-ProjectVersion "CashFlowPlannerPro/CashFlowPlannerPro.csproj"
+          $updaterVersion = Get-ProjectVersion "CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj"
+          $installerText = Get-Content -LiteralPath "installer/CashFlowPlannerPro.iss" -Raw
+          $installerMatch = [regex]::Match($installerText, '(?m)^\s*#define\s+MyAppVersion\s+"([^"]+)"\s*$')
+          if (-not $installerMatch.Success) { throw "Installer version is missing." }
+          $installerVersion = $installerMatch.Groups[1].Value
+          $versions = @($appVersion, $updaterVersion, $installerVersion)
+          if (@($versions | Select-Object -Unique).Count -ne 1) {
+            throw "Version mismatch: app=$appVersion updater=$updaterVersion installer=$installerVersion"
+          }
+          if ($appVersion -cnotmatch '^\d+\.\d+\.\d+$') { throw "Stable SemVer required: $appVersion" }
+
+          if ($env:RELEASE_REF_TYPE -eq "tag") {
+            if ($env:RELEASE_REF_NAME -cnotmatch '^v\d+\.\d+\.\d+$') {
+              throw "Invalid release tag format. Expected vMAJOR.MINOR.PATCH."
+            }
+            if ($env:RELEASE_REF_NAME -cne "v$appVersion") {
+              throw "Tag $env:RELEASE_REF_NAME does not match project version v$appVersion"
+            }
+            $assetVersion = $env:RELEASE_REF_NAME
+          } else {
+            $assetVersion = "v$appVersion-manual-$env:RELEASE_RUN_NUMBER"
+          }
+
+          "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+          "asset_version=$assetVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "10.0.400"
+
+      - name: Restore and vulnerability gate
+        shell: pwsh
+        run: >-
+          dotnet restore CashFlowPlannerPro.sln
+          -p:NuGetAudit=true -p:NuGetAuditMode=all
+          -warnaserror:NU1901,NU1902,NU1903,NU1904
+
+      - name: Build release
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
+        run: dotnet build CashFlowPlannerPro.sln -c Release --no-restore -p:Version=$env:APP_VERSION
+
+      - name: Run tests
+        shell: pwsh
+        run: dotnet test CashFlowPlannerPro.sln -c Release --no-restore --no-build
+
+      - name: Run security and data-integrity smoke tests
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          [xml]$appProject = Get-Content -LiteralPath "CashFlowPlannerPro/CashFlowPlannerPro.csproj"
-          [xml]$updaterProject = Get-Content -LiteralPath "CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj"
-          $appVersion = [string]$appProject.Project.PropertyGroup.Version
-          $updaterVersion = [string]$updaterProject.Project.PropertyGroup.Version
-          $installerMatch = Select-String -LiteralPath "installer/CashFlowPlannerPro.iss" -Pattern '^#define MyAppVersion "([^"]+)"$'
-          if (-not $installerMatch) { throw "Installer version is missing." }
-          $installerVersion = $installerMatch.Matches[0].Groups[1].Value
-          if ($appVersion -ne $updaterVersion -or $appVersion -ne $installerVersion) {
-            throw "Version mismatch: app=$appVersion updater=$updaterVersion installer=$installerVersion"
-          }
-          if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Stable SemVer required: $appVersion" }
-          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$appVersion") {
-            throw "Tag ${{ github.ref_name }} does not match project version v$appVersion"
-          }
+          $app = "CashFlowPlannerPro/bin/Release/net10.0-windows10.0.19041.0/CashFlowPlannerPro.exe"
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Smoke-test apphost is missing: $app" }
+          $process = Start-Process -FilePath $app -ArgumentList "--security-smoke" -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "Security smoke tests failed with exit code $($process.ExitCode)." }
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Restore
-        run: dotnet restore CashFlowPlannerPro.sln -r win-x64
-
-      - name: Publish app
-        run: dotnet publish CashFlowPlannerPro/CashFlowPlannerPro.csproj -c Release -r win-x64 --self-contained true --no-restore -o publish/win-x64
-
-      - name: Publish updater
-        run: dotnet publish CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts/updater
-
-      - name: Prepare package
+      - name: Restore win-x64 publish targets
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $auditProperties = @(
+            "-p:NuGetAudit=true",
+            "-p:NuGetAuditMode=all",
+            "-warnaserror:NU1901,NU1902,NU1903,NU1904"
+          )
+          dotnet restore CashFlowPlannerPro/CashFlowPlannerPro.csproj -r win-x64 @auditProperties
+          if ($LASTEXITCODE -ne 0) { throw "App win-x64 restore failed." }
+          dotnet restore CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -r win-x64 @auditProperties
+          if ($LASTEXITCODE -ne 0) { throw "Updater win-x64 restore failed." }
+
+      - name: Publish app
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
+        run: dotnet publish CashFlowPlannerPro/CashFlowPlannerPro.csproj -c Release -r win-x64 --self-contained true --no-restore -p:Version=$env:APP_VERSION -o publish/win-x64
+
+      - name: Publish updater
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
+        run: dotnet publish CashFlowPlannerPro.Updater/CashFlowPlannerPro.Updater.csproj -c Release -r win-x64 --self-contained true --no-restore -p:Version=$env:APP_VERSION -o artifacts/updater
+
+      - name: Prepare package tree
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path publish/win-x64/updater | Out-Null
           Copy-Item -Path artifacts/updater/* -Destination publish/win-x64/updater -Recurse -Force
           $requiredFiles = @(
@@ -64,50 +144,267 @@ jobs:
             "publish/win-x64/updater/hostfxr.dll"
           )
           foreach ($file in $requiredFiles) {
-            if (-not (Test-Path -LiteralPath $file)) { throw "Published file is missing: $file" }
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Published file is missing: $file" }
           }
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
-          Compress-Archive -Path publish/win-x64/* -DestinationPath "CashFlowPlannerPro-$version-win-x64.zip" -Force
 
-      - name: Install Inno Setup
+      - name: Require signing credentials for tagged releases
+        if: github.ref_type == 'tag'
         shell: pwsh
-        run: choco install innosetup --no-progress -y
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERT_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:SIGNING_CERT_PASSWORD)) {
+            throw "Tagged releases require WINDOWS_SIGNING_CERT_BASE64 and WINDOWS_SIGNING_CERT_PASSWORD repository secrets."
+          }
 
-      - name: Build installer
+      - name: Sign application binaries
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $certificatePath = Join-Path $env:RUNNER_TEMP "cashflowplannerpro-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+            $signTool = Get-ChildItem -LiteralPath "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+              Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signTool) { throw "signtool.exe was not found." }
+            foreach ($file in @("publish/win-x64/CashFlowPlannerPro.exe", "publish/win-x64/updater/CashFlowPlannerPro.Updater.exe")) {
+              & $signTool sign /fd SHA256 /td SHA256 /tr "https://timestamp.digicert.com" /f $certificatePath /p $env:SIGNING_CERT_PASSWORD $file
+              if ($LASTEXITCODE -ne 0) { throw "Signing failed for $file" }
+              & $signTool verify /pa $file
+              if ($LASTEXITCODE -ne 0) { throw "Signature verification failed for $file" }
+            }
+            "SIGNTOOL_PATH=$signTool" >> $env:GITHUB_ENV
+          } finally {
+            if (Test-Path -LiteralPath $certificatePath) { Remove-Item -LiteralPath $certificatePath -Force }
+          }
+
+      - name: Create and sign complete package manifest
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+
+          $root = (Resolve-Path -LiteralPath "publish/win-x64").Path
+          $manifestPath = Join-Path $root "update-manifest.json"
+          $signaturePath = Join-Path $root "update-manifest.p7s"
+          foreach ($metadataPath in @($manifestPath, $signaturePath)) {
+            if (Test-Path -LiteralPath $metadataPath) {
+              throw "Unexpected stale package metadata: $metadataPath"
+            }
+          }
+
+          $files = @(
+            Get-ChildItem -LiteralPath $root -File -Recurse |
+              ForEach-Object {
+                $relativePath = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+                [ordered]@{
+                  path = $relativePath
+                  length = $_.Length
+                  sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+                }
+              } |
+              Sort-Object { $_.path }
+          )
+          if ($files.Count -eq 0) { throw "The package tree is empty." }
+
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            version = $env:APP_VERSION
+            files = $files
+          }
+          $json = $manifest | ConvertTo-Json -Depth 5 -Compress
+          [IO.File]::WriteAllText($manifestPath, $json, [Text.UTF8Encoding]::new($false))
+
+          $certificateBytes = [Convert]::FromBase64String($env:SIGNING_CERT_BASE64)
+          try {
+            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $certificateBytes,
+              $env:SIGNING_CERT_PASSWORD,
+              [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+            try {
+              if (-not $certificate.HasPrivateKey) { throw "The signing certificate has no private key." }
+              $contentBytes = [IO.File]::ReadAllBytes($manifestPath)
+              $cms = [Security.Cryptography.Pkcs.SignedCms]::new(
+                [Security.Cryptography.Pkcs.ContentInfo]::new($contentBytes),
+                $true)
+              $signer = [Security.Cryptography.Pkcs.CmsSigner]::new(
+                [Security.Cryptography.Pkcs.SubjectIdentifierType]::IssuerAndSerialNumber,
+                $certificate)
+              $signer.DigestAlgorithm = [Security.Cryptography.Oid]::new("2.16.840.1.101.3.4.2.1")
+              $signer.IncludeOption = [Security.Cryptography.X509Certificates.X509IncludeOption]::ExcludeRoot
+              $signer.SignedAttributes.Add([Security.Cryptography.Pkcs.Pkcs9SigningTime]::new())
+              $cms.ComputeSignature($signer)
+              [IO.File]::WriteAllBytes($signaturePath, $cms.Encode())
+
+              $verification = [Security.Cryptography.Pkcs.SignedCms]::new(
+                [Security.Cryptography.Pkcs.ContentInfo]::new($contentBytes),
+                $true)
+              $verification.Decode([IO.File]::ReadAllBytes($signaturePath))
+              $verification.CheckSignature($false)
+              if ($verification.SignerInfos.Count -ne 1) { throw "Manifest signer count is invalid." }
+              $manifestSigner = $verification.SignerInfos[0].Certificate
+              if ($null -eq $manifestSigner -or
+                  $manifestSigner.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) -cne
+                  $certificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256)) {
+                throw "Manifest signer does not match the release certificate."
+              }
+            } finally {
+              $certificate.Dispose()
+            }
+          } finally {
+            [Array]::Clear($certificateBytes, 0, $certificateBytes.Length)
+          }
+
+      - name: Verify signed package with production updater
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          & "publish/win-x64/updater/CashFlowPlannerPro.Updater.exe" --verify-package "publish/win-x64"
+          if ($LASTEXITCODE -ne 0) {
+            throw "The production updater rejected the signed package tree."
+          }
+
+      - name: Install Inno Setup
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --no-progress -y
+
+      - name: Build installer
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw "Inno Setup compiler not found: $iscc" }
           & $iscc "installer\CashFlowPlannerPro.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
-      - name: Verify release assets
+      - name: Sign installer
+        if: github.ref_type == 'tag'
         shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
         run: |
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
-          $zip = "CashFlowPlannerPro-$version-win-x64.zip"
-          [xml]$appProject = Get-Content -LiteralPath "CashFlowPlannerPro/CashFlowPlannerPro.csproj"
-          $installer = "installer/output/CashFlowPlannerPro_Setup_$($appProject.Project.PropertyGroup.Version).exe"
-          if (-not (Test-Path -LiteralPath $zip)) { throw "Release ZIP is missing: $zip" }
-          if (-not (Test-Path -LiteralPath $installer)) { throw "Installer is missing: $installer" }
-          Get-FileHash -Algorithm SHA256 -LiteralPath $zip, $installer
+          $ErrorActionPreference = "Stop"
+          $certificatePath = Join-Path $env:RUNNER_TEMP "cashflowplannerpro-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+            $installer = "installer/output/CashFlowPlannerPro_Setup_$env:APP_VERSION.exe"
+            & $env:SIGNTOOL_PATH sign /fd SHA256 /td SHA256 /tr "https://timestamp.digicert.com" /f $certificatePath /p $env:SIGNING_CERT_PASSWORD $installer
+            if ($LASTEXITCODE -ne 0) { throw "Installer signing failed." }
+            & $env:SIGNTOOL_PATH verify /pa $installer
+            if ($LASTEXITCODE -ne 0) { throw "Installer signature verification failed." }
+          } finally {
+            if (Test-Path -LiteralPath $certificatePath) { Remove-Item -LiteralPath $certificatePath -Force }
+          }
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Package and checksum release assets
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.release.outputs.app_version }}
+          ASSET_VERSION: ${{ steps.release.outputs.asset_version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (Test-Path -LiteralPath "release-assets") {
+            throw "release-assets must start empty on the clean release runner."
+          }
+          New-Item -ItemType Directory -Path release-assets | Out-Null
+          $zip = "release-assets/CashFlowPlannerPro-$env:ASSET_VERSION-win-x64.zip"
+          $builtInstaller = "installer/output/CashFlowPlannerPro_Setup_$env:APP_VERSION.exe"
+          $installer = "release-assets/CashFlowPlannerPro_Setup_$env:APP_VERSION.exe"
+          Compress-Archive -Path publish/win-x64/* -DestinationPath $zip -Force
+          if (-not (Test-Path -LiteralPath $builtInstaller -PathType Leaf)) { throw "Installer is missing: $builtInstaller" }
+          Copy-Item -LiteralPath $builtInstaller -Destination $installer
+          foreach ($asset in @($zip, $installer)) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Release asset is missing: $asset" }
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($asset))" | Set-Content -LiteralPath "$asset.sha256" -Encoding ascii
+          }
+
+          $zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          $versionInfo = [ordered]@{
+            version = $env:APP_VERSION
+            url = "https://github.com/TBE-ThomasTian/CashFlowPlannerPro/releases/download/$env:ASSET_VERSION/$([IO.Path]::GetFileName($zip))"
+            sha256 = $zipHash
+            notes = "CashFlow Planner Pro $env:APP_VERSION"
+            mandatory = $false
+          }
+          $versionJson = $versionInfo | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText(
+            "release-assets/version.json",
+            $versionJson,
+            [Text.UTF8Encoding]::new($false))
+
+          $expectedNames = @(
+            [IO.Path]::GetFileName($zip),
+            [IO.Path]::GetFileName($installer),
+            [IO.Path]::GetFileName("$zip.sha256"),
+            [IO.Path]::GetFileName("$installer.sha256"),
+            "version.json"
+          ) | Sort-Object
+          $actualNames = @(Get-ChildItem -LiteralPath release-assets -File | Select-Object -ExpandProperty Name | Sort-Object)
+          if (Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames) {
+            throw "The release asset set is not exact."
+          }
+
+      - name: Upload signed release assets
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: cashflowplannerpro-win-x64
+          name: cashflowplannerpro-${{ steps.release.outputs.asset_version }}-win-x64
           path: |
-            CashFlowPlannerPro-*-win-x64.zip
-            installer/output/CashFlowPlannerPro_Setup_*.exe
+            release-assets/CashFlowPlannerPro-${{ steps.release.outputs.asset_version }}-win-x64.zip
+            release-assets/CashFlowPlannerPro-${{ steps.release.outputs.asset_version }}-win-x64.zip.sha256
+            release-assets/CashFlowPlannerPro_Setup_${{ steps.release.outputs.app_version }}.exe
+            release-assets/CashFlowPlannerPro_Setup_${{ steps.release.outputs.app_version }}.exe.sha256
+            release-assets/version.json
           if-no-files-found: error
 
+  publish-github-release:
+    if: github.ref_type == 'tag'
+    needs: build-windows-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: RELEASE_NOTES.md
+
+      - name: Download verified assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cashflowplannerpro-${{ needs.build-windows-release.outputs.asset_version }}-win-x64
+          path: release-assets
+
       - name: Create GitHub release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           files: |
-            CashFlowPlannerPro-*-win-x64.zip
-            installer/output/CashFlowPlannerPro_Setup_*.exe
+            release-assets/CashFlowPlannerPro-${{ needs.build-windows-release.outputs.asset_version }}-win-x64.zip
+            release-assets/CashFlowPlannerPro-${{ needs.build-windows-release.outputs.asset_version }}-win-x64.zip.sha256
+            release-assets/CashFlowPlannerPro_Setup_${{ needs.build-windows-release.outputs.app_version }}.exe
+            release-assets/CashFlowPlannerPro_Setup_${{ needs.build-windows-release.outputs.app_version }}.exe.sha256
+            release-assets/version.json
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
           fail_on_unmatched_files: true

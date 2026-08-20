@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -51,7 +52,8 @@ public partial class DashboardViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            StartBalance = await Task.Run(() => Database.Instance.GetSettingStartBalance());
+            StartBalance = await Database.Instance.RunWithIndependentConnectionAsync(
+                database => database.GetSettingStartBalance());
             await Refresh();
         }
         finally
@@ -66,17 +68,17 @@ public partial class DashboardViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var snapshot = await Task.Run(() =>
+            var snapshot = await Database.Instance.RunWithIndependentConnectionAsync(database =>
             {
-                var rows = Database.Instance.MonthlyCashflow(
+                var rows = database.MonthlyCashflow(
                     HorizonMonths, IncludeOffersOffen, IncludeOffersBeauftragt, IncludeInvoices, IncludeRecurring);
-                var targets = Database.Instance.GetTargets();
-                string activeOffers = Eur(Database.Instance.ActiveOffersSum());
-                string openInvoices = Eur(Database.Instance.OpenInvoicesSum());
-                string hoursThisMonth = Database.Instance.GetHoursBookedThisMonth().ToString("N1", De) + " h";
-                string runningTimers = Database.Instance.CountRunningTimeEntries().ToString("N0", De);
-                var todos = Database.Instance.GetAllTodos();
-                var resources = Database.Instance.GetResources();
+                var targets = database.GetTargets();
+                string activeOffers = Eur(database.ActiveOffersSum());
+                string openInvoices = Eur(database.OpenInvoicesSum());
+                string hoursThisMonth = database.GetHoursBookedThisMonth().ToString("N1", De) + " h";
+                string runningTimers = database.CountRunningTimeEntries().ToString("N0", De);
+                var todos = database.GetAllTodos();
+                var resources = database.GetResources();
 
                 return new DashboardSnapshot
                 {
@@ -156,6 +158,7 @@ public partial class DashboardViewModel : ObservableObject
     [RelayCommand]
     private void SaveBalance()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Dashboard, "dashboard.start_balance.update")) return;
         Database.Instance.SetSettingStartBalance(StartBalance);
     }
 

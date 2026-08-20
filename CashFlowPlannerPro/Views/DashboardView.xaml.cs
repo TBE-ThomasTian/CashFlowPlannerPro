@@ -2,6 +2,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.ViewModels;
 using Microsoft.Win32;
@@ -23,6 +24,7 @@ public partial class DashboardView : UserControl
 
         RefreshButton.ToolTip = TooltipService.Get("Btn_Refresh");
         SaveBalanceButton.ToolTip = TooltipService.Get("Btn_SaveBalance");
+        SaveBalanceButton.IsEnabled = App.CanEdit(PageKeys.Dashboard);
         PreviewPdfButton.ToolTip = TooltipService.Get("Btn_PreviewDashboardPdf");
         ExportPdfButton.ToolTip = TooltipService.Get("Btn_ExportDashboardPdf");
 
@@ -66,8 +68,9 @@ public partial class DashboardView : UserControl
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("dashboard.load_failed", ex);
             ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("DashboardLoadFailed"), ex.Message),
+                $"Die Übersicht konnte nicht geladen werden. Referenz: {reference}",
                 LocalizationManager.Get("AppErrorTitle"));
         }
     }
@@ -241,8 +244,9 @@ public partial class DashboardView : UserControl
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("dashboard.pdf_export_failed", ex);
             ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("DashboardPdfFailed"), ex.Message),
+                $"Der PDF-Bericht konnte nicht erstellt werden. Referenz: {reference}",
                 LocalizationManager.Get("DashboardPdfTitle"));
         }
     }
@@ -259,8 +263,9 @@ public partial class DashboardView : UserControl
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("dashboard.preview_failed", ex);
             ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("DashboardPdfFailed"), ex.Message),
+                $"Die Vorschau konnte nicht erstellt werden. Referenz: {reference}",
                 LocalizationManager.Get("DashboardPdfTitle"));
         }
     }

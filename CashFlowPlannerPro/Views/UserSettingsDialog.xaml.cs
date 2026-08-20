@@ -43,29 +43,34 @@ public partial class UserSettingsDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        // Save full name
-        var fullName = TbFullName.Text.Trim();
-        if (!string.IsNullOrEmpty(fullName))
-            Database.Instance.UpdateUserFullName(_currentUser, fullName);
+        if (!PermissionGuard.EnsureSessionValid("profile.update"))
+            return;
 
-        // Change password if fields are filled
+        if (!string.Equals(_currentUser, App.CurrentUsername, StringComparison.Ordinal))
+        {
+            AppLogger.Audit("profile.update.denied", _currentUser, success: false);
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("ProfileSessionMismatch"),
+                LocalizationManager.Get("AppErrorTitle"));
+            return;
+        }
+
+        var fullName = TbFullName.Text.Trim();
         var oldPw = PbOldPassword.Password;
         var newPw = PbNewPassword.Password;
         var confirmPw = PbConfirmPassword.Password;
+        var changePassword = !string.IsNullOrEmpty(newPw)
+            || !string.IsNullOrEmpty(oldPw)
+            || !string.IsNullOrEmpty(confirmPw);
 
-        if (!string.IsNullOrEmpty(newPw) || !string.IsNullOrEmpty(oldPw))
+        // Validate every input before the first requested write. In particular,
+        // a rejected password change must not silently persist the display name.
+        if (changePassword)
         {
             if (string.IsNullOrEmpty(oldPw))
             {
                 ModernMessageBox.ShowError(
                     LocalizationManager.Get("CurrentPasswordRequired"),
-                    LocalizationManager.Get("PasswordTitle"));
-                return;
-            }
-            if (!Database.Instance.ValidateUser(_currentUser, oldPw))
-            {
-                ModernMessageBox.ShowError(
-                    LocalizationManager.Get("CurrentPasswordWrong"),
                     LocalizationManager.Get("PasswordTitle"));
                 return;
             }
@@ -83,10 +88,53 @@ public partial class UserSettingsDialog : Window
                     LocalizationManager.Get("PasswordTitle"));
                 return;
             }
-            Database.Instance.ChangePassword(_currentUser, newPw);
-            ModernMessageBox.ShowSuccess(
-                LocalizationManager.Get("PasswordChanged"),
+            if (!PasswordPolicy.TryValidate(newPw, _currentUser, out var passwordError))
+            {
+                ModernMessageBox.ShowError(passwordError, LocalizationManager.Get("PasswordTitle"));
+                return;
+            }
+        }
+
+        try
+        {
+            if (changePassword)
+            {
+                var refreshedSession = Database.Instance.ChangePassword(
+                    App.CurrentUserId,
+                    App.CurrentSecurityStamp,
+                    oldPw,
+                    newPw);
+                App.ApplySessionState(refreshedSession);
+                AppLogger.Audit("password.changed", _currentUser, success: true);
+            }
+
+            if (!string.IsNullOrEmpty(fullName))
+                Database.Instance.UpdateUserFullName(_currentUser, fullName);
+
+            if (changePassword)
+            {
+                ModernMessageBox.ShowSuccess(
+                    LocalizationManager.Get("PasswordChanged"),
+                    LocalizationManager.Get("PasswordTitle"));
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            if (!PermissionGuard.EnsureSessionValid("profile.password.change.denied"))
+                return;
+
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("CurrentPasswordWrong"),
                 LocalizationManager.Get("PasswordTitle"));
+            return;
+        }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException("profile.update.failed", ex);
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("OperationFailedWithReference"), reference),
+                LocalizationManager.Get("AppErrorTitle"));
+            return;
         }
         Close();
     }
@@ -103,6 +151,9 @@ public partial class UserSettingsDialog : Window
 
     private void ChangeAvatar()
     {
+        if (!PermissionGuard.EnsureSessionValid("profile.avatar.update"))
+            return;
+
         var dlg = new OpenFileDialog
         {
             Filter = "Bilder|*.jpg;*.jpeg;*.png|Alle Dateien|*.*",
@@ -111,18 +162,28 @@ public partial class UserSettingsDialog : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
+            if (!PermissionGuard.EnsureSessionValid("profile.avatar.update.confirmed"))
+                return;
             var base64 = AvatarHelper.LoadAndValidateImage(dlg.FileName);
+            if (!PermissionGuard.EnsureSessionValid("profile.avatar.update.persist"))
+                return;
             Database.Instance.SaveUserAvatar(_currentUser, base64);
             LoadAvatar();
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError(ex.Message, "Profilbild");
+            var reference = AppLogger.LogException("profile.avatar.update_failed", ex);
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("OperationFailedWithReference"), reference),
+                LocalizationManager.Get("AppErrorTitle"));
         }
     }
 
     private void RemoveAvatar_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.EnsureSessionValid("profile.avatar.remove"))
+            return;
+
         Database.Instance.SaveUserAvatar(_currentUser, null);
         LoadAvatar();
     }

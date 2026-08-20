@@ -1,10 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
+using CashFlowPlannerPro.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -22,9 +22,24 @@ public partial class OffersViewModel : ObservableObject
     public void Load(long? offerIdToSelect = null)
     {
         var selectedId = offerIdToSelect ?? SelectedOffer?.Id;
-        Offers = new ObservableCollection<Offer>(Database.Instance.GetOffers());
+        ApplyLoadedData(Database.Instance.GetOffers(), Database.Instance.GetCustomers(), selectedId);
+    }
+
+    public async Task LoadAsync(long? offerIdToSelect = null, CancellationToken cancellationToken = default)
+    {
+        var selectedId = offerIdToSelect ?? SelectedOffer?.Id;
+        var snapshot = await Database.Instance.GetOffersPageDataAsync(cancellationToken);
+        ApplyLoadedData(snapshot.Offers, snapshot.Customers, selectedId);
+    }
+
+    private void ApplyLoadedData(
+        IEnumerable<Offer> loadedOffers,
+        IEnumerable<Customer> loadedCustomers,
+        long? selectedId)
+    {
+        Offers = new ObservableCollection<Offer>(loadedOffers);
         CustomerNames = new ObservableCollection<string>(
-            Database.Instance.GetCustomers()
+            loadedCustomers
                 .Select(c => c.DisplayName)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -53,6 +68,7 @@ public partial class OffersViewModel : ObservableObject
 
     public void SaveEditedOffer(Offer offer)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.save")) return;
         if (offer.Id > 0)
             Database.Instance.UpdateOffer(offer);
         else
@@ -64,6 +80,7 @@ public partial class OffersViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.delete")) return;
         if (SelectedOffer == null) return;
         Database.Instance.DeleteOffer(SelectedOffer.Id);
         Offers.Remove(SelectedOffer);
@@ -71,6 +88,8 @@ public partial class OffersViewModel : ObservableObject
 
     public void DeleteOffers(IEnumerable<Offer> offersToDelete)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.delete_many")) return;
+
         var ids = offersToDelete
             .Where(o => o.Id > 0)
             .Select(o => o.Id)
@@ -90,7 +109,7 @@ public partial class OffersViewModel : ObservableObject
     [RelayCommand]
     private void SelectPdf()
     {
-        if (!CanEditOffers || SelectedOffer == null) return;
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.attach_pdf") || SelectedOffer == null) return;
         var dlg = new OpenFileDialog { Filter = "PDF Dateien (*.pdf)|*.pdf" };
         if (dlg.ShowDialog() == true) {
             SelectedOffer.PdfPath = dlg.FileName;
@@ -103,17 +122,22 @@ public partial class OffersViewModel : ObservableObject
     [RelayCommand]
     private void OpenPdf()
     {
-        if (SelectedOffer?.PdfPath == null || !File.Exists(SelectedOffer.PdfPath)) return;
-        Process.Start(new ProcessStartInfo(SelectedOffer.PdfPath) { UseShellExecute = true });
+        if (!SafeDocumentLauncher.TryOpenLocalPdf(SelectedOffer?.PdfPath, out var error))
+            ModernMessageBox.ShowError(error, LocalizationManager.Get("AppErrorTitle"));
     }
 
     public void Save(Offer o)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.update")) return;
         if (o.Id > 0) Database.Instance.UpdateOffer(o);
     }
 
     public Project CreateProjectFromOffer(long offerId, string projectName)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.create_project") ||
+            !PermissionGuard.DemandEdit(PageKeys.Resources, "project.create_from_offer"))
+            throw new UnauthorizedAccessException("Keine Berechtigung zum Erstellen eines Projekts aus diesem Angebot.");
+
         if (offerId <= 0)
             throw new ArgumentOutOfRangeException(nameof(offerId), "Das Angebot wurde noch nicht gespeichert.");
 
@@ -133,6 +157,7 @@ public partial class OffersViewModel : ObservableObject
 
     public void AddScannedOffer(Offer o)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.scan_import")) return;
         Database.Instance.AddOffer(o);
         Load();
     }

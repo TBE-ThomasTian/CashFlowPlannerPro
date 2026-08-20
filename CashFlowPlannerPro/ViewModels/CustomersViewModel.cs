@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -41,6 +42,7 @@ public partial class CustomersViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.add")) return;
         var c = new Customer { Status = "Aktiv", Country = "Deutschland" };
         Database.Instance.AddCustomer(c);
         _allCustomers.Add(c);
@@ -51,6 +53,7 @@ public partial class CustomersViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.delete")) return;
         if (SelectedCustomer == null) return;
         Database.Instance.DeleteCustomer(SelectedCustomer.Id);
         _allCustomers.Remove(SelectedCustomer);
@@ -59,6 +62,8 @@ public partial class CustomersViewModel : ObservableObject
 
     public void DeleteCustomers(IEnumerable<Customer> customersToDelete)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.delete_many")) return;
+
         var ids = customersToDelete
             .Where(c => c.Id > 0)
             .Select(c => c.Id)
@@ -78,6 +83,7 @@ public partial class CustomersViewModel : ObservableObject
 
     public void Save(Customer c)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.update")) return;
         if (c.Id > 0) Database.Instance.UpdateCustomer(c);
     }
 }

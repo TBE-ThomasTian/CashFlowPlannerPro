@@ -70,7 +70,8 @@ public partial class CompanyProfileDialog : Window
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError(ex.Message, LocalizationManager.Get("CompanyProfileTitle"));
+            var reference = AppLogger.LogException("company_profile.save_failed", ex);
+            ModernMessageBox.ShowError($"Das Firmenprofil konnte nicht gespeichert werden. Referenz: {reference}", LocalizationManager.Get("CompanyProfileTitle"));
         }
     }
 
@@ -82,6 +83,9 @@ public partial class CompanyProfileDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Admin, "company_profile.update"))
+            return;
+
         _profile.CompanyName = TbCompanyName.Text.Trim();
         _profile.AddressLine1 = TbAddress1.Text.Trim();
         _profile.AddressLine2 = TbAddress2.Text.Trim();
@@ -90,8 +94,19 @@ public partial class CompanyProfileDialog : Window
         _profile.Website = TbWebsite.Text.Trim();
         _profile.TaxId = TbTaxId.Text.Trim();
 
-        CompanyProfileService.Save(_profile);
-        DialogResult = true;
+        try
+        {
+            CompanyProfileService.Save(_profile);
+            AppLogger.Audit("company_profile.updated", "company", success: true);
+            DialogResult = true;
+        }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException("company_profile.update_failed", ex);
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("OperationFailedWithReference"), reference),
+                LocalizationManager.Get("AppErrorTitle"));
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();

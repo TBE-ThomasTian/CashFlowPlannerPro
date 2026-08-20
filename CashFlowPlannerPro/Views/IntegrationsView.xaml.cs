@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -31,7 +32,9 @@ public partial class IntegrationsView : UserControl
     {
         InitializeComponent();
         ApplyLocalization();
-        LoadSavedToken();
+        // Never materialize a stored API token into a UI control. The encrypted
+        // value is resolved only at the moment an authorized action needs it.
+        TokenBox.Password = "";
         ApplyPermissionState();
     }
 
@@ -56,26 +59,26 @@ public partial class IntegrationsView : UserControl
             SetStatus(LocalizationManager.Get("IntegrationsStatusIdle"), Brushes.Gray);
     }
 
-    private void LoadSavedToken()
-    {
-        var secure = SevDeskSecureStore.Load();
-        if (secure != null)
-            TokenBox.Password = secure.ApiToken;
-    }
-
     private void ApplyPermissionState()
     {
-        bool canEdit = App.CanEdit(PageKeys.Integrations);
+        bool canEdit = App.CanEdit(PageKeys.Integrations) && !App.IsDemoMode;
         TokenBox.IsEnabled = canEdit;
         SaveTokenButton.IsEnabled = canEdit;
         TestConnectionButton.IsEnabled = canEdit;
         LoadPreviewButton.IsEnabled = canEdit;
         PermissionHintText.Visibility = canEdit ? Visibility.Collapsed : Visibility.Visible;
-        PermissionHintText.Text = LocalizationManager.Get("IntegrationsReadOnlyHint");
+        PermissionHintText.Text = LocalizationManager.Get(
+            App.IsDemoMode ? "IntegrationsDemoDisabled" : "IntegrationsReadOnlyHint");
+
+        if (App.IsDemoMode)
+            SetStatus(LocalizationManager.Get("IntegrationsDemoDisabled"), Brushes.DarkOrange);
     }
 
     private void SaveTokenButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!EnsureIntegrationAllowed("sevdesk.token.save"))
+            return;
+
         var token = TokenBox.Password.Trim();
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -83,28 +86,55 @@ public partial class IntegrationsView : UserControl
             return;
         }
 
-        SevDeskSecureStore.Save(new SevDeskSecureData { ApiToken = token });
+        if (!TrySaveToken(token, out var errorReference))
+        {
+            var reference = errorReference ?? AppLogger.LogException(
+                "sevdesk.token.save_failed",
+                new IOException("The encrypted sevDesk token store rejected the save operation."));
+            ModernMessageBox.ShowError(
+                string.Format(
+                    LocalizationManager.Get("IntegrationsTokenSaveFailedWithReference"),
+                    reference),
+                LocalizationManager.Get("AppErrorTitle"));
+            return;
+        }
+
+        // Do not leave the secret in the visual tree after it has been stored.
+        TokenBox.Clear();
+        AppLogger.Audit("sevdesk.token.saved", "sevDesk", success: true);
+        ApplyPermissionState();
         SetStatus(LocalizationManager.Get("IntegrationsTokenSaved"), Brushes.SeaGreen);
     }
 
     private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
     {
-        var token = TokenBox.Password.Trim();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            ModernMessageBox.ShowError(LocalizationManager.Get("IntegrationsTokenRequired"), LocalizationManager.Get("AppErrorTitle"));
+        var token = ResolveTokenForAuthorizedAction("sevdesk.connection.test");
+        if (token == null)
             return;
-        }
 
         try
         {
             SetBusy(true);
             await SevDeskClient.TestConnectionAsync(token);
+            if (!EnsureIntegrationAllowed("sevdesk.connection.test.completed"))
+                return;
+            AppLogger.Audit("sevdesk.connection.test", "sevDesk", success: true);
             SetStatus(LocalizationManager.Get("IntegrationsConnectionSuccess"), Brushes.SeaGreen);
         }
         catch (Exception ex)
         {
-            SetStatus(string.Format(LocalizationManager.Get("IntegrationsConnectionFailed"), ex.Message), Brushes.IndianRed);
+            var reference = AppLogger.LogException(
+                "sevdesk.connection_test.failed",
+                ex,
+                new { provider = "sevDesk" });
+            AppLogger.Audit(
+                "sevdesk.connection.test",
+                "sevDesk",
+                success: false,
+                new { reference });
+            SetStatus(
+                string.Format(LocalizationManager.Get("IntegrationsConnectionFailed"), reference),
+                Brushes.IndianRed);
         }
         finally
         {
@@ -114,17 +144,26 @@ public partial class IntegrationsView : UserControl
 
     private async void LoadPreviewButton_Click(object sender, RoutedEventArgs e)
     {
-        var token = TokenBox.Password.Trim();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            ModernMessageBox.ShowError(LocalizationManager.Get("IntegrationsTokenRequired"), LocalizationManager.Get("AppErrorTitle"));
+        var token = ResolveTokenForAuthorizedAction("sevdesk.preview.load");
+        if (token == null)
             return;
-        }
 
         try
         {
             SetBusy(true);
             var preview = await SevDeskClient.LoadImportPreviewAsync(token);
+            if (!EnsureIntegrationAllowed("sevdesk.preview.load.completed"))
+                return;
+            AppLogger.Audit(
+                "sevdesk.preview.loaded",
+                "sevDesk",
+                success: true,
+                new
+                {
+                    customers = preview.Contacts.Count,
+                    invoices = preview.Invoices.Count,
+                    offers = preview.Offers.Count
+                });
             PreparePreview(preview);
             SetBusy(false);
 
@@ -133,6 +172,9 @@ public partial class IntegrationsView : UserControl
                 preview,
                 async (selection, progress) =>
                 {
+                    if (!EnsureIntegrationAllowed("sevdesk.import"))
+                        throw new UnauthorizedAccessException(
+                            LocalizationManager.Get("IntegrationsReadOnlyHint"));
                     importStats = await ImportSelectionAsync(selection, progress);
                 })
             {
@@ -154,6 +196,16 @@ public partial class IntegrationsView : UserControl
                         completedStats.Offers.SelectedCount,
                         completedStats.Offers.ChangedCount),
                     LocalizationManager.Get("IntegrationsImportDialogTitle"));
+                AppLogger.Audit(
+                    "sevdesk.import.completed",
+                    "sevDesk",
+                    success: true,
+                    new
+                    {
+                        customers = completedStats.Customers.ChangedCount,
+                        invoices = completedStats.Invoices.ChangedCount,
+                        offers = completedStats.Offers.ChangedCount
+                    });
                 SetStatus(LocalizationManager.Get("IntegrationsImportCompleted"), Brushes.SeaGreen);
             }
             else if (!string.IsNullOrWhiteSpace(dialog.LastImportError))
@@ -165,14 +217,130 @@ public partial class IntegrationsView : UserControl
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException(
+                "sevdesk.preview.failed",
+                ex,
+                new { provider = "sevDesk" });
+            AppLogger.Audit(
+                "sevdesk.preview.loaded",
+                "sevDesk",
+                success: false,
+                new { reference });
             ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("IntegrationsPreviewFailed"), ex.Message),
+                string.Format(LocalizationManager.Get("IntegrationsPreviewFailed"), reference),
                 LocalizationManager.Get("IntegrationsImportDialogTitle"));
-            SetStatus(string.Format(LocalizationManager.Get("IntegrationsPreviewFailed"), ex.Message), Brushes.IndianRed);
+            SetStatus(
+                string.Format(LocalizationManager.Get("IntegrationsPreviewFailed"), reference),
+                Brushes.IndianRed);
         }
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    private static bool EnsureIntegrationAllowed(string action)
+    {
+        if (App.IsDemoMode)
+        {
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("IntegrationsDemoDisabled"),
+                LocalizationManager.Get("AppErrorTitle"));
+            return false;
+        }
+
+        if (PermissionGuard.DemandEdit(PageKeys.Integrations, action))
+            return true;
+
+        ModernMessageBox.ShowError(
+            LocalizationManager.Get("IntegrationsReadOnlyHint"),
+            LocalizationManager.Get("AppErrorTitle"));
+        return false;
+    }
+
+    private string? ResolveTokenForAuthorizedAction(string action)
+    {
+        if (!EnsureIntegrationAllowed(action))
+            return null;
+
+        try
+        {
+            // A freshly entered token takes precedence but is not copied anywhere
+            // else unless the user explicitly presses Save.
+            var enteredToken = TokenBox.Password.Trim();
+            if (!string.IsNullOrWhiteSpace(enteredToken))
+                return enteredToken;
+
+            var secure = SevDeskSecureStore.LoadForCurrentDatabase();
+            if (!string.IsNullOrWhiteSpace(secure?.ApiToken))
+                return secure.ApiToken.Trim();
+
+            // Legacy migration is also lazy and restricted to an authorized user.
+            // The token is bound without ever displaying it in a control.
+            var legacy = SevDeskSecureStore.Load();
+            if (legacy != null
+                && string.IsNullOrWhiteSpace(legacy.DatabaseInstanceId)
+                && !string.IsNullOrWhiteSpace(legacy.ApiToken))
+            {
+                if (!ModernMessageBox.ShowConfirm(
+                        LocalizationManager.Get("IntegrationsLegacyTokenBindConfirm"),
+                        LocalizationManager.Get("IntegrationsTitle")))
+                {
+                    return null;
+                }
+
+                var legacyToken = legacy.ApiToken.Trim();
+                if (!EnsureIntegrationAllowed("sevdesk.token.legacy_bind.confirmed"))
+                    return null;
+
+                if (TrySaveToken(legacyToken, out var errorReference))
+                {
+                    AppLogger.Audit("sevdesk.token.legacy_bound", "sevDesk", success: true);
+                    return legacyToken;
+                }
+
+                var saveReference = errorReference ?? AppLogger.LogException(
+                    "sevdesk.token.legacy_bind_failed",
+                    new IOException("The encrypted sevDesk token store rejected the legacy binding operation."));
+                ModernMessageBox.ShowError(
+                    string.Format(
+                        LocalizationManager.Get("IntegrationsTokenSaveFailedWithReference"),
+                        saveReference),
+                    LocalizationManager.Get("AppErrorTitle"));
+                return null;
+            }
+
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("IntegrationsTokenRequired"),
+                LocalizationManager.Get("AppErrorTitle"));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException(
+                "sevdesk.token.resolve_failed",
+                ex,
+                new { provider = "sevDesk" });
+            ModernMessageBox.ShowError(
+                string.Format(LocalizationManager.Get("OperationFailedWithReference"), reference),
+                LocalizationManager.Get("AppErrorTitle"));
+            return null;
+        }
+    }
+
+    private static bool TrySaveToken(string token, out string? errorReference)
+    {
+        try
+        {
+            return SevDeskSecureStore.SaveForCurrentDatabase(token, out errorReference);
+        }
+        catch (Exception ex)
+        {
+            errorReference = AppLogger.LogException(
+                "sevdesk.token.save_failed",
+                ex,
+                new { provider = "sevDesk" });
+            return false;
         }
     }
 
@@ -185,6 +353,10 @@ public partial class IntegrationsView : UserControl
         foreach (var invoice in preview.Invoices)
         {
             invoice.ExistsLocally = FindExistingInvoice(localInvoices, invoice, out var hasConflict) != null;
+            hasConflict |= !TryResolveImportedCustomerId(
+                invoice.CustomerName,
+                invoice.CustomerExternalId,
+                out _);
             invoice.HasImportConflict = hasConflict;
             invoice.ImportState = !invoice.IsCurrencySupported
                 ? string.Format(LocalizationManager.Get("IntegrationsUnsupportedCurrency"), invoice.CurrencyDisplay)
@@ -197,6 +369,10 @@ public partial class IntegrationsView : UserControl
         foreach (var offer in preview.Offers)
         {
             offer.ExistsLocally = FindExistingOffer(localOffers, offer, out var hasConflict) != null;
+            hasConflict |= !TryResolveImportedCustomerId(
+                offer.CustomerName,
+                offer.CustomerExternalId,
+                out _);
             offer.HasImportConflict = hasConflict;
             offer.ImportState = !offer.IsCurrencySupported
                 ? string.Format(LocalizationManager.Get("IntegrationsUnsupportedCurrency"), offer.CurrencyDisplay)
@@ -572,6 +748,18 @@ public partial class IntegrationsView : UserControl
         SevDeskImportSelection selection,
         IProgress<SevDeskImportProgress> progress)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Integrations, "sevdesk.import"))
+            throw new UnauthorizedAccessException(LocalizationManager.Get("IntegrationsReadOnlyHint"));
+        if (selection.Contacts.Count > 0 &&
+            !PermissionGuard.DemandEdit(PageKeys.Kunden, "sevdesk.customers.import"))
+            throw new UnauthorizedAccessException(LocalizationManager.Get("IntegrationsTargetAccessDenied"));
+        if (selection.Invoices.Count > 0 &&
+            !PermissionGuard.DemandEdit(PageKeys.Invoices, "sevdesk.invoices.import"))
+            throw new UnauthorizedAccessException(LocalizationManager.Get("IntegrationsTargetAccessDenied"));
+        if (selection.Offers.Count > 0 &&
+            !PermissionGuard.DemandEdit(PageKeys.Offers, "sevdesk.offers.import"))
+            throw new UnauthorizedAccessException(LocalizationManager.Get("IntegrationsTargetAccessDenied"));
+
         var completed = 0;
         var total = selection.Total;
         progress.Report(new SevDeskImportProgress(completed, total, SevDeskImportPhase.Preparing));
@@ -627,6 +815,8 @@ public partial class IntegrationsView : UserControl
         var resolutions = ResolveCustomerBatch(selectedList, existing, initializeSelection: false);
         foreach (var contact in selectedList)
         {
+            EnsureImportItemWriteAllowed(PageKeys.Kunden, "sevdesk.customers.import.item");
+
             if (contact.HasImportConflict)
             {
                 contact.IsSelected = false;
@@ -661,8 +851,14 @@ public partial class IntegrationsView : UserControl
         var existing = Database.Instance.GetInvoices();
         foreach (var invoice in selectedList)
         {
+            EnsureImportItemWriteAllowed(PageKeys.Invoices, "sevdesk.invoices.import.item");
+
             var existingInvoice = FindExistingInvoice(existing, invoice, out var hasConflict);
-            if (hasConflict)
+            var customerResolved = TryResolveImportedCustomerId(
+                invoice.CustomerName,
+                invoice.CustomerExternalId,
+                out var customerId);
+            if (hasConflict || !customerResolved)
             {
                 invoice.HasImportConflict = true;
                 invoice.IsSelected = false;
@@ -670,6 +866,9 @@ public partial class IntegrationsView : UserControl
             }
             else if (existingInvoice != null)
             {
+                if (customerId.HasValue)
+                    existingInvoice.CustomerId = customerId;
+
                 if (MergeInvoice(existingInvoice, invoice))
                 {
                     Database.Instance.UpdateInvoice(existingInvoice);
@@ -679,6 +878,7 @@ public partial class IntegrationsView : UserControl
             else
             {
                 var localInvoice = invoice.ToInvoice();
+                localInvoice.CustomerId = customerId;
                 Database.Instance.AddInvoice(localInvoice);
                 existing.Add(localInvoice);
                 addedInvoices++;
@@ -699,8 +899,14 @@ public partial class IntegrationsView : UserControl
         var existing = Database.Instance.GetOffers();
         foreach (var offer in selectedList)
         {
+            EnsureImportItemWriteAllowed(PageKeys.Offers, "sevdesk.offers.import.item");
+
             var existingOffer = FindExistingOffer(existing, offer, out var hasConflict);
-            if (hasConflict)
+            var customerResolved = TryResolveImportedCustomerId(
+                offer.CustomerName,
+                offer.CustomerExternalId,
+                out var customerId);
+            if (hasConflict || !customerResolved)
             {
                 offer.HasImportConflict = true;
                 offer.IsSelected = false;
@@ -708,6 +914,9 @@ public partial class IntegrationsView : UserControl
             }
             else if (existingOffer != null)
             {
+                if (customerId.HasValue)
+                    existingOffer.CustomerId = customerId;
+
                 if (MergeOffer(existingOffer, offer))
                 {
                     Database.Instance.UpdateOffer(existingOffer);
@@ -717,6 +926,7 @@ public partial class IntegrationsView : UserControl
             else
             {
                 var localOffer = offer.ToOffer();
+                localOffer.CustomerId = customerId;
                 Database.Instance.AddOffer(localOffer);
                 existing.Add(localOffer);
                 addedOffers++;
@@ -726,6 +936,42 @@ public partial class IntegrationsView : UserControl
         }
 
         return new ImportStats(selectedList.Count, addedOffers, updatedOffers);
+    }
+
+    private static void EnsureImportItemWriteAllowed(string targetPageKey, string action)
+    {
+        if (PermissionGuard.DemandEdit(PageKeys.Integrations, action) &&
+            PermissionGuard.DemandEdit(targetPageKey, action))
+        {
+            return;
+        }
+
+        throw new UnauthorizedAccessException(
+            LocalizationManager.Get("IntegrationsTargetAccessDenied"));
+    }
+
+    private static bool TryResolveImportedCustomerId(
+        string? customerName,
+        string? customerExternalId,
+        out long? customerId)
+    {
+        try
+        {
+            customerId = string.IsNullOrWhiteSpace(customerExternalId)
+                ? Database.Instance.ResolveCustomerId(customerName)
+                : Database.Instance.ResolveCustomerId(
+                    customerName,
+                    sourceProvider: "sevdesk",
+                    sourceExternalId: customerExternalId);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // Ambiguous or malformed source identities are data conflicts. They
+            // must not fall back to a potentially unrelated customer record.
+            customerId = null;
+            return false;
+        }
     }
 
     private void SetStatus(string message, Brush color)

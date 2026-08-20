@@ -2,6 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Data;
 
@@ -24,7 +25,7 @@ public static class SecureConnectionStore
     /// Uses Windows DPAPI (DataProtectionScope.CurrentUser) so only
     /// the current Windows user on this machine can decrypt.
     /// </summary>
-    public static void Save(SecureConnectionData data)
+    public static bool Save(SecureConnectionData data)
     {
         try
         {
@@ -56,13 +57,74 @@ public static class SecureConnectionStore
                 entropy,
                 DataProtectionScope.CurrentUser);
 
-            File.WriteAllBytes(StoreFile, encryptedBytes);
-            File.SetAttributes(StoreFile, FileAttributes.Hidden);
+            WriteStoreAtomically(encryptedBytes);
+            return true;
         }
         catch
         {
-            // Silently fail — user can still enter credentials manually
+            return false;
         }
+    }
+
+    private static void WriteStoreAtomically(byte[] encryptedBytes)
+    {
+        var tempFile = Path.Combine(StoreDir, $".connection.{Guid.NewGuid():N}.tmp");
+        var backupFile = Path.Combine(StoreDir, $".connection.{Guid.NewGuid():N}.bak");
+        FileAttributes? originalAttributes = null;
+
+        try
+        {
+            File.WriteAllBytes(tempFile, encryptedBytes);
+            if (File.Exists(StoreFile))
+            {
+                originalAttributes = File.GetAttributes(StoreFile);
+                var writableAttributes = originalAttributes.Value &
+                                         ~FileAttributes.Hidden &
+                                         ~FileAttributes.ReadOnly;
+                File.SetAttributes(StoreFile, writableAttributes);
+                File.Replace(tempFile, StoreFile, backupFile);
+            }
+            else
+            {
+                File.Move(tempFile, StoreFile);
+            }
+
+            File.SetAttributes(StoreFile, File.GetAttributes(StoreFile) | FileAttributes.Hidden);
+        }
+        catch
+        {
+            try
+            {
+                if (!File.Exists(StoreFile) && File.Exists(backupFile))
+                    File.Move(backupFile, StoreFile);
+
+                if (originalAttributes.HasValue && File.Exists(StoreFile))
+                    File.SetAttributes(StoreFile, originalAttributes.Value);
+            }
+            catch { }
+
+            throw;
+        }
+        finally
+        {
+            TryDeleteTemporaryFile(tempFile);
+            if (File.Exists(StoreFile))
+                TryDeleteTemporaryFile(backupFile);
+        }
+    }
+
+    private static void TryDeleteTemporaryFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return;
+
+            var attributes = File.GetAttributes(path) & ~FileAttributes.ReadOnly & ~FileAttributes.Hidden;
+            File.SetAttributes(path, attributes);
+            File.Delete(path);
+        }
+        catch { }
     }
 
     /// <summary>
@@ -88,8 +150,9 @@ public static class SecureConnectionStore
             var json = Encoding.UTF8.GetString(plainBytes);
             return JsonSerializer.Deserialize<SecureConnectionData>(json);
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogException("connection_settings.load_failed", ex);
             return null;
         }
     }
@@ -104,7 +167,10 @@ public static class SecureConnectionStore
             if (File.Exists(StoreFile)) File.Delete(StoreFile);
             if (File.Exists(EntropyFile)) File.Delete(EntropyFile);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogException("connection_settings.delete_failed", ex);
+        }
     }
 
     /// <summary>

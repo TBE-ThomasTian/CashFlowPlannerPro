@@ -62,17 +62,18 @@
                                    Margin="24,0,0,6"/>
                         <Button x:Name="Nav0" Content="📊  Übersicht" Tag="dashboard:0" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
                         <Button x:Name="Nav1" Content="💰  Ein/Ausgaben" Tag="transactions:1" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav2" Content="📋  Fixkosten" Tag="fixkosten:2" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav3" Content="🏛  Steuer" Tag="taxes:3" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav4" Content="📄  Rechnungen" Tag="invoices:4" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav5" Content="📝  Angebote" Tag="offers:5" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav6" Content="👥  Ressourcen" Tag="resources:6" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav7" Content="🎯  Ziele" Tag="targets:7" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav8" Content="✅  Aufgaben" Tag="todos:8" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav9" Content="⏱  Zeiterfassung" Tag="timetracking:9" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav10" Content="📇  Adressbuch" Tag="kunden:10" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav11" Content="🧩  Add-ons" Tag="integrations:11" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
-                        <Button x:Name="Nav12" Content="🔐  Verwaltung" Tag="admin:12" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav2" Content="🏦  Bank" Tag="bank:2" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav3" Content="📋  Fixkosten" Tag="fixkosten:3" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav4" Content="🏛  Steuer" Tag="taxes:4" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav5" Content="📄  Rechnungen" Tag="invoices:5" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav6" Content="📝  Angebote" Tag="offers:6" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav7" Content="👥  Ressourcen" Tag="resources:7" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav8" Content="🎯  Ziele" Tag="targets:8" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav9" Content="✅  Aufgaben" Tag="todos:9" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav10" Content="⏱  Zeiterfassung" Tag="timetracking:10" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav11" Content="📇  Adressbuch" Tag="kunden:11" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav12" Content="🧩  Add-ons" Tag="integrations:12" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
+                        <Button x:Name="Nav13" Content="🔐  Verwaltung" Tag="admin:13" Click="NavButton_Click" Style="{StaticResource SidebarButton}"/>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
@@ -80,19 +81,9 @@
 
         <!-- Content Area -->
         <TabControl x:Name="ContentTabs" Grid.Column="1" SelectedIndex="0" Background="{StaticResource BackgroundBrush}">
-            <TabItem><views:DashboardView/></TabItem>
-            <TabItem><views:TransactionsView/></TabItem>
-            <TabItem><views:FixkostenView/></TabItem>
-            <TabItem><views:TaxesView/></TabItem>
-            <TabItem><views:InvoicesView/></TabItem>
-            <TabItem><views:OffersView/></TabItem>
-            <TabItem><views:ResourcesView/></TabItem>
-            <TabItem><views:TargetsView/></TabItem>
-            <TabItem><views:TodoView/></TabItem>
-            <TabItem><views:TimeTrackingView/></TabItem>
-            <TabItem><views:CustomersView/></TabItem>
-            <TabItem><views:IntegrationsView/></TabItem>
-            <TabItem><views:AdminView/></TabItem>
+            <!-- Inhalte werden erst nach erfolgreicher Berechtigungsprüfung erzeugt. -->
+            <TabItem/><TabItem/><TabItem/><TabItem/><TabItem/><TabItem/><TabItem/>
+            <TabItem/><TabItem/><TabItem/><TabItem/><TabItem/><TabItem/><TabItem/>
         </TabControl>
     </Grid>
 </Window>

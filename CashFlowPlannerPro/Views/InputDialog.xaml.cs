@@ -8,7 +8,7 @@ public partial class InputDialog : Window
 {
     private readonly bool _isPassword;
     public string InputText => TbInput.Text.Trim();
-    public string ResultText => _isPassword ? PbInput.Password.Trim() : TbInput.Text.Trim();
+    public string ResultText => _isPassword ? PbInput.Password : TbInput.Text.Trim();
 
     public InputDialog(string title, string label, string defaultValue = "", bool isPassword = false)
     {

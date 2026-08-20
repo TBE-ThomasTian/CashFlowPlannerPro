@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -32,10 +33,24 @@ public partial class ResourcesView : UserControl
     private HwAllocationSpan? _resizeHwSpan;
     private long _resizeResourceId;
     private string _resizeEdge = ""; // "Left" or "Right"
-    private int _resizeOrigCol;
-    private int _resizeOrigSpan;
     private DateTime _startDate;
     private int _totalDays;
+    private int _resizeTargetDayIndex;
+    private double _resizeStartPointerX;
+    private bool _resizeHasMoved;
+    private bool _endingResize;
+    private DateTime _resizeOriginalStartDate;
+    private DateTime _resizeOriginalEndDate;
+    private double _resizeStartHours = 8.0;
+    private double _resizeEndHours = 8.0;
+    private Popup? _resizeHintPopup;
+    private TextBlock? _resizeHintText;
+
+    // Once the pointer leaves the visible date grid, every few pixels represent
+    // another day. This keeps multi-month resizing practical without rendering
+    // hundreds of additional WPF columns up front.
+    private const double OutsideResizePixelsPerDay = 4.0;
+    private const int MaxOutsideResizeDays = 730;
 
     public ResourcesView()
     {
@@ -44,6 +59,19 @@ public partial class ResourcesView : UserControl
         DataContext = _vm;
         _vm.CalendarChanged += () => { BuildCalendar(); BuildProjectList(); BuildHardwareList(); };
         _vm.Load();
+
+        ApplyPermissionState();
+
+        Unloaded += (_, _) => EndResize();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && _resizeBar != null)
+            {
+                EndResize();
+                _vm.Load();
+                e.Handled = true;
+            }
+        };
 
         PrevPeriodBtn.ToolTip = TooltipService.Get("Btn_PrevPeriod");
         TodayBtn.ToolTip = TooltipService.Get("Btn_Today");
@@ -54,7 +82,22 @@ public partial class ResourcesView : UserControl
         KanbanBtn.ToolTip = TooltipService.Get("Btn_Kanban");
     }
 
-    public void Reload() => _vm.Load();
+    public void Reload()
+    {
+        ApplyPermissionState();
+        _vm.Load();
+    }
+
+    private void ApplyPermissionState()
+    {
+        var canEdit = App.CanEdit(PageKeys.Resources);
+        AddResourceBtn.IsEnabled = canEdit;
+        AddProjectBtn.IsEnabled = canEdit;
+        AddHardwareBtn.IsEnabled = canEdit;
+        CalendarGrid.IsHitTestVisible = canEdit;
+        ProjectListPanel.IsHitTestVisible = canEdit;
+        HardwareListPanel.IsHitTestVisible = canEdit;
+    }
 
     private void CalendarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -180,9 +223,11 @@ public partial class ResourcesView : UserControl
                 if (e.ClickCount == 2)
                 {
                     e.Handled = true;
+                    if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.update")) return;
                     var edited = ResourceEditDialog.ShowEdit(capturedResource);
                     if (edited != null)
                     {
+                        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.update.confirmed")) return;
                         Database.Instance.UpdateResource(edited);
                         _vm.Load();
                     }
@@ -300,7 +345,10 @@ public partial class ResourcesView : UserControl
 
                 var barBrush = new SolidColorBrush(barColor);
                 var barText = project?.Name ?? "Projekt";
-                var barHoursText = $"{span.Hours:0.#}h/Tag";
+                var displayedBarText = $"{(span.ContinuesBefore ? "◀ " : "")}{barText}{(span.ContinuesAfter ? " ▶" : "")}";
+                var barHoursText = span.HasMixedHours
+                    ? "unterschiedliche Stunden/Tag"
+                    : $"{span.Hours:0.#}h/Tag";
 
                 int slot = projectSlot[span.ProjectId];
                 double topMargin = 2 + slot * (barHeight + 2);
@@ -311,7 +359,7 @@ public partial class ResourcesView : UserControl
                     Margin = new Thickness(6, 0, 6, 0)
                 };
                 textPanel.Children.Add(new TextBlock {
-                    Text = barText, Foreground = Brushes.White,
+                    Text = displayedBarText, Foreground = Brushes.White,
                     FontWeight = FontWeights.SemiBold, FontSize = barHeight > 20 ? 11 : 9,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     VerticalAlignment = VerticalAlignment.Center
@@ -331,7 +379,9 @@ public partial class ResourcesView : UserControl
                     Margin = new Thickness(2, topMargin, 2, 0),
                     VerticalAlignment = VerticalAlignment.Top,
                     Cursor = Cursors.Hand, Child = textPanel,
-                    ToolTip = $"{barText}\n{span.StartDate:dd.MM} - {span.EndDate:dd.MM}\n{barHoursText}",
+                    ToolTip = $"{barText}\n{span.StartDate:dd.MM} - {span.EndDate:dd.MM}\n{barHoursText}"
+                        + (span.ContinuesBefore ? "\n◀ Einsatz beginnt vor dieser Ansicht" : "")
+                        + (span.ContinuesAfter ? "\n▶ Einsatz läuft nach dieser Ansicht weiter" : ""),
                     Effect = new DropShadowEffect { BlurRadius = 3, ShadowDepth = 1, Opacity = 0.12, Color = Colors.Black },
                     Tag = span // store for resize
                 };
@@ -445,6 +495,7 @@ public partial class ResourcesView : UserControl
                 catch { hwBarColor = Color.FromRgb(0x17, 0xa2, 0xb8); }
 
                 var hwBarText = hw?.Name ?? "Hardware";
+                var displayedHwBarText = $"{(hwSpan.ContinuesBefore ? "◀ " : "")}{hwBarText}{(hwSpan.ContinuesAfter ? " ▶" : "")}";
                 var project = _vm.Projects.FirstOrDefault(p => p.Id == hwSpan.ProjectId);
                 var projLabel = project?.Name ?? "";
 
@@ -459,7 +510,7 @@ public partial class ResourcesView : UserControl
                 double hwFontSize = hwBarHeight > 22 ? 11 : hwBarHeight > 18 ? 9 : 8;
                 double hwSubFontSize = hwBarHeight > 22 ? 9 : hwBarHeight > 18 ? 8 : 7;
                 hwTextPanel.Children.Add(new TextBlock {
-                    Text = $"🖥 {hwBarText}", Foreground = Brushes.White,
+                    Text = $"🖥 {displayedHwBarText}", Foreground = Brushes.White,
                     FontSize = hwFontSize, FontWeight = FontWeights.SemiBold,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
@@ -477,7 +528,9 @@ public partial class ResourcesView : UserControl
                     Margin = new Thickness(2, topMargin, 2, 2),
                     VerticalAlignment = VerticalAlignment.Top,
                     Child = hwTextPanel,
-                    ToolTip = $"{hwBarText}\nProjekt: {projLabel}\n{hwSpan.StartDate:dd.MM} - {hwSpan.EndDate:dd.MM}",
+                    ToolTip = $"{hwBarText}\nProjekt: {projLabel}\n{hwSpan.StartDate:dd.MM} - {hwSpan.EndDate:dd.MM}"
+                        + (hwSpan.ContinuesBefore ? "\n◀ Einsatz beginnt vor dieser Ansicht" : "")
+                        + (hwSpan.ContinuesAfter ? "\n▶ Einsatz läuft nach dieser Ansicht weiter" : ""),
                     Effect = new DropShadowEffect { BlurRadius = 2, ShadowDepth = 1, Opacity = 0.08 },
                     AllowDrop = true
                 };
@@ -539,13 +592,30 @@ public partial class ResourcesView : UserControl
         }
         else return; // not on edge, don't start resize
 
+        var fullRange = _vm.GetAllocationRange(resourceId, span.ProjectId, span.StartDate)
+            ?? (span.StartDate, span.EndDate, span.Hours, span.Hours);
+
         _resizeBar = bar;
         _resizeSpan = span;
+        _resizeHwSpan = null;
         _resizeResourceId = resourceId;
-        _resizeOrigCol = span.StartCol + 1; // grid column (1-based)
-        _resizeOrigSpan = span.ColSpan;
+        _resizeOriginalStartDate = fullRange.Start;
+        _resizeOriginalEndDate = fullRange.End;
+        _resizeStartHours = fullRange.StartHours;
+        _resizeEndHours = fullRange.EndHours;
+        _resizeTargetDayIndex = DateToDayIndex(
+            _resizeEdge == "Right" ? fullRange.End : fullRange.Start);
+        _resizeStartPointerX = e.GetPosition(CalendarGrid).X;
+        _resizeHasMoved = false;
         bar.Opacity = 0.7;
-        bar.CaptureMouse();
+        if (!bar.CaptureMouse())
+        {
+            EndResize();
+            return;
+        }
+        bar.LostMouseCapture += ResizeBar_LostMouseCapture;
+        OpenResizeHint(bar);
+        UpdateResizeHint(_resizeTargetDayIndex);
         // Subscribe to global mouse move for live preview
         CalendarGrid.MouseMove += CalendarGrid_ResizePreview;
         e.Handled = true;
@@ -555,104 +625,105 @@ public partial class ResourcesView : UserControl
     {
         if (_resizeBar == null) return;
 
-        // Determine span info from either project or hardware span
-        int spanStartCol, spanColSpan;
-        if (_resizeSpan != null) { spanStartCol = _resizeSpan.StartCol; spanColSpan = _resizeSpan.ColSpan; }
-        else if (_resizeHwSpan != null) { spanStartCol = _resizeHwSpan.StartCol; spanColSpan = _resizeHwSpan.ColSpan; }
-        else return;
+        if (_resizeSpan == null && _resizeHwSpan == null) return;
 
-        var posInGrid = e.GetPosition(CalendarGrid);
-        int targetCol = GetColumnAtPosition(posInGrid.X);
-        if (targetCol < 1) targetCol = 1;
-        if (targetCol > _totalDays) targetCol = _totalDays;
+        var pointerX = e.GetPosition(CalendarGrid).X;
+        if (!_resizeHasMoved && Math.Abs(pointerX - _resizeStartPointerX) < 2.0)
+            return;
+        _resizeHasMoved = true;
 
-        var origStartCol0 = spanStartCol; // 0-based
-        var origEndCol0 = spanStartCol + spanColSpan - 1; // 0-based
-
-        int newGridCol, newColSpan;
-
+        int targetDayIndex = GetResizeTargetDayIndex(e);
+        int originalStartIndex = DateToDayIndex(_resizeOriginalStartDate);
+        int originalEndIndex = DateToDayIndex(_resizeOriginalEndDate);
+        int newStartIndex;
+        int newEndIndex;
         if (_resizeEdge == "Right")
         {
-            int newEndCol0 = targetCol - 1;
-            if (newEndCol0 < origStartCol0) newEndCol0 = origStartCol0;
-            newGridCol = origStartCol0 + 1; // 1-based for grid
-            newColSpan = newEndCol0 - origStartCol0 + 1;
+            _resizeTargetDayIndex = Math.Max(targetDayIndex, originalStartIndex);
+            newStartIndex = originalStartIndex;
+            newEndIndex = _resizeTargetDayIndex;
         }
-        else // Left
+        else
         {
-            int newStartCol0 = targetCol - 1;
-            if (newStartCol0 > origEndCol0) newStartCol0 = origEndCol0;
-            if (newStartCol0 < 0) newStartCol0 = 0;
-            newGridCol = newStartCol0 + 1; // 1-based for grid
-            newColSpan = origEndCol0 - newStartCol0 + 1;
+            _resizeTargetDayIndex = Math.Min(targetDayIndex, originalEndIndex);
+            newStartIndex = _resizeTargetDayIndex;
+            newEndIndex = originalEndIndex;
         }
 
-        if (newColSpan < 1) newColSpan = 1;
+        int visibleStartIndex = Math.Max(newStartIndex, 0);
+        int visibleEndIndex = Math.Min(newEndIndex, _totalDays - 1);
+        if (visibleStartIndex <= visibleEndIndex)
+        {
+            Grid.SetColumn(_resizeBar, visibleStartIndex + 1);
+            Grid.SetColumnSpan(_resizeBar, visibleEndIndex - visibleStartIndex + 1);
+        }
+        else
+        {
+            // Keep a one-day handle visible while the chosen range has already
+            // moved completely outside this viewport. The exact date is shown
+            // in the popup and the calendar is rebuilt after committing.
+            int boundaryIndex = newEndIndex < 0 ? 0 : _totalDays - 1;
+            Grid.SetColumn(_resizeBar, boundaryIndex + 1);
+            Grid.SetColumnSpan(_resizeBar, 1);
+        }
 
-        // Live update the bar position and span
-        Grid.SetColumn(_resizeBar, newGridCol);
-        Grid.SetColumnSpan(_resizeBar, newColSpan);
+        UpdateResizeHint(_resizeTargetDayIndex);
     }
 
     private void Bar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (_resizeBar == null || _resizeSpan == null) return;
 
-        // Unsubscribe live preview
-        CalendarGrid.MouseMove -= CalendarGrid_ResizePreview;
-
-        var bar = _resizeBar;
-        bar.ReleaseMouseCapture();
-        bar.Opacity = 1.0;
-
-        // Calculate final column position from mouse
-        var posInGrid = e.GetPosition(CalendarGrid);
-        int targetCol = GetColumnAtPosition(posInGrid.X);
-        if (targetCol < 1) targetCol = 1;
-        if (targetCol > _totalDays) targetCol = _totalDays;
-
         var span = _resizeSpan;
-        var origStartCol = span.StartCol; // 0-based
-        var origEndCol = span.StartCol + span.ColSpan - 1; // 0-based
-
-        if (_resizeEdge == "Right")
+        ReleaseResizeCaptureForCommit();
+        bool restoreAfterFailure = false;
+        try
         {
-            int newEndCol = targetCol - 1; // convert to 0-based
-            if (newEndCol < origStartCol) newEndCol = origStartCol;
-            if (newEndCol > origEndCol)
+            if (!_resizeHasMoved)
+                return;
+
+            var targetDate = _startDate.AddDays(_resizeTargetDayIndex).Date;
+            if (_resizeEdge == "Right")
             {
-                var from = _startDate.AddDays(origEndCol + 1);
-                var to = _startDate.AddDays(newEndCol);
-                _vm.AddAllocationsRange(_resizeResourceId, span.ProjectId, from, to);
+                if (targetDate < _resizeOriginalStartDate)
+                    targetDate = _resizeOriginalStartDate;
+                if (targetDate > _resizeOriginalEndDate)
+                    _vm.AddAllocationsRange(_resizeResourceId, span.ProjectId,
+                        _resizeOriginalEndDate.AddDays(1), targetDate, _resizeEndHours);
+                else if (targetDate < _resizeOriginalEndDate)
+                    _vm.DeleteAllocationsRange(_resizeResourceId, span.ProjectId,
+                        targetDate.AddDays(1), _resizeOriginalEndDate);
             }
-            else if (newEndCol < origEndCol)
+            else
             {
-                var from = _startDate.AddDays(newEndCol + 1);
-                var to = _startDate.AddDays(origEndCol);
-                _vm.DeleteAllocationsRange(_resizeResourceId, span.ProjectId, from, to);
+                if (targetDate > _resizeOriginalEndDate)
+                    targetDate = _resizeOriginalEndDate;
+                if (targetDate < _resizeOriginalStartDate)
+                    _vm.AddAllocationsRange(_resizeResourceId, span.ProjectId,
+                        targetDate, _resizeOriginalStartDate.AddDays(-1), _resizeStartHours);
+                else if (targetDate > _resizeOriginalStartDate)
+                    _vm.DeleteAllocationsRange(_resizeResourceId, span.ProjectId,
+                        _resizeOriginalStartDate, targetDate.AddDays(-1));
             }
         }
-        else // Left
+        catch (Exception ex)
         {
-            int newStartCol = targetCol - 1; // 0-based
-            if (newStartCol > origEndCol) newStartCol = origEndCol;
-            if (newStartCol < origStartCol)
-            {
-                var from = _startDate.AddDays(newStartCol);
-                var to = _startDate.AddDays(origStartCol - 1);
-                _vm.AddAllocationsRange(_resizeResourceId, span.ProjectId, from, to);
-            }
-            else if (newStartCol > origStartCol)
-            {
-                var from = _startDate.AddDays(origStartCol);
-                var to = _startDate.AddDays(newStartCol - 1);
-                _vm.DeleteAllocationsRange(_resizeResourceId, span.ProjectId, from, to);
-            }
+            restoreAfterFailure = true;
+            var reference = AppLogger.LogException("resource_allocation.resize_failed", ex);
+            ModernMessageBox.ShowError(
+                $"Der Projektzeitraum konnte nicht geändert werden. Referenz: {reference}",
+                "Zeitraum ändern");
         }
-
-        _resizeBar = null;
-        _resizeSpan = null;
-        e.Handled = true;
+        finally
+        {
+            EndResize();
+            if (restoreAfterFailure)
+            {
+                try { _vm.Load(); }
+                catch { /* The original database error has already been shown. */ }
+            }
+            e.Handled = true;
+        }
     }
 
     // --- Hardware Resize logic ---
@@ -666,12 +737,31 @@ public partial class ResourcesView : UserControl
             _resizeEdge = "Right";
         else return;
 
+        var fullRange = _vm.GetHardwareAllocationRange(
+                resourceId, span.HardwareId, span.ProjectId, span.StartDate)
+            ?? (span.StartDate, span.EndDate, span.Hours, span.Hours);
+
         _resizeBar = bar;
         _resizeHwSpan = span;
         _resizeSpan = null; // clear project span
         _resizeResourceId = resourceId;
+        _resizeOriginalStartDate = fullRange.Start;
+        _resizeOriginalEndDate = fullRange.End;
+        _resizeStartHours = fullRange.StartHours;
+        _resizeEndHours = fullRange.EndHours;
+        _resizeTargetDayIndex = DateToDayIndex(
+            _resizeEdge == "Right" ? fullRange.End : fullRange.Start);
+        _resizeStartPointerX = e.GetPosition(CalendarGrid).X;
+        _resizeHasMoved = false;
         bar.Opacity = 0.7;
-        bar.CaptureMouse();
+        if (!bar.CaptureMouse())
+        {
+            EndResize();
+            return;
+        }
+        bar.LostMouseCapture += ResizeBar_LostMouseCapture;
+        OpenResizeHint(bar);
+        UpdateResizeHint(_resizeTargetDayIndex);
         CalendarGrid.MouseMove += CalendarGrid_ResizePreview;
         e.Handled = true;
     }
@@ -680,75 +770,241 @@ public partial class ResourcesView : UserControl
     {
         if (_resizeBar == null || _resizeHwSpan == null) return;
 
-        CalendarGrid.MouseMove -= CalendarGrid_ResizePreview;
-
-        var bar = _resizeBar;
-        bar.ReleaseMouseCapture();
-        bar.Opacity = 1.0;
-
-        var posInGrid = e.GetPosition(CalendarGrid);
-        int targetCol = GetColumnAtPosition(posInGrid.X);
-        if (targetCol < 1) targetCol = 1;
-        if (targetCol > _totalDays) targetCol = _totalDays;
-
         var span = _resizeHwSpan;
-        var origStartCol = span.StartCol;
-        var origEndCol = span.StartCol + span.ColSpan - 1;
-
-        if (_resizeEdge == "Right")
+        ReleaseResizeCaptureForCommit();
+        bool restoreAfterFailure = false;
+        try
         {
-            int newEndCol = targetCol - 1;
-            if (newEndCol < origStartCol) newEndCol = origStartCol;
-            if (newEndCol > origEndCol)
+            if (!_resizeHasMoved)
+                return;
+
+            var targetDate = _startDate.AddDays(_resizeTargetDayIndex).Date;
+            if (_resizeEdge == "Right")
             {
-                var from = _startDate.AddDays(origEndCol + 1);
-                var to = _startDate.AddDays(newEndCol);
-                _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+                if (targetDate < _resizeOriginalStartDate)
+                    targetDate = _resizeOriginalStartDate;
+                if (targetDate > _resizeOriginalEndDate)
+                    _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId,
+                        _resizeOriginalEndDate.AddDays(1), targetDate, _resizeEndHours);
+                else if (targetDate < _resizeOriginalEndDate)
+                    _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId,
+                        targetDate.AddDays(1), _resizeOriginalEndDate);
             }
-            else if (newEndCol < origEndCol)
+            else
             {
-                var from = _startDate.AddDays(newEndCol + 1);
-                var to = _startDate.AddDays(origEndCol);
-                _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
+                if (targetDate > _resizeOriginalEndDate)
+                    targetDate = _resizeOriginalEndDate;
+                if (targetDate < _resizeOriginalStartDate)
+                    _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId,
+                        targetDate, _resizeOriginalStartDate.AddDays(-1), _resizeStartHours);
+                else if (targetDate > _resizeOriginalStartDate)
+                    _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId,
+                        _resizeOriginalStartDate, targetDate.AddDays(-1));
             }
         }
-        else // Left
+        catch (Exception ex)
         {
-            int newStartCol = targetCol - 1;
-            if (newStartCol > origEndCol) newStartCol = origEndCol;
-            if (newStartCol < origStartCol)
-            {
-                var from = _startDate.AddDays(newStartCol);
-                var to = _startDate.AddDays(origStartCol - 1);
-                _vm.AddHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
-            }
-            else if (newStartCol > origStartCol)
-            {
-                var from = _startDate.AddDays(origStartCol);
-                var to = _startDate.AddDays(newStartCol - 1);
-                _vm.DeleteHardwareAllocationsRange(_resizeResourceId, span.HardwareId, span.ProjectId, from, to);
-            }
+            restoreAfterFailure = true;
+            var reference = AppLogger.LogException("hardware_allocation.resize_failed", ex);
+            ModernMessageBox.ShowError(
+                $"Der Hardwarezeitraum konnte nicht geändert werden. Referenz: {reference}",
+                "Zeitraum ändern");
         }
-
-        _resizeBar = null;
-        _resizeHwSpan = null;
-        e.Handled = true;
+        finally
+        {
+            EndResize();
+            if (restoreAfterFailure)
+            {
+                try { _vm.Load(); }
+                catch { /* The original database error has already been shown. */ }
+            }
+            e.Handled = true;
+        }
     }
 
-    private int GetColumnAtPosition(double x)
+    private int DateToDayIndex(DateTime date)
+        => (int)(date.Date - _startDate.Date).TotalDays;
+
+    private void EndResize()
     {
-        double accum = 0;
-        for (int i = 0; i < CalendarGrid.ColumnDefinitions.Count; i++)
+        if (_endingResize)
+            return;
+        _endingResize = true;
+        CalendarGrid.MouseMove -= CalendarGrid_ResizePreview;
+        var bar = _resizeBar;
+        _resizeBar = null;
+        try
         {
-            accum += CalendarGrid.ColumnDefinitions[i].ActualWidth;
-            if (x < accum) return i;
+            if (bar != null)
+            {
+                bar.LostMouseCapture -= ResizeBar_LostMouseCapture;
+                bar.Opacity = 1.0;
+                if (bar.IsMouseCaptured)
+                    bar.ReleaseMouseCapture();
+            }
+
+            CloseResizeHint();
+            _resizeSpan = null;
+            _resizeHwSpan = null;
+            _resizeHasMoved = false;
+            _resizeEdge = "";
         }
-        return CalendarGrid.ColumnDefinitions.Count - 1;
+        finally
+        {
+            _endingResize = false;
+        }
+    }
+
+    private void ReleaseResizeCaptureForCommit()
+    {
+        CalendarGrid.MouseMove -= CalendarGrid_ResizePreview;
+        if (_resizeBar != null)
+        {
+            _resizeBar.LostMouseCapture -= ResizeBar_LostMouseCapture;
+            _resizeBar.Opacity = 1.0;
+            if (_resizeBar.IsMouseCaptured)
+                _resizeBar.ReleaseMouseCapture();
+        }
+        CloseResizeHint();
+    }
+
+    private void ResizeBar_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_resizeBar == null || _endingResize)
+            return;
+        EndResize();
+        try { _vm.Load(); }
+        catch { /* Connection errors are reported by the surrounding application. */ }
+    }
+
+    private int GetResizeTargetDayIndex(MouseEventArgs e)
+    {
+        if (_totalDays <= 0 || CalendarGrid.ColumnDefinitions.Count < 2)
+            return 0;
+
+        var pointerInGrid = e.GetPosition(CalendarGrid);
+        var pointerInViewport = e.GetPosition(CalendarScrollViewer);
+        double firstDayX = CalendarGrid.ColumnDefinitions[0].ActualWidth;
+        double calendarEndX = CalendarGrid.ColumnDefinitions.Sum(column => column.ActualWidth);
+        int target = CalculateResizeTargetDayIndex(
+            pointerInGrid.X, firstDayX, calendarEndX, _totalDays,
+            OutsideResizePixelsPerDay, MaxOutsideResizeDays);
+
+        // WPF does not auto-scroll a captured resize handle. Once the pointer
+        // leaves the viewport, accelerate the logical date instead. A month can
+        // therefore be added with a short drag beyond the window edge, while the
+        // popup keeps the exact date visible.
+        double viewportWidth = CalendarScrollViewer.ViewportWidth > 0
+            ? CalendarScrollViewer.ViewportWidth
+            : CalendarScrollViewer.ActualWidth;
+        if (pointerInViewport.X > viewportWidth)
+        {
+            double outside = pointerInViewport.X - viewportWidth;
+            double edgeGridX = pointerInGrid.X - outside - 0.001;
+            int edgeTarget = CalculateResizeTargetDayIndex(
+                edgeGridX, firstDayX, calendarEndX, _totalDays,
+                OutsideResizePixelsPerDay, MaxOutsideResizeDays);
+            int extra = Math.Max(1, (int)Math.Ceiling(outside / OutsideResizePixelsPerDay));
+            target = edgeTarget + extra;
+        }
+        else if (pointerInViewport.X < 0)
+        {
+            double outside = -pointerInViewport.X;
+            double edgeGridX = pointerInGrid.X + outside + 0.001;
+            int edgeTarget = CalculateResizeTargetDayIndex(
+                edgeGridX, firstDayX, calendarEndX, _totalDays,
+                OutsideResizePixelsPerDay, MaxOutsideResizeDays);
+            int extra = Math.Max(1, (int)Math.Ceiling(outside / OutsideResizePixelsPerDay));
+            target = edgeTarget - extra;
+        }
+
+        return Math.Clamp(target, -MaxOutsideResizeDays, _totalDays - 1 + MaxOutsideResizeDays);
+    }
+
+    private static int CalculateResizeTargetDayIndex(
+        double pointerX,
+        double firstDayX,
+        double calendarEndX,
+        int totalDays,
+        double outsidePixelsPerDay,
+        int maxOutsideDays)
+    {
+        if (totalDays <= 0)
+            return 0;
+
+        outsidePixelsPerDay = Math.Max(1.0, outsidePixelsPerDay);
+        maxOutsideDays = Math.Max(1, maxOutsideDays);
+        double dateAreaWidth = Math.Max(totalDays, calendarEndX - firstDayX);
+
+        if (pointerX < firstDayX)
+            return 0;
+
+        if (pointerX > calendarEndX)
+        {
+            int extraDays = Math.Max(1,
+                (int)Math.Ceiling((pointerX - calendarEndX) / outsidePixelsPerDay));
+            return totalDays - 1 + Math.Min(extraDays, maxOutsideDays);
+        }
+
+        double dayWidth = dateAreaWidth / totalDays;
+        int dayIndex = (int)Math.Floor((pointerX - firstDayX) / dayWidth);
+        return Math.Clamp(dayIndex, 0, totalDays - 1);
+    }
+
+    private void OpenResizeHint(Border bar)
+    {
+        CloseResizeHint();
+        _resizeHintText = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold
+        };
+        _resizeHintPopup = new Popup
+        {
+            PlacementTarget = bar,
+            Placement = PlacementMode.Top,
+            VerticalOffset = -6,
+            AllowsTransparency = true,
+            StaysOpen = true,
+            IsHitTestVisible = false,
+            Child = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x23, 0x59)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x73, 0x1A)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 4, 8, 4),
+                Child = _resizeHintText
+            }
+        };
+        _resizeHintPopup.IsOpen = true;
+    }
+
+    private void UpdateResizeHint(int targetDayIndex)
+    {
+        if (_resizeHintText == null)
+            return;
+
+        var label = _resizeEdge == "Right" ? "Neues Ende" : "Neuer Beginn";
+        var outside = targetDayIndex < 0 || targetDayIndex >= _totalDays;
+        _resizeHintText.Text = $"{label}: {_startDate.AddDays(targetDayIndex):dd.MM.yyyy}"
+            + (outside ? "  ·  außerhalb der Ansicht" : "");
+    }
+
+    private void CloseResizeHint()
+    {
+        if (_resizeHintPopup != null)
+            _resizeHintPopup.IsOpen = false;
+        _resizeHintPopup = null;
+        _resizeHintText = null;
     }
 
     // --- Allocation spans with multi-project support ---
-    private record AllocationSpan(long ProjectId, int StartCol, int ColSpan, DateTime StartDate, DateTime EndDate, double Hours, List<long> AllocationIds);
-    private record HwAllocationSpan(long HardwareId, long ProjectId, int StartCol, int ColSpan, DateTime StartDate, DateTime EndDate, List<long> AllocationIds);
+    private record AllocationSpan(long ProjectId, int StartCol, int ColSpan, DateTime StartDate, DateTime EndDate,
+        double Hours, bool HasMixedHours, bool ContinuesBefore, bool ContinuesAfter, List<long> AllocationIds);
+    private record HwAllocationSpan(long HardwareId, long ProjectId, int StartCol, int ColSpan, DateTime StartDate,
+        DateTime EndDate, double Hours, bool ContinuesBefore, bool ContinuesAfter, List<long> AllocationIds);
 
     private List<AllocationSpan> GetAllocationSpansMulti(long resourceId, DateTime start, int days)
     {
@@ -784,7 +1040,14 @@ public partial class ResourcesView : UserControl
                     j++;
                 }
                 var endDate = sorted[j - 1].date;
-                spans.Add(new AllocationSpan(projectId, spanStart, j - i, startDate, endDate, hours, ids));
+                bool hasMixedHours = sorted.Skip(i).Take(j - i)
+                    .Any(entry => Math.Abs(entry.hours - hours) > 0.000001);
+                bool continuesBefore = spanStart == 0 && _vm.GetAllocations(resourceId, start.AddDays(-1))
+                    .Any(allocation => allocation.ProjectId == projectId);
+                bool continuesAfter = sorted[j - 1].col == days - 1 && _vm.GetAllocations(resourceId, start.AddDays(days))
+                    .Any(allocation => allocation.ProjectId == projectId);
+                spans.Add(new AllocationSpan(projectId, spanStart, j - i, startDate, endDate,
+                    hours, hasMixedHours, continuesBefore, continuesAfter, ids));
                 i = j;
             }
         }
@@ -882,8 +1145,14 @@ public partial class ResourcesView : UserControl
                 if (e.ClickCount == 2)
                 {
                     e.Handled = true;
+                    if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.update")) return;
                     var edited = ResourceEditDialog.ShowEdit(capturedResource);
-                    if (edited != null) { Database.Instance.UpdateResource(edited); _vm.Load(); }
+                    if (edited != null)
+                    {
+                        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.update.confirmed")) return;
+                        Database.Instance.UpdateResource(edited);
+                        _vm.Load();
+                    }
                 }
             };
             int dayProjectRow = r * 2 + 1;
@@ -1028,9 +1297,11 @@ public partial class ResourcesView : UserControl
                 if (e.ClickCount == 2)
                 {
                     e.Handled = true;
+                    if (!PermissionGuard.DemandEdit(PageKeys.Resources, "project.update")) return;
                     var edited = ProjectEditDialog.ShowEdit(capturedProject);
                     if (edited != null)
                     {
+                        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "project.update.confirmed")) return;
                         Database.Instance.UpdateProject(edited);
                         _vm.Load();
                     }
@@ -1098,9 +1369,11 @@ public partial class ResourcesView : UserControl
 
     private void AddResource_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.add")) return;
         var newResource = ResourceEditDialog.ShowNew();
         if (newResource != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Resources, "resource.add.confirmed")) return;
             Database.Instance.AddResource(newResource);
             _vm.Load();
         }
@@ -1108,9 +1381,11 @@ public partial class ResourcesView : UserControl
 
     private void AddProject_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "project.add")) return;
         var newProject = ProjectEditDialog.ShowNew();
         if (newProject != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Resources, "project.add.confirmed")) return;
             Database.Instance.AddProject(newProject);
             _vm.Load();
         }
@@ -1152,7 +1427,7 @@ public partial class ResourcesView : UserControl
 
     private List<HwAllocationSpan> GetHardwareAllocationSpans(long resourceId, DateTime start, int days)
     {
-        var byKey = new Dictionary<(long hwId, long projId), List<(int col, DateTime date, long id)>>();
+        var byKey = new Dictionary<(long hwId, long projId), List<(int col, DateTime date, long id, double hours)>>();
         for (int d = 0; d < days; d++)
         {
             var date = start.AddDays(d);
@@ -1161,7 +1436,7 @@ public partial class ResourcesView : UserControl
             {
                 var key = (a.HardwareId, a.ProjectId);
                 if (!byKey.ContainsKey(key)) byKey[key] = [];
-                byKey[key].Add((d, date, a.Id));
+                byKey[key].Add((d, date, a.Id, a.Hours));
             }
         }
 
@@ -1174,6 +1449,7 @@ public partial class ResourcesView : UserControl
             {
                 var spanStart = sorted[i].col;
                 var startDate = sorted[i].date;
+                var hours = sorted[i].hours;
                 var ids = new List<long> { sorted[i].id };
                 int j = i + 1;
                 while (j < sorted.Count && sorted[j].col == sorted[j - 1].col + 1)
@@ -1182,7 +1458,14 @@ public partial class ResourcesView : UserControl
                     j++;
                 }
                 var endDate = sorted[j - 1].date;
-                spans.Add(new HwAllocationSpan(hwId, projId, spanStart, j - i, startDate, endDate, ids));
+                bool continuesBefore = spanStart == 0
+                    && _vm.GetHardwareAllocationsForResource(resourceId, start.AddDays(-1))
+                        .Any(allocation => allocation.HardwareId == hwId && allocation.ProjectId == projId);
+                bool continuesAfter = sorted[j - 1].col == days - 1
+                    && _vm.GetHardwareAllocationsForResource(resourceId, start.AddDays(days))
+                        .Any(allocation => allocation.HardwareId == hwId && allocation.ProjectId == projId);
+                spans.Add(new HwAllocationSpan(hwId, projId, spanStart, j - i, startDate, endDate,
+                    hours, continuesBefore, continuesAfter, ids));
                 i = j;
             }
         }

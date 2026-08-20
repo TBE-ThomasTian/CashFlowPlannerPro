@@ -20,6 +20,10 @@ public partial class TargetsView : UserControl
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddTarget");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteTarget");
+        var canEdit = App.CanEdit(PageKeys.Targets);
+        AddBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        TargetsGrid.IsReadOnly = !canEdit;
     }
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)

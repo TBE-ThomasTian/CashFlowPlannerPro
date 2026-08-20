@@ -22,6 +22,11 @@
 
             <TextBlock Text="Passwort" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="PbPassword" Padding="10,8" FontSize="14"
+                          Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
+                          CaretBrush="White" Margin="0,0,0,12"/>
+
+            <TextBlock x:Name="ConfirmPasswordLabel" Text="Passwort bestätigen" Foreground="#8899AA" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="PbConfirmPassword" Padding="10,8" FontSize="14"
                          Background="#1E1A40" Foreground="White" BorderBrush="#3D3670" BorderThickness="1"
                          CaretBrush="White" Margin="0,0,0,20"/>
 

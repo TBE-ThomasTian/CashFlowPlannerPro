@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -20,6 +21,7 @@ public partial class TargetsViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Targets, "target.add")) return;
         var t = new Target {
             Year = DateTime.Today.Year,
             Month = DateTime.Today.Month,
@@ -33,6 +35,7 @@ public partial class TargetsViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Targets, "target.delete")) return;
         if (SelectedTarget == null) return;
         Database.Instance.DeleteTarget(SelectedTarget.Id);
         Targets.Remove(SelectedTarget);
@@ -40,6 +43,7 @@ public partial class TargetsViewModel : ObservableObject
 
     public void Save(Target t)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Targets, "target.update")) return;
         if (t.Id > 0) Database.Instance.UpdateTarget(t);
     }
 }

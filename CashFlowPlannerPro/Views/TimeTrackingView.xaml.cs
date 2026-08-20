@@ -62,7 +62,8 @@ public partial class TimeTrackingView : UserControl
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError(ex.Message, LocalizationManager.Get("TimeTrackingTitleShort"));
+            var reference = AppLogger.LogException("time_tracking.load_failed", ex);
+            ModernMessageBox.ShowError($"Die Zeiterfassung konnte nicht geladen werden. Referenz: {reference}", LocalizationManager.Get("TimeTrackingTitleShort"));
         }
     }
 
@@ -132,10 +133,14 @@ public partial class TimeTrackingView : UserControl
 
     private void UpdateRunningState()
     {
+        var canEdit = App.CanEdit(PageKeys.TimeTracking);
+        ProjectCombo.IsEnabled = canEdit && _runningEntry == null;
+        ActivityCombo.IsEnabled = canEdit && _runningEntry == null;
+        DescriptionTextBox.IsEnabled = canEdit && _runningEntry == null;
         if (_runningEntry == null)
         {
             RunningEntryText.Text = LocalizationManager.Get("TimeTrackingNoRunning");
-            StartButton.IsEnabled = true;
+            StartButton.IsEnabled = canEdit;
             StopButton.IsEnabled = false;
             return;
         }
@@ -149,12 +154,12 @@ public partial class TimeTrackingView : UserControl
             _runningEntry.ActivityType,
             description);
         StartButton.IsEnabled = false;
-        StopButton.IsEnabled = true;
+        StopButton.IsEnabled = canEdit;
     }
 
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!App.CanEdit("timetracking"))
+        if (!PermissionGuard.DemandEdit(PageKeys.TimeTracking, "time_entry.start"))
         {
             ModernMessageBox.ShowError(
                 LocalizationManager.Get("TimeTrackingAccessDenied"),
@@ -186,7 +191,7 @@ public partial class TimeTrackingView : UserControl
 
     private void StopButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!App.CanEdit("timetracking"))
+        if (!PermissionGuard.DemandEdit(PageKeys.TimeTracking, "time_entry.stop"))
         {
             ModernMessageBox.ShowError(
                 LocalizationManager.Get("TimeTrackingAccessDenied"),
@@ -203,8 +208,8 @@ public partial class TimeTrackingView : UserControl
     {
         if (string.IsNullOrWhiteSpace(value))
             return "-";
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-            return dt.ToString("g", CultureInfo.CurrentUICulture);
+        if (Database.TryParseStoredTimeUtc(value, out var utc))
+            return utc.ToLocalTime().ToString("g", CultureInfo.CurrentUICulture);
         return value;
     }
 

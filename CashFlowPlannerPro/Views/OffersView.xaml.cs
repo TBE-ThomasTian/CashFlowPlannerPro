@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using System.Linq;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
@@ -13,18 +14,16 @@ namespace CashFlowPlannerPro.Views;
 public partial class OffersView : UserControl
 {
     private readonly OffersViewModel _vm;
+    private bool _isLoading;
 
     public OffersView()
     {
         InitializeComponent();
         _vm = new OffersViewModel();
         DataContext = _vm;
-        _vm.Load();
-        IsVisibleChanged += (_, e) =>
-        {
-            if (e.NewValue is true)
-                _vm.Load();
-        };
+        OffersBusyText.Text = LocalizationManager.Get("LoadingData");
+        Loaded += OffersView_Loaded;
+        IsVisibleChanged += OffersView_IsVisibleChanged;
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddOffer");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteOffer");
@@ -36,6 +35,49 @@ public partial class OffersView : UserControl
         CreateProjectBtn.IsEnabled = App.CanEdit(PageKeys.Offers) && App.CanEdit(PageKeys.Resources);
         if (!CreateProjectBtn.IsEnabled)
             CreateProjectBtn.ToolTip = "Nur mit Vollzugriff auf Angebote und Ressourcen verfügbar";
+    }
+
+    private async void OffersView_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (IsVisible)
+            await ReloadAsync();
+    }
+
+    private async void OffersView_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true && IsLoaded)
+            await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_isLoading || !App.CanView(PageKeys.Offers))
+            return;
+
+        _isLoading = true;
+        BusyOverlay.Visibility = Visibility.Visible;
+        try
+        {
+            // Let WPF render the overlay before the independent background
+            // read starts so the progress animation remains responsive.
+            await Dispatcher.Yield(DispatcherPriority.Render);
+            if (!IsVisible)
+                return;
+
+            await _vm.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException("offer.load_failed", ex);
+            ModernMessageBox.ShowError(
+                $"Die Angebote konnten nicht geladen werden. Referenz: {reference}",
+                LocalizationManager.Get("AppErrorTitle"));
+        }
+        finally
+        {
+            BusyOverlay.Visibility = Visibility.Collapsed;
+            _isLoading = false;
+        }
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
@@ -84,7 +126,8 @@ public partial class OffersView : UserControl
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError($"Das Angebot konnte nicht gespeichert werden:\n{ex.Message}", "Angebot speichern");
+            var reference = AppLogger.LogException("offer.save_failed", ex);
+            ModernMessageBox.ShowError($"Das Angebot konnte nicht gespeichert werden. Referenz: {reference}", "Angebot speichern");
         }
     }
 
@@ -107,7 +150,7 @@ public partial class OffersView : UserControl
 
     private static bool EnsureCanEditOffers()
     {
-        if (App.CanEdit(PageKeys.Offers))
+        if (PermissionGuard.DemandEdit(PageKeys.Offers, "offer.edit"))
             return true;
 
         ModernMessageBox.ShowError("Zum Bearbeiten von Angeboten ist Vollzugriff erforderlich.", "Keine Berechtigung");
@@ -136,7 +179,8 @@ public partial class OffersView : UserControl
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError($"Fehler beim Scannen:\n{ex.Message}", "PDF Scan");
+            var reference = AppLogger.LogException("offer.scan_failed", ex);
+            ModernMessageBox.ShowError($"Die PDF-Datei konnte nicht verarbeitet werden. Referenz: {reference}", "PDF Scan");
         }
     }
 
@@ -147,7 +191,8 @@ public partial class OffersView : UserControl
 
     private void CreateProject_Click(object sender, RoutedEventArgs e)
     {
-        if (!App.CanEdit(PageKeys.Offers) || !App.CanEdit(PageKeys.Resources))
+        if (!PermissionGuard.DemandEdit(PageKeys.Offers, "offer.create_project") ||
+            !PermissionGuard.DemandEdit(PageKeys.Resources, "project.create_from_offer"))
         {
             ModernMessageBox.ShowError(
                 "Zum Erstellen eines Projekts ist Vollzugriff auf Angebote und Ressourcen erforderlich.",
@@ -218,14 +263,15 @@ public partial class OffersView : UserControl
                 "Sie finden es unter Ressourcen.",
                 "Projekt erstellt");
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             ModernMessageBox.ShowError(ex.Message, "Projekt konnte nicht erstellt werden");
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("offer.project_create_failed", ex);
             ModernMessageBox.ShowError(
-                $"Beim Erstellen des Projekts ist ein unerwarteter Fehler aufgetreten:\n{ex.Message}",
+                $"Beim Erstellen des Projekts ist ein unerwarteter Fehler aufgetreten. Referenz: {reference}",
                 "Projekt konnte nicht erstellt werden");
         }
     }
@@ -288,7 +334,19 @@ public partial class OffersView : UserControl
         if (!ModernMessageBox.ShowConfirm(message, "Angebote"))
             return false;
 
-        _vm.DeleteOffers(selectedOffers);
-        return true;
+        try
+        {
+            _vm.DeleteOffers(selectedOffers);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            var reference = AppLogger.LogException("offer.delete_failed", ex);
+            ModernMessageBox.ShowError(
+                $"Die Angebote konnten nicht gelöscht werden. Referenz: {reference}",
+                "Angebote löschen");
+        }
+
+        return false;
     }
 }

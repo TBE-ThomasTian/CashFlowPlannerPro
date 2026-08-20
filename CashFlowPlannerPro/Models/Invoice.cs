@@ -9,7 +9,7 @@ public class Invoice : ObservableObject
     private string issueDate = "";
     private string dueDate = "";
     private string customer = "";
-    private long customerId;
+    private long? customerId;
     private double amount;
     private double netAmount;
     private double vatAmount;
@@ -27,7 +27,7 @@ public class Invoice : ObservableObject
     public string IssueDate { get => issueDate; set => SetProperty(ref issueDate, value); }
     public string DueDate { get => dueDate; set => SetProperty(ref dueDate, value); }
     public string Customer { get => customer; set => SetProperty(ref customer, value); }
-    public long CustomerId { get => customerId; set => SetProperty(ref customerId, value); }
+    public long? CustomerId { get => customerId; set => SetProperty(ref customerId, value); }
     public double Amount { get => amount; set => SetProperty(ref amount, value); }
     public double NetAmount { get => netAmount; set => SetProperty(ref netAmount, value); }
     public double VatAmount { get => vatAmount; set => SetProperty(ref vatAmount, value); }

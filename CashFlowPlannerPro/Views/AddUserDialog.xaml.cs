@@ -17,6 +17,7 @@ public partial class AddUserDialog : Window
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
         CreateBtn.ToolTip = TooltipService.Get("Btn_Create");
         CancelBtn.ToolTip = TooltipService.Get("Btn_Cancel");
+        ConfirmPasswordLabel.Text = LocalizationManager.Get("ConfirmPasswordLabel");
         TbUsername.Focus();
     }
 
@@ -42,9 +43,16 @@ public partial class AddUserDialog : Window
                 "Benutzer bereits vorhanden");
             return;
         }
-        if (string.IsNullOrWhiteSpace(Password))
+        if (!PasswordPolicy.TryValidate(Password, Username, out var passwordError))
         {
-            ModernMessageBox.ShowError("Passwort darf nicht leer sein.", "Fehler");
+            ModernMessageBox.ShowError(passwordError, LocalizationManager.Get("PasswordTitle"));
+            return;
+        }
+        if (!string.Equals(Password, PbConfirmPassword.Password, StringComparison.Ordinal))
+        {
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("PasswordsDoNotMatch"),
+                LocalizationManager.Get("PasswordTitle"));
             return;
         }
         DialogResult = true;

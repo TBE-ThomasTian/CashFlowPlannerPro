@@ -54,6 +54,7 @@ public partial class ProjectKanbanDialog
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
         CloseBtn.ToolTip = TooltipService.Get("Btn_Close");
         AddMilestoneBtn.ToolTip = TooltipService.Get("Btn_AddMilestone");
+        AddMilestoneBtn.IsEnabled = App.CanEdit(PageKeys.Resources);
         LoadMilestones();
     }
 
@@ -68,6 +69,7 @@ public partial class ProjectKanbanDialog
         if (Application.Current?.MainWindow != null) Owner = Application.Current.MainWindow;
         CloseBtn.ToolTip = TooltipService.Get("Btn_Close");
         AddMilestoneBtn.ToolTip = TooltipService.Get("Btn_AddMilestone");
+        AddMilestoneBtn.IsEnabled = App.CanEdit(PageKeys.Resources);
         LoadMilestones();
     }
 
@@ -121,6 +123,7 @@ public partial class ProjectKanbanDialog
 
     private Border CreateCard(ProjectMilestone m)
     {
+        var canEdit = App.CanEdit(PageKeys.Resources);
         var sp = new StackPanel { Margin = new Thickness(4) };
 
         // Title + Priority
@@ -189,40 +192,43 @@ public partial class ProjectKanbanDialog
             Background = Brushes.White, CornerRadius = new CornerRadius(6),
             BorderBrush = new SolidColorBrush(statusColor), BorderThickness = new Thickness(0, 0, 0, 3),
             Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(4, 4, 4, 4),
-            Child = sp, Cursor = Cursors.Hand,
+            Child = sp, Cursor = canEdit ? Cursors.Hand : Cursors.Arrow,
             Effect = new DropShadowEffect { BlurRadius = 4, ShadowDepth = 1, Opacity = 0.08 },
             Tag = m.Id
         };
 
         // Drag to move between columns
         Point? dragStart = null;
-        card.MouseLeftButtonDown += (s, e) => {
-            if (e.ClickCount == 1)
-                dragStart = e.GetPosition(card);
-        };
-        card.MouseMove += (s, e) => {
-            if (e.LeftButton == MouseButtonState.Pressed && dragStart.HasValue)
-            {
-                var pos = e.GetPosition(card);
-                if (Math.Abs(pos.X - dragStart.Value.X) > 10 || Math.Abs(pos.Y - dragStart.Value.Y) > 10)
+        if (canEdit)
+        {
+            card.MouseLeftButtonDown += (s, e) => {
+                if (e.ClickCount == 1)
+                    dragStart = e.GetPosition(card);
+            };
+            card.MouseMove += (s, e) => {
+                if (e.LeftButton == MouseButtonState.Pressed && dragStart.HasValue)
                 {
-                    dragStart = null;
-                    var data = new DataObject();
-                    data.SetData("MilestoneId", m.Id);
-                    DragDrop.DoDragDrop(card, data, DragDropEffects.Move);
+                    var pos = e.GetPosition(card);
+                    if (Math.Abs(pos.X - dragStart.Value.X) > 10 || Math.Abs(pos.Y - dragStart.Value.Y) > 10)
+                    {
+                        dragStart = null;
+                        var data = new DataObject();
+                        data.SetData("MilestoneId", m.Id);
+                        DragDrop.DoDragDrop(card, data, DragDropEffects.Move);
+                    }
                 }
-            }
-        };
-        card.MouseLeftButtonUp += (s, e) => { dragStart = null; };
+            };
+            card.MouseLeftButtonUp += (s, e) => { dragStart = null; };
 
-        // Double-click to edit
-        card.MouseLeftButtonDown += (s, e) => {
-            if (e.ClickCount == 2)
-            {
-                e.Handled = true;
-                EditMilestone(m);
-            }
-        };
+            // Double-click to edit
+            card.MouseLeftButtonDown += (s, e) => {
+                if (e.ClickCount == 2)
+                {
+                    e.Handled = true;
+                    EditMilestone(m);
+                }
+            };
+        }
 
         // Right-click context menu
         var ctx = new ContextMenu();
@@ -242,6 +248,7 @@ public partial class ProjectKanbanDialog
             };
             var capturedStatus = status;
             statusItem.Click += (_, _) => {
+                if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.status.update")) return;
                 m.Status = capturedStatus;
                 Database.Instance.UpdateMilestone(m);
                 LoadMilestones();
@@ -252,26 +259,32 @@ public partial class ProjectKanbanDialog
         ctx.Items.Add(new Separator());
         var deleteItem = new MenuItem { Header = "🗑  Löschen", Foreground = new SolidColorBrush(Color.FromRgb(0xBF, 0x39, 0x39)) };
         deleteItem.Click += (_, _) => {
+            if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.delete")) return;
             if (ModernMessageBox.ShowConfirm($"Meilenstein \"{m.Name}\" löschen?", "Löschen"))
             {
+                if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.delete.confirmed")) return;
                 Database.Instance.DeleteMilestone(m.Id);
                 LoadMilestones();
             }
         };
         ctx.Items.Add(deleteItem);
-        card.ContextMenu = ctx;
+        if (canEdit)
+            card.ContextMenu = ctx;
 
         return card;
     }
 
     private void Column_DragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent("MilestoneId") ? DragDropEffects.Move : DragDropEffects.None;
+        e.Effects = App.CanEdit(PageKeys.Resources) && e.Data.GetDataPresent("MilestoneId")
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
         e.Handled = true;
     }
 
     private void Column_Drop(object sender, DragEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.move")) return;
         if (!e.Data.GetDataPresent("MilestoneId")) return;
         var milestoneId = (long)e.Data.GetData("MilestoneId")!;
         var m = _milestones.FirstOrDefault(x => x.Id == milestoneId);
@@ -296,6 +309,7 @@ public partial class ProjectKanbanDialog
 
     private void AddMilestone_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.add")) return;
         long projectId;
         if (_globalMode)
         {
@@ -312,6 +326,7 @@ public partial class ProjectKanbanDialog
                     var dlg2 = new MilestoneEditDialog(new ProjectMilestone { ProjectId = selectedPid });
                     if (dlg2.ShowDialog() == true && dlg2.Result != null)
                     {
+                        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.add.confirmed")) return;
                         Database.Instance.AddMilestone(dlg2.Result);
                         LoadMilestones();
                     }
@@ -330,6 +345,7 @@ public partial class ProjectKanbanDialog
         var editDlg = new MilestoneEditDialog(new ProjectMilestone { ProjectId = projectId });
         if (editDlg.ShowDialog() == true && editDlg.Result != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.add.confirmed")) return;
             Database.Instance.AddMilestone(editDlg.Result);
             LoadMilestones();
         }
@@ -337,9 +353,11 @@ public partial class ProjectKanbanDialog
 
     private void EditMilestone(ProjectMilestone m)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.update")) return;
         var dlg = new MilestoneEditDialog(m);
         if (dlg.ShowDialog() == true && dlg.Result != null)
         {
+            if (!PermissionGuard.DemandEdit(PageKeys.Resources, "milestone.update.confirmed")) return;
             Database.Instance.UpdateMilestone(dlg.Result);
             LoadMilestones();
         }

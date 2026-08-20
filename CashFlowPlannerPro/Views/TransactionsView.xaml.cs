@@ -20,6 +20,10 @@ public partial class TransactionsView : UserControl
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddTransaction");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteTransaction");
+        var canEdit = App.CanEdit(PageKeys.Transactions);
+        AddBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        TransactionsGrid.IsReadOnly = !canEdit;
     }
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)

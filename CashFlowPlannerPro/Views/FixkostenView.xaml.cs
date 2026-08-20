@@ -21,10 +21,16 @@ public partial class FixkostenView : UserControl
         AddBtn.ToolTip = TooltipService.Get("Btn_AddFixkosten");
         EditBtn.ToolTip = "Ausgewaehlte Fixkosten bearbeiten";
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteFixkosten");
+        var canEdit = App.CanEdit(PageKeys.Fixkosten);
+        AddBtn.IsEnabled = canEdit;
+        EditBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        FixkostenGrid.IsReadOnly = !canEdit;
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.add")) return;
         var result = FixkostenEditDialog.ShowNew(_vm.CreateDefaultFixkosten(), _vm.Categories, _vm.IntervalOptions);
         if (result == null)
             return;
@@ -44,6 +50,7 @@ public partial class FixkostenView : UserControl
 
     private void EditSelectedFixkosten()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.update")) return;
         if (_vm.SelectedTransaction == null)
         {
             ModernMessageBox.Show("Bitte waehle zuerst einen Fixkosten-Eintrag aus.", "Fixkosten");

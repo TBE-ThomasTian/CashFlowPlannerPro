@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
 
 namespace CashFlowPlannerPro.Views;
@@ -21,6 +22,9 @@ public partial class ApplicationSettingsDialog : Window
         ApplyLocalization();
         UiSizeCombo.SelectedValue = _originalScalePercent;
         LanguageCombo.SelectedValue = LocalizationManager.CurrentLanguageCode;
+        CompanyProfileButton.IsEnabled = App.CanEdit(PageKeys.Admin);
+        if (!CompanyProfileButton.IsEnabled)
+            CompanyProfileButton.ToolTip = LocalizationManager.Get("CompanyProfileAdminOnly");
         _initializing = false;
 
         SaveButton.ToolTip = TooltipService.Get("Btn_Save");
@@ -75,6 +79,13 @@ public partial class ApplicationSettingsDialog : Window
 
     private void CompanyProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Admin, "company_profile.open"))
+        {
+            ModernMessageBox.ShowError(
+                LocalizationManager.Get("CompanyProfileAdminOnly"),
+                LocalizationManager.Get("AppErrorTitle"));
+            return;
+        }
         CompanyProfileDialog.ShowDialogWindow(this);
     }
 
@@ -93,8 +104,11 @@ public partial class ApplicationSettingsDialog : Window
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("settings.save_failed", ex);
             ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("SettingsSaveError"), ex.Message),
+                string.Format(
+                    LocalizationManager.Get("SettingsSaveError"),
+                    string.Format(LocalizationManager.Get("ErrorReferenceValue"), reference)),
                 LocalizationManager.Get("SettingsTitle"));
         }
     }
@@ -115,7 +129,7 @@ public partial class ApplicationSettingsDialog : Window
             FindParent<ComboBoxItem>(source) == null &&
             FindParent<ScrollBar>(source) == null)
         {
-            try { DragMove(); } catch { }
+            try { DragMove(); } catch (InvalidOperationException) { }
         }
     }
 

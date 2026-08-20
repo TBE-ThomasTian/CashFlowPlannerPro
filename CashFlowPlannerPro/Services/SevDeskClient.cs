@@ -114,8 +114,17 @@ public static class SevDeskClient
         {
             return await FetchObjectsAsync(apiToken, resource, cancellationToken);
         }
-        catch
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var resourceName = resource.Split('?', 2)[0];
+            AppLogger.LogException(
+                "sevdesk.optional_resource.failed",
+                ex,
+                new { provider = "sevDesk", resource = resourceName });
             return [];
         }
     }
@@ -137,15 +146,44 @@ public static class SevDeskClient
             if (!doc.RootElement.TryGetProperty("objects", out var array) || array.ValueKind != JsonValueKind.Array)
                 break;
 
-            objects.AddRange(array.EnumerateArray().Select(x => x.Clone()));
-            total = TryGetInt(doc.RootElement, "total");
-            if (array.GetArrayLength() < pageSize)
+            var returnedCount = array.GetArrayLength();
+            if (returnedCount == 0)
                 break;
 
-            offset += pageSize;
+            objects.AddRange(array.EnumerateArray().Select(x => x.Clone()));
+            total = TryGetInt(doc.RootElement, "total");
+            offset += returnedCount;
+
+            if (total.HasValue && offset >= total.Value)
+                break;
+
+            // countAll=true normally supplies total. If it does not, sevDesk's
+            // standard short-page convention tells us that paging is complete.
+            if (!total.HasValue && returnedCount < pageSize)
+                break;
         }
 
         return objects;
+    }
+
+    private static string BuildResourceUrl(
+        string resource,
+        params KeyValuePair<string, string>[] parameters) =>
+        BuildResourceUrl(resource, (IEnumerable<KeyValuePair<string, string>>)parameters);
+
+    private static string BuildResourceUrl(
+        string resource,
+        IEnumerable<KeyValuePair<string, string>> parameters)
+    {
+        var query = string.Join(
+            "&",
+            parameters.Select(parameter =>
+                $"{Uri.EscapeDataString(parameter.Key)}={Uri.EscapeDataString(parameter.Value)}"));
+
+        if (string.IsNullOrWhiteSpace(query))
+            return resource;
+
+        return resource + (resource.Contains('?') ? "&" : "?") + query;
     }
 
     private static async Task<HttpResponseMessage> SendAsync(string apiToken, string relativeUrl, CancellationToken cancellationToken)
@@ -157,29 +195,109 @@ public static class SevDeskClient
         return await Http.SendAsync(request, cancellationToken);
     }
 
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
-            return;
+            return Task.CompletedTask;
 
-        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new InvalidOperationException(BuildErrorMessage(response, payload));
+        // Do not propagate the response body. It may contain customer data,
+        // internal diagnostics, or other sensitive content.
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromException(new SevDeskApiException(response.StatusCode));
     }
 
     private static async Task<string> EnsureSuccessAndReadAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(BuildErrorMessage(response, payload));
-        return payload;
+            throw new SevDeskApiException(response.StatusCode);
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
-    private static string BuildErrorMessage(HttpResponseMessage response, string payload)
+    private sealed class SevDeskApiException(HttpStatusCode statusCode)
+        : HttpRequestException(
+            $"sevDesk API request failed with HTTP status {(int)statusCode}.",
+            inner: null,
+            statusCode)
     {
-        if (string.IsNullOrWhiteSpace(payload))
-            return $"{(int)response.StatusCode} {response.ReasonPhrase}";
+    }
 
-        return $"{(int)response.StatusCode} {response.ReasonPhrase}: {payload}";
+    private static SevDeskCheckAccount ParseCheckAccount(JsonElement item)
+    {
+        var currency = NormalizeCurrency(GetString(item, "currency"));
+        var statusRaw = GetString(item, "status");
+        var lastSyncRaw = GetString(item, "lastSync");
+
+        return new SevDeskCheckAccount
+        {
+            ExternalId = GetString(item, "id"),
+            Name = GetString(item, "name"),
+            IbanMasked = MaskIban(GetString(item, "iban")),
+            Currency = currency,
+            Balance = GetNullableDouble(item, "balance"),
+            LastSync = ParseDateTimeOffset(lastSyncRaw),
+            LastSyncRaw = lastSyncRaw,
+            Type = GetString(item, "type"),
+            ImportType = GetString(item, "importType"),
+            Status = GetInt(item, "status"),
+            StatusRaw = statusRaw,
+            IsDefaultAccount = GetBoolean(item, "defaultAccount"),
+            IsBaseAccount = GetBoolean(item, "baseAccount"),
+            AutoMapTransactions = GetBoolean(item, "autoMapTransactions", "autoMapTransaction"),
+            AutoSyncTransactions = GetBoolean(item, "autoSyncTransactions")
+        };
+    }
+
+    private static SevDeskCheckAccountTransaction ParseCheckAccountTransaction(
+        JsonElement item,
+        string fallbackAccountExternalId)
+    {
+        var statusRaw = GetString(item, "status");
+        var valueDateRaw = GetString(item, "valueDate");
+        var entryDateRaw = GetString(item, "entryDate");
+        var amount = GetNullableDouble(item, "amount");
+        var currency = NormalizeCurrency(GetString(item, "currency"));
+        if (string.IsNullOrWhiteSpace(currency))
+            currency = "EUR";
+
+        var accountExternalId = GetObjectReferenceId(item, "checkAccount");
+        if (string.IsNullOrWhiteSpace(accountExternalId))
+            accountExternalId = fallbackAccountExternalId;
+
+        return new SevDeskCheckAccountTransaction
+        {
+            ExternalId = GetString(item, "id"),
+            AccountExternalId = accountExternalId,
+            ValueDate = ParseDateTimeOffset(valueDateRaw),
+            ValueDateRaw = valueDateRaw,
+            EntryDate = ParseDateTimeOffset(entryDateRaw),
+            EntryDateRaw = entryDateRaw,
+            Amount = amount ?? 0,
+            HasValidAmount = amount.HasValue,
+            Currency = currency,
+            PaymtPurpose = HtmlToPlainText(GetString(item, "paymtPurpose")),
+            PayeePayerName = HtmlToPlainText(GetString(item, "payeePayerName")),
+            EntryText = HtmlToPlainText(GetString(item, "entryText")),
+            Status = GetInt(item, "status"),
+            StatusRaw = statusRaw
+        };
+    }
+
+    private static string MaskIban(string? iban)
+    {
+        var normalized = new string((iban ?? "")
+            .Where(char.IsLetterOrDigit)
+            .ToArray())
+            .ToUpperInvariant();
+
+        if (normalized.Length == 0)
+            return "";
+
+        // Malformed short values are hidden completely instead of being echoed to the UI.
+        if (normalized.Length < 8)
+            return "••••";
+
+        return $"{normalized[..2]}•••• {normalized[^4..]}";
     }
 
     private static SevDeskContactPreview ParseContact(JsonElement item) =>
@@ -272,6 +390,7 @@ public static class SevDeskClient
             Currency = currency,
             InvoiceNumber = invoiceNumber,
             CustomerName = customerName,
+            CustomerExternalId = GetObjectReferenceId(item, "contact"),
             IssueDate = issueDate,
             DueDate = dueDate,
             Amount = grossAmount,
@@ -286,6 +405,91 @@ public static class SevDeskClient
             Status = mappedStatus,
             Content = content
         };
+    }
+
+    /// <summary>
+    /// Retrieves all sevDesk check accounts without changing anything in sevDesk.
+    /// </summary>
+    public static async Task<IReadOnlyList<SevDeskCheckAccount>> GetCheckAccountsAsync(
+        string apiToken,
+        CancellationToken cancellationToken = default)
+    {
+        var objects = await FetchObjectsAsync(apiToken, "CheckAccount", cancellationToken);
+        return objects.Select(ParseCheckAccount).ToList();
+    }
+
+    /// <summary>
+    /// Returns the balance sevDesk can calculate from all transactions known up to
+    /// and including <paramref name="date"/>. It is not necessarily the live bank balance.
+    /// </summary>
+    public static async Task<double> GetCheckAccountBalanceAtDateAsync(
+        string apiToken,
+        string accountExternalId,
+        DateOnly date,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(accountExternalId))
+            throw new ArgumentException("Die sevDesk-Konto-ID darf nicht leer sein.", nameof(accountExternalId));
+
+        var resource = BuildResourceUrl(
+            $"CheckAccount/{Uri.EscapeDataString(accountExternalId.Trim())}/getBalanceAtDate",
+            new KeyValuePair<string, string>("date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+
+        using var response = await SendAsync(apiToken, resource, cancellationToken);
+        var json = await EnsureSuccessAndReadAsync(response, cancellationToken);
+        using var doc = JsonDocument.Parse(json);
+
+        if (doc.RootElement.TryGetProperty("objects", out var objects)
+            && TryReadDouble(objects, out var balance))
+        {
+            return balance;
+        }
+
+        throw new InvalidOperationException("sevDesk lieferte keinen gültigen Kontostand.");
+    }
+
+    /// <summary>
+    /// Retrieves transactions with optional account and inclusive date filters.
+    /// The endpoint normally omits currency, so the application default is EUR;
+    /// callers must still reject accounts whose Currency is not EUR.
+    /// </summary>
+    public static async Task<IReadOnlyList<SevDeskCheckAccountTransaction>> GetCheckAccountTransactionsAsync(
+        string apiToken,
+        string? accountExternalId = null,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (startDate.HasValue && endDate.HasValue && startDate.Value > endDate.Value)
+            throw new ArgumentException("Das Startdatum darf nicht nach dem Enddatum liegen.", nameof(startDate));
+
+        var parameters = new List<KeyValuePair<string, string>>();
+        var normalizedAccountId = accountExternalId?.Trim() ?? "";
+        if (!string.IsNullOrWhiteSpace(normalizedAccountId))
+        {
+            parameters.Add(new KeyValuePair<string, string>("checkAccount[id]", normalizedAccountId));
+            parameters.Add(new KeyValuePair<string, string>("checkAccount[objectName]", "CheckAccount"));
+        }
+
+        if (startDate.HasValue)
+        {
+            parameters.Add(new KeyValuePair<string, string>(
+                "startDate",
+                startDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        }
+
+        if (endDate.HasValue)
+        {
+            parameters.Add(new KeyValuePair<string, string>(
+                "endDate",
+                endDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        }
+
+        var resource = BuildResourceUrl("CheckAccountTransaction", parameters);
+        var objects = await FetchObjectsAsync(apiToken, resource, cancellationToken);
+        return objects
+            .Select(item => ParseCheckAccountTransaction(item, normalizedAccountId))
+            .ToList();
     }
 
     private static SevDeskOfferPreview? ParseOffer(
@@ -335,6 +539,7 @@ public static class SevDeskClient
             Currency = currency,
             OfferNumber = offerNumber,
             CustomerName = customerName,
+            CustomerExternalId = GetObjectReferenceId(item, "contact"),
             OfferDate = offerDate,
             DateExpected = expectedDate,
             Amount = grossAmount,
@@ -452,6 +657,20 @@ public static class SevDeskClient
         return nested.HasValue ? GetString(nested.Value, "id") : "";
     }
 
+    private static string GetObjectReferenceId(JsonElement item, string propertyName)
+    {
+        if (!item.TryGetProperty(propertyName, out var value))
+            return "";
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Object => GetString(value, "id"),
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Number => value.ToString(),
+            _ => ""
+        };
+    }
+
     private static string GetNestedString(JsonElement item, string propertyName, params string[] nestedPropertyNames)
     {
         var nested = GetNestedObject(item, propertyName);
@@ -515,6 +734,50 @@ public static class SevDeskClient
         return null;
     }
 
+    private static bool TryReadDouble(JsonElement value, out double result)
+    {
+        result = 0;
+
+        if (value.ValueKind == JsonValueKind.Number
+            && value.TryGetDouble(out var numeric)
+            && double.IsFinite(numeric))
+        {
+            result = numeric;
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && double.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            && double.IsFinite(parsed))
+        {
+            result = parsed;
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "balance", "value", "amount" })
+            {
+                if (value.TryGetProperty(propertyName, out var nested)
+                    && TryReadDouble(nested, out result))
+                {
+                    return true;
+                }
+            }
+        }
+
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var nested in value.EnumerateArray())
+            {
+                if (TryReadDouble(nested, out result))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private static int? TryGetInt(JsonElement item, string propertyName)
     {
         if (!item.TryGetProperty(propertyName, out var value))
@@ -558,19 +821,24 @@ public static class SevDeskClient
                 : null;
     }
 
-    private static bool GetBoolean(JsonElement item, string propertyName)
+    private static bool GetBoolean(JsonElement item, params string[] propertyNames)
     {
-        if (!item.TryGetProperty(propertyName, out var value))
-            return false;
-
-        return value.ValueKind switch
+        foreach (var propertyName in propertyNames)
         {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Number when value.TryGetInt32(out var number) => number != 0,
-            JsonValueKind.String => IsTruthy(value.GetString() ?? ""),
-            _ => false
-        };
+            if (!item.TryGetProperty(propertyName, out var value))
+                continue;
+
+            return value.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number when value.TryGetInt32(out var number) => number != 0,
+                JsonValueKind.String => IsTruthy(value.GetString() ?? ""),
+                _ => false
+            };
+        }
+
+        return false;
     }
 
     private static string NormalizeCurrency(string value) =>
@@ -582,6 +850,78 @@ public static class SevDeskClient
             return "";
 
         return parsed.ToString("yyyy-MM-dd");
+    }
+
+    private static DateTimeOffset? ParseDateTimeOffset(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)
+            || value.StartsWith("0000-00-00", StringComparison.Ordinal)
+            || string.Equals(value.Trim(), "0", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        var styles = DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal;
+        var isoFormats = new[]
+        {
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.FFFFFFF",
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF",
+            "yyyy-MM-dd'T'HH:mmK",
+            "yyyy-MM-dd'T'HH:mm:ssK",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"
+        };
+
+        if (DateTimeOffset.TryParseExact(
+                normalized,
+                isoFormats,
+                CultureInfo.InvariantCulture,
+                styles,
+                out var isoParsed))
+        {
+            return isoParsed;
+        }
+
+        var germanFormats = new[]
+        {
+            "dd.MM.yyyy",
+            "dd.MM.yyyy HH:mm",
+            "dd.MM.yyyy HH:mm:ss",
+            "dd.MM.yyyy HH:mm:ss.FFFFFFF"
+        };
+        var germanCulture = CultureInfo.GetCultureInfo("de-DE");
+
+        if (DateTimeOffset.TryParseExact(
+                normalized,
+                germanFormats,
+                germanCulture,
+                styles,
+                out var exactGermanParsed))
+        {
+            return exactGermanParsed;
+        }
+
+        if (DateTimeOffset.TryParse(
+                normalized,
+                germanCulture,
+                styles,
+                out var germanParsed))
+        {
+            return germanParsed;
+        }
+
+        return DateTimeOffset.TryParse(
+                normalized,
+                CultureInfo.InvariantCulture,
+                styles,
+                out var fallbackParsed)
+            ? fallbackParsed
+            : null;
     }
 
     private static bool TryParseNormalizedDate(string value, out DateTime parsed)

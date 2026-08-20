@@ -2,11 +2,13 @@
 ; Erstellt am 25.03.2026
 
 #define MyAppName "CashFlow Planner Pro"
-#define MyAppVersion "2.1.0"
+#define MyAppVersion "2.2.0"
 #define MyAppPublisher "Thomas Tian"
 #define MyAppURL "https://cashflowplannerpro.de"
 #define MyAppExeName "CashFlowPlannerPro.exe"
-#define MyAppSourceDir "..\publish\win-x64"
+#ifndef MyAppSourceDir
+  #define MyAppSourceDir "..\publish\win-x64"
+#endif
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}
@@ -71,7 +73,7 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if CheckForMutexes('{#MyAppName}_Mutex') then
+  if CheckForMutexes('Local\CashFlowPlannerPro.SingleInstance') then
   begin
     if MsgBox('{#MyAppName} laeuft noch. Soll die Anwendung geschlossen werden?',
               mbConfirmation, MB_YESNO) = IDYES then

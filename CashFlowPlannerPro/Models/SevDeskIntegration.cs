@@ -5,6 +5,7 @@ namespace CashFlowPlannerPro.Models;
 public sealed class SevDeskSecureData
 {
     public string ApiToken { get; set; } = "";
+    public string DatabaseInstanceId { get; set; } = "";
 }
 
 public sealed class SevDeskImportPreview
@@ -83,6 +84,7 @@ public sealed class SevDeskInvoicePreview
     public string Currency { get; set; } = "EUR";
     public string InvoiceNumber { get; set; } = "";
     public string CustomerName { get; set; } = "";
+    public string CustomerExternalId { get; set; } = "";
     public string IssueDate { get; set; } = "";
     public string DueDate { get; set; } = "";
     public double Amount { get; set; }
@@ -145,6 +147,7 @@ public sealed class SevDeskOfferPreview
     public string Currency { get; set; } = "EUR";
     public string OfferNumber { get; set; } = "";
     public string CustomerName { get; set; } = "";
+    public string CustomerExternalId { get; set; } = "";
     public string OfferDate { get; set; } = "";
     public string DateExpected { get; set; } = "";
     public double Amount { get; set; }

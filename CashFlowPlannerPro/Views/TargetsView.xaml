@@ -12,7 +12,7 @@
                 <Button x:Name="DeleteBtn" Style="{StaticResource DeleteButton}" Content="&#x1F5D1; L&#246;schen" Command="{Binding DeleteCommand}"/>
             </StackPanel>
         </Border>
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"
+        <DataGrid x:Name="TargetsGrid" Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"
                   CellEditEnding="DataGrid_CellEditEnding">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Jahr" Binding="{Binding Year}" Width="100"/>

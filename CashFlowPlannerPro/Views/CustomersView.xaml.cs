@@ -27,6 +27,10 @@ public partial class CustomersView : UserControl
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddCustomer");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteCustomer");
+        var canEdit = App.CanEdit(PageKeys.Kunden);
+        AddBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        CustomersGrid.IsReadOnly = !canEdit;
     }
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
@@ -54,6 +58,7 @@ public partial class CustomersView : UserControl
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.add")) return;
         var result = CustomerEditDialog.ShowNew();
         if (result != null)
         {
@@ -70,6 +75,7 @@ public partial class CustomersView : UserControl
 
     private void Delete_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.delete")) return;
         var selectedCustomers = CustomersGrid.SelectedItems.Cast<Customer>().Distinct().ToList();
         if (selectedCustomers.Count == 0 && _vm.SelectedCustomer != null)
             selectedCustomers.Add(_vm.SelectedCustomer);
@@ -92,6 +98,7 @@ public partial class CustomersView : UserControl
 
     private void DataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.update")) return;
         if (_vm.SelectedCustomer == null) return;
         var result = CustomerEditDialog.ShowEdit(_vm.SelectedCustomer);
         if (result != null)

@@ -65,8 +65,9 @@ public partial class ScanPreviewDialog : Window
         }
         catch (Exception ex)
         {
+            var reference = AppLogger.LogException("invoice.scan_preview_render_failed", ex);
             PdfImage.Source = null;
-            TbPageInfo.Text = $"Fehler: {ex.Message}";
+            TbPageInfo.Text = $"Vorschau nicht verfügbar. Referenz: {reference}";
         }
     }
 

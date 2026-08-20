@@ -46,8 +46,10 @@
             </Grid.RowDefinitions>
 
             <!-- Calendar -->
-            <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+            <ScrollViewer x:Name="CalendarScrollViewer" Grid.Row="0"
+                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                           Background="{StaticResource BackgroundBrush}"
+                          ToolTip="Am linken oder rechten Balkenrand ziehen. Über den sichtbaren Kalender hinausziehen, um weitere Monate hinzuzufügen."
                           PreviewMouseWheel="CalendarScrollViewer_PreviewMouseWheel">
                 <Grid x:Name="CalendarGrid"/>
             </ScrollViewer>

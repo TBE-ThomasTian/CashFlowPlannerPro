@@ -343,6 +343,16 @@ public partial class ProjectEditDialog : Window
             return;
         }
 
+        if (DpStart.SelectedDate.HasValue && DpEnd.SelectedDate.HasValue
+            && DpEnd.SelectedDate.Value.Date < DpStart.SelectedDate.Value.Date)
+        {
+            ModernMessageBox.ShowError(
+                "Das Projektende darf nicht vor dem Projektbeginn liegen.",
+                "Ungültiger Projektzeitraum");
+            DpEnd.Focus();
+            return;
+        }
+
         if (!TryParseNumber(TbOriginalBudget.Text, out var originalBudget) || originalBudget < 0m)
         {
             ModernMessageBox.ShowError("Bitte geben Sie einen gültigen, nicht negativen Ausgangswert ein.", "Ungültiger Ausgangswert");

@@ -7,7 +7,7 @@ public class Offer
     public string OfferDate { get; set; } = "";
     public string DateExpected { get; set; } = "";
     public string Customer { get; set; } = "";
-    public long CustomerId { get; set; }
+    public long? CustomerId { get; set; }
     public double AmountBeforeDiscount { get; set; }
     public double DiscountPercent { get; set; }
     public double Amount { get; set; }

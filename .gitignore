@@ -9,3 +9,6 @@ publish/
 artifacts/
 *.zip
 installer/output/
+.codex_build/
+.codex_tmp/
+.codex-integration-tests/

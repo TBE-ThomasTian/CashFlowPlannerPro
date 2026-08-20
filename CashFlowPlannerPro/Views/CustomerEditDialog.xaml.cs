@@ -47,6 +47,8 @@ public partial class CustomerEditDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Kunden, "customer.save")) return;
+
         if (string.IsNullOrWhiteSpace(TbCompany.Text) && string.IsNullOrWhiteSpace(TbContactName.Text))
         {
             ModernMessageBox.ShowError("Bitte geben Sie mindestens eine Firma oder einen Ansprechpartner ein.", "Pflichtfeld");

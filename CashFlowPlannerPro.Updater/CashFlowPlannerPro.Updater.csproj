@@ -8,8 +8,12 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AssemblyName>CashFlowPlannerPro.Updater</AssemblyName>
     <RootNamespace>CashFlowPlannerPro.Updater</RootNamespace>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <OutputPath>..\CashFlowPlannerPro\bin\$(Configuration)\net10.0-windows\updater\</OutputPath>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.11" />
+  </ItemGroup>
 
 </Project>

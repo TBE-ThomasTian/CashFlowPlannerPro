@@ -1,10 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
+using CashFlowPlannerPro.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -35,6 +35,8 @@ public partial class InvoicesViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.add")) return;
+
         var inv = new Invoice {
             IssueDate = DateTime.Today.ToString("yyyy-MM-dd"),
             DueDate = DateTime.Today.AddDays(30).ToString("yyyy-MM-dd"),
@@ -53,6 +55,7 @@ public partial class InvoicesViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.delete")) return;
         if (SelectedInvoice == null) return;
         Database.Instance.DeleteInvoice(SelectedInvoice.Id);
         Invoices.Remove(SelectedInvoice);
@@ -60,6 +63,8 @@ public partial class InvoicesViewModel : ObservableObject
 
     public void DeleteInvoices(IEnumerable<Invoice> invoicesToDelete)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.delete_many")) return;
+
         var ids = invoicesToDelete
             .Where(i => i.Id > 0)
             .Select(i => i.Id)
@@ -79,6 +84,7 @@ public partial class InvoicesViewModel : ObservableObject
     [RelayCommand]
     private void SelectPdf()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.attach_pdf")) return;
         if (SelectedInvoice == null) return;
         var dlg = new OpenFileDialog { Filter = "PDF Dateien (*.pdf)|*.pdf" };
         if (dlg.ShowDialog() == true) {
@@ -96,12 +102,13 @@ public partial class InvoicesViewModel : ObservableObject
     [RelayCommand]
     private void OpenPdf()
     {
-        if (SelectedInvoice?.PdfPath == null || !File.Exists(SelectedInvoice.PdfPath)) return;
-        Process.Start(new ProcessStartInfo(SelectedInvoice.PdfPath) { UseShellExecute = true });
+        if (!SafeDocumentLauncher.TryOpenLocalPdf(SelectedInvoice?.PdfPath, out var error))
+            ModernMessageBox.ShowError(error, LocalizationManager.Get("AppErrorTitle"));
     }
 
     public void Save(Invoice inv)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.update")) return;
         if (inv.Status == "Bezahlt" && string.IsNullOrEmpty(inv.PaidDate))
             inv.PaidDate = DateTime.Today.ToString("yyyy-MM-dd");
         if (inv.Id > 0) Database.Instance.UpdateInvoice(inv);
@@ -109,6 +116,7 @@ public partial class InvoicesViewModel : ObservableObject
 
     public void ApplyInvoiceChanges(Invoice target, Invoice source)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.update")) return;
         if (target.Id != source.Id)
             throw new InvalidOperationException("Die bearbeitete Rechnung gehört nicht zum ausgewählten Datensatz.");
 
@@ -120,6 +128,7 @@ public partial class InvoicesViewModel : ObservableObject
         target.IssueDate = source.IssueDate;
         target.DueDate = source.DueDate;
         target.Customer = source.Customer;
+        target.CustomerId = source.CustomerId;
         target.Amount = source.Amount;
         target.NetAmount = source.NetAmount;
         target.VatAmount = source.VatAmount;
@@ -156,6 +165,7 @@ public partial class InvoicesViewModel : ObservableObject
 
     public void AddScannedInvoice(Invoice inv)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Invoices, "invoice.scan_import")) return;
         Database.Instance.AddInvoice(inv);
         Load();
     }

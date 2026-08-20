@@ -9,7 +9,7 @@
     <UseAppHost>true</UseAppHost>
     <ApplicationIcon>Resources\CashFlowIcon.ico</ApplicationIcon>
     <AssemblyTitle>CashFlow Planner Pro</AssemblyTitle>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +24,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CashFlowPlannerPro.Updater\CashFlowPlannerPro.Updater.csproj"
-                      ReferenceOutputAssembly="false" />
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
   </ItemGroup>
 
   <ItemGroup>

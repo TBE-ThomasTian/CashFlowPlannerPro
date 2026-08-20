@@ -20,6 +20,10 @@ public partial class TaxesView : UserControl
 
         AddBtn.ToolTip = TooltipService.Get("Btn_AddTax");
         DeleteBtn.ToolTip = TooltipService.Get("Btn_DeleteTax");
+        var canEdit = App.CanEdit(PageKeys.Taxes);
+        AddBtn.IsEnabled = canEdit;
+        DeleteBtn.IsEnabled = canEdit;
+        TaxesGrid.IsReadOnly = !canEdit;
     }
 
     private void DataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)

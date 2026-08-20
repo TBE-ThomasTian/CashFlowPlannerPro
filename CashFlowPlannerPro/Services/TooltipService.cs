@@ -9,6 +9,7 @@ public static class TooltipService
         // === MainWindow Sidebar ===
         ["Nav_Dashboard"] = ("Übersicht anzeigen", "Show overview"),
         ["Nav_Transactions"] = ("Ein- und Ausgaben verwalten", "Manage income and expenses"),
+        ["Nav_Bank"] = ("sevDesk-Zahlungskonten und Kontobewegungen anzeigen", "Show sevDesk payment accounts and transactions"),
         ["Nav_Fixkosten"] = ("Wiederkehrende Kosten verwalten", "Manage recurring costs"),
         ["Nav_Taxes"] = ("Steuerübersicht anzeigen", "Show tax overview"),
         ["Nav_Invoices"] = ("Rechnungen verwalten", "Manage invoices"),

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
+using CashFlowPlannerPro.Services;
 using CashFlowPlannerPro.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -34,6 +35,8 @@ public partial class TransactionsViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Transactions, "transaction.add")) return;
+
         var t = new Transaction
         {
             Date = DateTime.Today.ToString("yyyy-MM-dd"),
@@ -51,8 +54,10 @@ public partial class TransactionsViewModel : ObservableObject
     [RelayCommand]
     private void Delete()
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Transactions, "transaction.delete")) return;
         if (SelectedTransaction == null) return;
         if (!ModernMessageBox.ShowConfirm("Transaktion wirklich loeschen?", "Loeschen")) return;
+        if (!PermissionGuard.DemandEdit(PageKeys.Transactions, "transaction.delete.confirmed")) return;
 
         var deleted = SelectedTransaction;
         Database.Instance.DeleteTransaction(deleted.Id);
@@ -62,6 +67,7 @@ public partial class TransactionsViewModel : ObservableObject
 
     public void Save(Transaction t)
     {
+        if (!PermissionGuard.DemandEdit(PageKeys.Transactions, "transaction.update")) return;
         t.Notes = NormalizeGeneralNotes(t.Notes);
         Database.Instance.UpdateTransaction(t);
     }

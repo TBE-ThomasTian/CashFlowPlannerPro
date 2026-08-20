@@ -19,6 +19,7 @@
   <data name="NavigationSection" xml:space="preserve"><value>NAVIGATION</value></data>
   <data name="NavDashboard" xml:space="preserve"><value>📊  Übersicht</value></data>
   <data name="NavTransactions" xml:space="preserve"><value>💰  Ein/Ausgaben</value></data>
+  <data name="NavBank" xml:space="preserve"><value>🏦  Bank</value></data>
   <data name="NavFixkosten" xml:space="preserve"><value>📋  Fixkosten</value></data>
   <data name="NavTaxes" xml:space="preserve"><value>🏛  Steuer</value></data>
   <data name="NavInvoices" xml:space="preserve"><value>📄  Rechnungen</value></data>
@@ -69,6 +70,46 @@ Jetzt Download-Seite öffnen?</value></data>
   <data name="RestoreConfirm" xml:space="preserve"><value>Das aktuelle Datenbankfile wird durch das Backup "{0}" ersetzt. Vorher wird automatisch eine Sicherheitskopie angelegt. Fortfahren?</value></data>
   <data name="RestoreSuccessRestart" xml:space="preserve"><value>Backup wurde wiederhergestellt. Die App startet jetzt neu.</value></data>
   <data name="RestoreFailed" xml:space="preserve"><value>Restore fehlgeschlagen: {0}</value></data>
+  <data name="RestoreSameFile" xml:space="preserve"><value>Die aktive Datenbank kann nicht als eigenes Backup wiederhergestellt werden.</value></data>
+  <data name="RestoreTargetMissing" xml:space="preserve"><value>Die aktive SQLite-Datenbank wurde nicht gefunden.</value></data>
+  <data name="RestoreRecoveryCopyMissing" xml:space="preserve"><value>Die Sicherheitskopie für die automatische Wiederherstellung wurde nicht gefunden.</value></data>
+  <data name="RestoreRecoveryFailed" xml:space="preserve"><value>Restore fehlgeschlagen: {0}
+Auch die automatische Wiederherstellung der vorherigen Datenbank ist fehlgeschlagen: {1}
+Die Sicherheitskopie befindet sich unter: {2}</value></data>
+  <data name="RestoreIntegrityFailed" xml:space="preserve"><value>Die SQLite-Integritätsprüfung ist fehlgeschlagen: {0}</value></data>
+  <data name="RestoreInvalidBackup" xml:space="preserve"><value>Die ausgewählte Datei ist kein gültiges, lesbares SQLite-Backup: {0}</value></data>
+  <data name="SwitchDatabaseTitle" xml:space="preserve"><value>Datenbank wechseln</value></data>
+  <data name="SwitchDatabaseFailed" xml:space="preserve"><value>Die neue Datenbank konnte nicht übernommen werden. Die vorherige Sitzung wurde wiederhergestellt: {0}</value></data>
+  <data name="SwitchDatabaseRestoreFailed" xml:space="preserve"><value>Die vorherige Datenbankverbindung konnte nicht sicher wiederhergestellt werden. Die Anwendung wird zum Schutz der Daten beendet: {0}</value></data>
+  <data name="SwitchDatabaseNoActiveSession" xml:space="preserve"><value>Es ist keine aktive Datenbanksitzung vorhanden.</value></data>
+  <data name="SwitchDatabaseTargetMissing" xml:space="preserve"><value>Der Anmeldedialog hat keine gültige Zielverbindung geliefert.</value></data>
+  <data name="SwitchDatabaseCannotRecreateActive" xml:space="preserve"><value>Die aktuell verwendete Datenbank kann im Wechsel-Dialog nicht als neue Datenbank überschrieben werden.</value></data>
+  <data name="MigrationImportFromServerButton" xml:space="preserve"><value>📥 Von Server importieren</value></data>
+  <data name="MigrationImportLocalButton" xml:space="preserve"><value>📥 Lokale DB importieren</value></data>
+  <data name="MariaDbDedicatedUserHint" xml:space="preserve"><value>Verwenden Sie einen dedizierten MariaDB-Benutzer mit Rechten nur für diese Datenbank – niemals root.</value></data>
+  <data name="ConnectionSettingsSaveWarningTitle" xml:space="preserve"><value>Verbindungsdaten nicht gespeichert</value></data>
+  <data name="ConnectionSettingsSaveFailed" xml:space="preserve"><value>Die verschlüsselten Verbindungsdaten konnten nicht gespeichert werden. Die Anmeldung funktioniert, beim nächsten Start müssen die Daten jedoch erneut eingegeben werden.</value></data>
+  <data name="ConnectionSettingsSaveFailedWithReference" xml:space="preserve"><value>Die Verbindungseinstellungen konnten nicht gespeichert werden. Die Anmeldung funktioniert, beim nächsten Start müssen die Daten jedoch erneut eingegeben werden. Fehlerreferenz: {0}</value></data>
+  <data name="MigrationConfirmTitle" xml:space="preserve"><value>Destruktive Datenmigration bestätigen</value></data>
+  <data name="MigrationAdminRequired" xml:space="preserve"><value>Datenmigration ist nur aus einer bestehenden Sitzung mit vollständigem Verwaltungszugriff erlaubt.</value></data>
+  <data name="MigrationReauthTitle" xml:space="preserve"><value>Admin-Freigabe erforderlich</value></data>
+  <data name="MigrationReauthPrompt" xml:space="preserve"><value>Geben Sie zur Freigabe das aktuelle Passwort von „{0}“ ein.</value></data>
+  <data name="MigrationReauthFailed" xml:space="preserve"><value>Die Freigabe ist fehlgeschlagen. Passwort oder vollständiger Verwaltungszugriff sind nicht gültig.</value></data>
+  <data name="MigrationReauthFailedWithDelay" xml:space="preserve"><value>Die Freigabe ist fehlgeschlagen. Passwort oder vollständiger Verwaltungszugriff sind nicht gültig. Nächster Versuch in {0} Sekunde(n).</value></data>
+  <data name="MigrationReauthRetryAfter" xml:space="preserve"><value>Die Admin-Freigabe ist vorübergehend begrenzt. Bitte versuchen Sie es in {0} Sekunde(n) erneut.</value></data>
+  <data name="MigrationReauthError" xml:space="preserve"><value>Die Admin-Freigabe konnte nicht geprüft werden: {0}</value></data>
+  <data name="MigrationFreshLoginRequired" xml:space="preserve"><value>Die aktive Datenbank wurde durch die Migration ersetzt. Aus Sicherheitsgründen wird die bisherige Sitzung nicht weiterverwendet. Die Anwendung wird beendet; melden Sie sich danach mit einem Benutzer aus der importierten Datenbank neu an.</value></data>
+  <data name="MigrationReplaceServerWarning" xml:space="preserve"><value>ACHTUNG: Die lokale Datei „{0}“ ersetzt ALLE Daten auf dem Server {1}/{2}.
+
+Benutzer, Rollen, Berechtigungen und sämtliche Firmendaten werden überschrieben. Dieser Vorgang kann nicht rückgängig gemacht werden. Erstellen Sie vorher ein geprüftes Backup.
+
+Migration wirklich starten?</value></data>
+  <data name="MigrationReplaceLocalWarning" xml:space="preserve"><value>ACHTUNG: Die Server-Datenbank {0}/{1} ersetzt ALLE Daten in der lokalen Datei:
+{2}
+
+Benutzer, Rollen, Berechtigungen und sämtliche Firmendaten werden überschrieben. Dieser Vorgang kann nicht rückgängig gemacht werden. Erstellen Sie vorher ein geprüftes Backup.
+
+Migration wirklich starten?</value></data>
   <data name="AboutText" xml:space="preserve"><value>CashFlow Planner Pro
 Version 2.0
 
@@ -95,6 +136,9 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="LoginUsernameRequired" xml:space="preserve"><value>Bitte geben Sie einen Benutzernamen ein.</value></data>
   <data name="LoginPasswordRequired" xml:space="preserve"><value>Bitte geben Sie ein Passwort ein.</value></data>
   <data name="LoginInvalidCredentials" xml:space="preserve"><value>Ungültiger Benutzername oder Passwort.</value></data>
+  <data name="LoginInvalidCredentialsWithDelay" xml:space="preserve"><value>Anmeldung fehlgeschlagen. Benutzername oder Passwort ist ungültig. Nächster Versuch in {0} Sekunde(n).</value></data>
+  <data name="LoginRetryAfter" xml:space="preserve"><value>Die Anmeldung ist vorübergehend begrenzt. Bitte versuchen Sie es in {0} Sekunde(n) erneut.</value></data>
+  <data name="LoginErrorWithReference" xml:space="preserve"><value>Die Anmeldung konnte nicht abgeschlossen werden. Fehlerreferenz: {0}</value></data>
   <data name="LoginDatabaseError" xml:space="preserve"><value>Datenbankfehler: {0}</value></data>
   <data name="LoginCreateError" xml:space="preserve"><value>Fehler beim Erstellen: {0}</value></data>
   <data name="LoginError" xml:space="preserve"><value>Anmeldefehler: {0}</value></data>
@@ -102,6 +146,14 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="FirstRunPasswordPrompt" xml:space="preserve"><value>Erster Start! Sie müssen das Standard-Passwort jetzt ändern.</value></data>
   <data name="NewPasswordDialogTitle" xml:space="preserve"><value>Neues Passwort festlegen</value></data>
   <data name="NewPasswordDialogLabel" xml:space="preserve"><value>Neues Passwort:</value></data>
+  <data name="ConfirmPasswordLabel" xml:space="preserve"><value>Passwort bestätigen:</value></data>
+  <data name="PasswordPolicyHint" xml:space="preserve"><value>Verwenden Sie eine sichere Passphrase mit mindestens {0} Zeichen. Der Benutzername darf nicht enthalten sein.</value></data>
+  <data name="PasswordPolicyMinimumLength" xml:space="preserve"><value>Das Passwort muss mindestens {0} Zeichen lang sein.</value></data>
+  <data name="PasswordPolicyMaximumLength" xml:space="preserve"><value>Das Passwort darf höchstens {0} Zeichen lang sein.</value></data>
+  <data name="PasswordPolicyControlCharacters" xml:space="preserve"><value>Das Passwort enthält unzulässige Steuerzeichen.</value></data>
+  <data name="PasswordPolicyContainsUsername" xml:space="preserve"><value>Das Passwort darf den Benutzernamen nicht enthalten.</value></data>
+  <data name="PasswordPolicyCommonPassword" xml:space="preserve"><value>Dieses Passwort ist zu leicht zu erraten. Bitte verwenden Sie eine längere Passphrase.</value></data>
+  <data name="ReservedAdminUsername" xml:space="preserve"><value>Der Benutzername „admin“ ist für das Systemkonto reserviert.</value></data>
   <data name="PasswordCannotBeAdmin" xml:space="preserve"><value>Das Passwort darf nicht 'admin' sein.</value></data>
   <data name="PasswordChangedSuccess" xml:space="preserve"><value>Passwort erfolgreich geändert.</value></data>
   <data name="DoneTitle" xml:space="preserve"><value>Fertig</value></data>
@@ -146,6 +198,9 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="NewPasswordRequired" xml:space="preserve"><value>Bitte geben Sie ein neues Passwort ein.</value></data>
   <data name="PasswordsDoNotMatch" xml:space="preserve"><value>Die neuen Passwörter stimmen nicht überein.</value></data>
   <data name="PasswordChanged" xml:space="preserve"><value>Passwort wurde erfolgreich geändert.</value></data>
+  <data name="ProfileSessionMismatch" xml:space="preserve"><value>Die Profileinstellungen gehören nicht zur aktuellen Sitzung.</value></data>
+  <data name="OperationFailedWithReference" xml:space="preserve"><value>Der Vorgang konnte nicht abgeschlossen werden. Fehlerreferenz: {0}</value></data>
+  <data name="ErrorReferenceValue" xml:space="preserve"><value>Fehlerreferenz: {0}</value></data>
   <data name="DashboardBalance" xml:space="preserve"><value>Kontostand heute €</value></data>
   <data name="DashboardForecastMonths" xml:space="preserve"><value>Prognose Monate</value></data>
   <data name="DashboardInvoices" xml:space="preserve"><value>Rechnungen</value></data>
@@ -235,10 +290,15 @@ Finanzplanung leicht gemacht.</value></data>
   <data name="IntegrationsPreviewHint" xml:space="preserve"><value>Die Vorschau zeigt neue und bereits vorhandene Datensätze getrennt. Standardmäßig werden nur neue Einträge vorselektiert.</value></data>
   <data name="IntegrationsReadOnlyHint" xml:space="preserve"><value>Diese Rolle darf die Integration nur ansehen, aber nicht ändern oder importieren.</value></data>
   <data name="IntegrationsTokenRequired" xml:space="preserve"><value>Bitte zuerst einen sevDesk API-Token eingeben.</value></data>
-  <data name="IntegrationsTokenSaved" xml:space="preserve"><value>API-Token wurde lokal verschlüsselt gespeichert.</value></data>
+  <data name="IntegrationsTokenSaved" xml:space="preserve"><value>API-Token wurde lokal verschlüsselt und mit dieser Datenbank verknüpft.</value></data>
+  <data name="IntegrationsTokenSaveFailed" xml:space="preserve"><value>Der API-Token konnte nicht sicher gespeichert werden.</value></data>
+  <data name="IntegrationsTokenSaveFailedWithReference" xml:space="preserve"><value>Der API-Token konnte nicht sicher gespeichert werden. Fehlerreferenz: {0}</value></data>
+  <data name="IntegrationsDemoDisabled" xml:space="preserve"><value>Externe sevDesk-Daten sind im Demo-Modus deaktiviert.</value></data>
+  <data name="IntegrationsLegacyTokenNeedsBinding" xml:space="preserve"><value>Ein verschlüsselter Token aus einer älteren Version wurde gefunden. Klicken Sie einmal auf „API-Token speichern“, um ihn ausdrücklich mit dieser Firmendatenbank zu verknüpfen.</value></data>
+  <data name="IntegrationsLegacyTokenBindConfirm" xml:space="preserve"><value>Ein verschlüsselter Token aus einer älteren Version wurde gefunden. Soll er sicher mit dieser Firmendatenbank verknüpft werden?</value></data>
   <data name="IntegrationsConnectionSuccess" xml:space="preserve"><value>Verbindung zu sevDesk erfolgreich getestet.</value></data>
-  <data name="IntegrationsConnectionFailed" xml:space="preserve"><value>Verbindung fehlgeschlagen: {0}</value></data>
-  <data name="IntegrationsPreviewFailed" xml:space="preserve"><value>sevDesk-Daten konnten nicht geladen werden: {0}</value></data>
+  <data name="IntegrationsConnectionFailed" xml:space="preserve"><value>Verbindung fehlgeschlagen. Fehlerreferenz: {0}</value></data>
+  <data name="IntegrationsPreviewFailed" xml:space="preserve"><value>sevDesk-Daten konnten nicht geladen werden. Fehlerreferenz: {0}</value></data>
   <data name="IntegrationsImportDialogTitle" xml:space="preserve"><value>sevDesk Import-Vorschau</value></data>
   <data name="IntegrationsImportDialogSubtitle" xml:space="preserve"><value>Hier legst du fest, welche Datensätze wirklich übernommen werden.</value></data>
   <data name="IntegrationsCustomers" xml:space="preserve"><value>Kunden</value></data>
@@ -287,6 +347,65 @@ Kunden ausgewählt: {0} · geändert/neu: {1}
 Rechnungen ausgewählt: {2} · geändert/neu: {3}
 Angebote ausgewählt: {4} · geändert/neu: {5}</value></data>
   <data name="IntegrationsImportCompleted" xml:space="preserve"><value>Import abgeschlossen.</value></data>
+  <data name="BankTitle" xml:space="preserve"><value>🏦 Bank</value></data>
+  <data name="BankSubtitle" xml:space="preserve"><value>sevDesk-Bankdaten · kein garantierter Echtzeit-Saldo</value></data>
+  <data name="BankAccount" xml:space="preserve"><value>Zahlungskonto</value></data>
+  <data name="BankBalance" xml:space="preserve"><value>sevDesk-Saldo</value></data>
+  <data name="BankBalanceHint" xml:space="preserve"><value>Von sevDesk für dieses Zahlungskonto gemeldeter Saldo · Stand: letzter sevDesk-Abgleich</value></data>
+  <data name="BankLastSync" xml:space="preserve"><value>Letzte Synchronisierung</value></data>
+  <data name="BankProviderHint" xml:space="preserve"><value>Der Bankabruf erfolgt durch sevDesk/finAPI</value></data>
+  <data name="BankFrom" xml:space="preserve"><value>Von</value></data>
+  <data name="BankTo" xml:space="preserve"><value>Bis</value></data>
+  <data name="BankRefreshAccounts" xml:space="preserve"><value>Konten aktualisieren</value></data>
+  <data name="BankLoadTransactions" xml:space="preserve"><value>Kontobewegungen abrufen</value></data>
+  <data name="BankSelectNew" xml:space="preserve"><value>Alle neuen auswählen</value></data>
+  <data name="BankImportSelection" xml:space="preserve"><value>Auswahl importieren</value></data>
+  <data name="BankLoading" xml:space="preserve"><value>Bankdaten werden geladen...</value></data>
+  <data name="BankLoadingAccounts" xml:space="preserve"><value>Zahlungskonten werden geladen...</value></data>
+  <data name="BankLoadingBalance" xml:space="preserve"><value>Kontostand wird geladen...</value></data>
+  <data name="BankLoadingTransactions" xml:space="preserve"><value>Kontobewegungen werden geladen...</value></data>
+  <data name="BankImporting" xml:space="preserve"><value>Kontobewegungen werden importiert...</value></data>
+  <data name="BankImportColumn" xml:space="preserve"><value>Import</value></data>
+  <data name="BankValueDate" xml:space="preserve"><value>Wertstellung</value></data>
+  <data name="BankPayee" xml:space="preserve"><value>Zahlungspartner</value></data>
+  <data name="BankPurpose" xml:space="preserve"><value>Verwendungszweck</value></data>
+  <data name="BankAmount" xml:space="preserve"><value>Betrag</value></data>
+  <data name="BankSevDeskStatus" xml:space="preserve"><value>sevDesk-Status</value></data>
+  <data name="BankSevDeskStateCreated" xml:space="preserve"><value>Erstellt</value></data>
+  <data name="BankSevDeskStateAssigned" xml:space="preserve"><value>Zugeordnet</value></data>
+  <data name="BankSevDeskStatePrivate" xml:space="preserve"><value>Privat</value></data>
+  <data name="BankSevDeskStateAutoBooked" xml:space="preserve"><value>Automatisch gebucht</value></data>
+  <data name="BankSevDeskStateBooked" xml:space="preserve"><value>Gebucht</value></data>
+  <data name="BankSevDeskStateUnknown" xml:space="preserve"><value>Unbekannt</value></data>
+  <data name="BankImportState" xml:space="preserve"><value>Importstatus</value></data>
+  <data name="BankStatusIdle" xml:space="preserve"><value>Noch keine Kontobewegungen abgerufen.</value></data>
+  <data name="BankTokenMissing" xml:space="preserve"><value>Bitte zuerst unter Add-ons einen sevDesk API-Token für diese Datenbank speichern.</value></data>
+  <data name="BankLegacyTokenConfirm" xml:space="preserve"><value>Es wurde ein verschlüsselter sevDesk API-Token aus einer älteren Version gefunden. Soll er jetzt ausdrücklich mit dieser Firmendatenbank verknüpft werden?</value></data>
+  <data name="BankDemoDisabled" xml:space="preserve"><value>Bankdaten sind im Demo-Modus deaktiviert, damit keine echten Firmendaten angezeigt werden.</value></data>
+  <data name="BankAccountsLoaded" xml:space="preserve"><value>{0} Zahlungskonto/-konten aus sevDesk geladen.</value></data>
+  <data name="BankNoAccounts" xml:space="preserve"><value>sevDesk hat keine Zahlungskonten zurückgegeben. Das Onlinekonto muss zuerst in sevDesk eingerichtet werden.</value></data>
+  <data name="BankBalanceLoaded" xml:space="preserve"><value>sevDesk-Saldo wurde aktualisiert.</value></data>
+  <data name="BankBalanceFailed" xml:space="preserve"><value>Der sevDesk-Saldo konnte nicht geladen werden: {0}</value></data>
+  <data name="BankLoadFailed" xml:space="preserve"><value>Bankdaten konnten nicht geladen werden: {0}</value></data>
+  <data name="BankTransactionsLoaded" xml:space="preserve"><value>{0} Kontobewegungen geladen, davon {1} neu.</value></data>
+  <data name="BankLocalTransactionsLoaded" xml:space="preserve"><value>{0} gespeicherte Kontobewegungen aus der Datenbank geladen.</value></data>
+  <data name="BankSelectAccount" xml:space="preserve"><value>Bitte zuerst ein Zahlungskonto auswählen.</value></data>
+  <data name="BankDateRequired" xml:space="preserve"><value>Bitte Start- und Enddatum angeben.</value></data>
+  <data name="BankDateOrderInvalid" xml:space="preserve"><value>Das Startdatum darf nicht nach dem Enddatum liegen.</value></data>
+  <data name="BankReadOnly" xml:space="preserve"><value>Diese Rolle darf Bankdaten nur ansehen, aber nicht importieren.</value></data>
+  <data name="BankNothingSelected" xml:space="preserve"><value>Bitte mindestens eine importierbare Kontobewegung auswählen.</value></data>
+  <data name="BankImportSuccess" xml:space="preserve"><value>Import abgeschlossen: {0} neu, {1} aktualisiert, {2} unverändert.</value></data>
+  <data name="BankImportFailed" xml:space="preserve"><value>Bankimport fehlgeschlagen: {0}</value></data>
+  <data name="BankStateNew" xml:space="preserve"><value>Neu</value></data>
+  <data name="BankStateExisting" xml:space="preserve"><value>Bereits importiert</value></data>
+  <data name="BankStateImported" xml:space="preserve"><value>Importiert</value></data>
+  <data name="BankStateMissingId" xml:space="preserve"><value>Nicht importierbar: sevDesk-ID fehlt</value></data>
+  <data name="BankStateDuplicateId" xml:space="preserve"><value>Konflikt: sevDesk-ID mehrfach vorhanden</value></data>
+  <data name="BankStateUnsupportedCurrency" xml:space="preserve"><value>Nicht importierbar: {0} (nur EUR)</value></data>
+  <data name="BankStatePrivate" xml:space="preserve"><value>Privat – wird nicht importiert</value></data>
+  <data name="BankStateInvalidAmount" xml:space="preserve"><value>Nicht importierbar: Betrag fehlt oder ist ungültig</value></data>
+  <data name="BankStateMissingDate" xml:space="preserve"><value>Nicht importierbar: Buchungsdatum fehlt</value></data>
+  <data name="BankUnnamedAccount" xml:space="preserve"><value>Zahlungskonto</value></data>
   <data name="ExitButton" xml:space="preserve"><value>🚪  Beenden</value></data>
   <data name="DemoMode" xml:space="preserve"><value>Demo</value></data>
   <data name="TooltipDashboard" xml:space="preserve"><value>Finanzübersicht und Cashflow-Prognose</value></data>
@@ -305,4 +424,16 @@ Angebote ausgewählt: {4} · geändert/neu: {5}</value></data>
   <data name="TooltipSwitchDatabase" xml:space="preserve"><value>Zu einer anderen Datenbank wechseln</value></data>
   <data name="TooltipAbout" xml:space="preserve"><value>Informationen über CashFlow Planner Pro</value></data>
   <data name="TooltipExit" xml:space="preserve"><value>Anwendung beenden</value></data>
+  <data name="BankCreateFixedCost" xml:space="preserve"><value>Als Fixkosten</value></data>
+  <data name="BankSelectTransaction" xml:space="preserve"><value>Bitte wählen Sie zuerst eine Kontobewegung aus.</value></data>
+  <data name="BankImportBeforeFixedCost" xml:space="preserve"><value>Bitte importieren Sie die Kontobewegung zuerst. Danach kann sie eindeutig mit einem Fixkosten-Eintrag verknüpft werden.</value></data>
+  <data name="BankOnlyDebitFixedCost" xml:space="preserve"><value>Nur Abbuchungen können als Fixkosten übernommen werden.</value></data>
+  <data name="BankFixedCostCategoryMissing" xml:space="preserve"><value>Die ausgewählte Kategorie wurde nicht gefunden.</value></data>
+  <data name="BankStateFixedCost" xml:space="preserve"><value>Als Fixkosten verknüpft</value></data>
+  <data name="BankFixedCostCreated" xml:space="preserve"><value>„{0}“ wurde mit {1:N2} € als Fixkosten-Eintrag erstellt und mit der Bankbuchung verknüpft.</value></data>
+  <data name="BankFixedCostFailed" xml:space="preserve"><value>Der Fixkosten-Eintrag konnte nicht erstellt werden. Fehlerreferenz: {0}</value></data>
+  <data name="SessionInvalidated" xml:space="preserve"><value>Ihre Sitzung ist nicht mehr gültig, weil das Benutzerkonto, das Passwort oder die Berechtigungen geändert wurden. Die Anwendung wird sicher beendet. Bitte melden Sie sich erneut an.</value></data>
+  <data name="IntegrationsTargetAccessDenied" xml:space="preserve"><value>Für den Import fehlen Schreibrechte im betroffenen Zielbereich (Adressbuch, Rechnungen oder Angebote).</value></data>
+  <data name="ApplicationAlreadyRunning" xml:space="preserve"><value>CashFlow Planner Pro läuft bereits. Bitte verwenden Sie das vorhandene Fenster.</value></data>
+  <data name="CompanyProfileAdminOnly" xml:space="preserve"><value>Das gemeinsame Firmenprofil darf nur mit vollständigem Verwaltungszugriff geändert werden.</value></data>
 </root>

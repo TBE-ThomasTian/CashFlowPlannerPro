@@ -56,5 +56,26 @@
                 </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
+
+        <Border x:Name="BusyOverlay"
+                Grid.RowSpan="2"
+                Panel.ZIndex="10"
+                Background="#A0FFFFFF"
+                Cursor="Wait"
+                Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <ProgressBar Width="220"
+                             Height="8"
+                             IsIndeterminate="True"/>
+                <TextBlock x:Name="OffersBusyText"
+                           Text="Angebote werden geladen..."
+                           Margin="0,14,0,0"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource ForegroundBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

@@ -19,6 +19,7 @@ public static class PageKeys
 {
     public const string Dashboard = "dashboard";
     public const string Transactions = "transactions";
+    public const string Bank = "bank";
     public const string Fixkosten = "fixkosten";
     public const string Taxes = "taxes";
     public const string Invoices = "invoices";
@@ -34,6 +35,7 @@ public static class PageKeys
     public static readonly (string key, string label)[] All = [
         (Dashboard, "📊 Übersicht"),
         (Transactions, "💰 Ein/Ausgaben"),
+        (Bank, "🏦 Bank"),
         (Fixkosten, "📋 Fixkosten"),
         (Taxes, "🏛 Steuer"),
         (Invoices, "📄 Rechnungen"),

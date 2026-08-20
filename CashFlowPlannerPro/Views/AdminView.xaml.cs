@@ -32,6 +32,9 @@ public partial class AdminView : UserControl
         try
         {
             _isRefreshing = true;
+            var canEdit = App.CanEdit(PageKeys.Admin);
+            AddUserBtn.IsEnabled = canEdit;
+            AddRoleBtn.IsEnabled = canEdit;
             _roles = Database.Instance.GetRoles();
             BuildUserList();
             BuildRoleSelector();
@@ -39,7 +42,8 @@ public partial class AdminView : UserControl
         }
         catch (Exception ex)
         {
-            ModernMessageBox.ShowError(ex.Message, "Verwaltung Fehler");
+            var reference = AppLogger.LogException("admin.refresh_failed", ex);
+            ModernMessageBox.ShowError($"Die Verwaltung konnte nicht geladen werden. Referenz: {reference}", "Verwaltung Fehler");
         }
         finally
         {
@@ -52,6 +56,7 @@ public partial class AdminView : UserControl
     {
         UserListPanel.Children.Clear();
         var users = Database.Instance.GetUsernames();
+        var canEdit = App.CanEdit(PageKeys.Admin);
 
         foreach (var username in users)
         {
@@ -118,10 +123,31 @@ public partial class AdminView : UserControl
             if (roleId == null) ((ComboBoxItem)roleCombo.Items[0]).IsSelected = true;
 
             var capturedUser = username;
+            var isCurrentUser = string.Equals(username, App.CurrentUsername, StringComparison.OrdinalIgnoreCase);
+            roleCombo.IsEnabled = canEdit && !isCurrentUser;
+            if (isCurrentUser)
+                roleCombo.ToolTip = "Die eigene Rolle kann während einer aktiven Sitzung nicht geändert werden.";
             roleCombo.SelectionChanged += (_, _) => {
                 if (!CheckAdminAccess()) { Refresh(); return; }
                 if (roleCombo.SelectedItem is ComboBoxItem ci && ci.Tag is long rid)
-                    Database.Instance.SetUserRole(capturedUser, rid > 0 ? rid : null);
+                {
+                    try
+                    {
+                        Database.Instance.SetUserRole(capturedUser, rid > 0 ? rid : null);
+                        AppLogger.Audit("admin.user_role.changed", capturedUser, success: true, new { roleId = rid });
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        ModernMessageBox.ShowError(ex.Message, "Rolle ändern");
+                        Refresh();
+                    }
+                    catch (Exception ex)
+                    {
+                        var reference = AppLogger.LogException("admin.user_role_change_failed", ex, new { capturedUser });
+                        ModernMessageBox.ShowError($"Die Rolle konnte nicht geändert werden. Referenz: {reference}", "Rolle ändern");
+                        Refresh();
+                    }
+                }
             };
             Grid.SetRow(roleCombo, 1);
             Grid.SetColumn(roleCombo, 0);
@@ -130,6 +156,7 @@ public partial class AdminView : UserControl
 
             // Delete button
             var isBuiltInAdmin = string.Equals(username, "admin", StringComparison.Ordinal);
+            var isProtectedUser = isBuiltInAdmin || isCurrentUser;
             var deleteBtn = new Button {
                 Content = "\uE74D",
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
@@ -137,29 +164,45 @@ public partial class AdminView : UserControl
                 Style = (Style)FindResource("CompactDeleteButton"),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 0, 0),
-                IsEnabled = !isBuiltInAdmin,
+                IsEnabled = canEdit && !isProtectedUser,
                 ToolTip = isBuiltInAdmin
-                    ? "Der integrierte Administrator kann nicht gelöscht werden."
-                    : $"Benutzer „{username}“ löschen"
+                    ? "Der integrierte Administrator kann nicht deaktiviert werden."
+                    : isCurrentUser
+                    ? "Der aktuell angemeldete Benutzer kann sich nicht selbst deaktivieren."
+                    : $"Benutzer „{username}“ deaktivieren"
             };
             ToolTipService.SetShowOnDisabled(deleteBtn, true);
             AutomationProperties.SetAutomationId(deleteBtn, $"DeleteUser_{username}");
-            AutomationProperties.SetName(deleteBtn, isBuiltInAdmin
-                ? "Administrator kann nicht gelöscht werden"
-                : $"Benutzer {username} löschen");
+            AutomationProperties.SetName(deleteBtn, isProtectedUser
+                ? "Dieser Benutzer kann in der aktuellen Sitzung nicht deaktiviert werden"
+                : $"Benutzer {username} deaktivieren");
 
-            if (!isBuiltInAdmin)
+            if (!isProtectedUser)
             {
                 deleteBtn.Click += (_, _) => {
                     if (!CheckAdminAccess()) return;
                     if (ModernMessageBox.ShowConfirm(
-                            $"Benutzer \"{capturedUser}\" wirklich löschen?\n\n" +
-                            "Die zugehörige Mitarbeiterressource und bestehende Projektplanungen bleiben erhalten.\n\n" +
-                            "Persönliche Aufgaben, Einstellungen und Zeiterfassungen dieses Benutzers werden endgültig gelöscht.",
-                            "Benutzer löschen"))
+                            $"Benutzer \"{capturedUser}\" wirklich deaktivieren?\n\n" +
+                            "Die Anmeldung wird gesperrt und bereits offene Sitzungen verlieren ihre Gültigkeit. " +
+                            "Mitarbeiterressource, Projektplanungen, Aufgaben, Einstellungen und Zeiterfassungen bleiben erhalten.",
+                            "Benutzer deaktivieren"))
                     {
-                        Database.Instance.DeleteUser(capturedUser);
-                        Refresh();
+                        if (!CheckAdminAccess()) return;
+                        try
+                        {
+                            Database.Instance.DeleteUser(capturedUser);
+                            AppLogger.Audit("admin.user.deactivated", capturedUser, success: true);
+                            Refresh();
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            ModernMessageBox.ShowError(ex.Message, "Benutzer deaktivieren");
+                        }
+                        catch (Exception ex)
+                        {
+                            var reference = AppLogger.LogException("admin.user_deactivate_failed", ex, new { capturedUser });
+                            ModernMessageBox.ShowError($"Der Benutzer konnte nicht deaktiviert werden. Referenz: {reference}", "Benutzer deaktivieren");
+                        }
                     }
                 };
             }
@@ -210,7 +253,7 @@ public partial class AdminView : UserControl
 
     private bool CheckAdminAccess()
     {
-        if (App.GetAccess("admin") != "full")
+        if (!PermissionGuard.DemandEdit(PageKeys.Admin, "admin.manage"))
         {
             ModernMessageBox.ShowError("Keine Berechtigung für diese Aktion. Nur Admins dürfen Benutzer und Rollen verwalten.", "Zugriff verweigert");
             return false;
@@ -224,9 +267,11 @@ public partial class AdminView : UserControl
         var dlg = new AddUserDialog();
         if (dlg.ShowDialog() == true)
         {
+            if (!CheckAdminAccess()) return;
             try
             {
                 var resource = Database.Instance.AddUserWithResource(dlg.Username, dlg.Password, dlg.FullName);
+                AppLogger.Audit("admin.user.created", dlg.Username, success: true);
                 Refresh();
                 ModernMessageBox.ShowSuccess(
                     $"Der Benutzer \"{dlg.Username}\" wurde angelegt.\n\n" +
@@ -235,8 +280,9 @@ public partial class AdminView : UserControl
             }
             catch (Exception ex)
             {
+                var reference = AppLogger.LogException("admin.user_add_failed", ex);
                 ModernMessageBox.ShowError(
-                    $"Der Benutzer konnte nicht angelegt werden:\n{ex.Message}",
+                    $"Der Benutzer konnte nicht angelegt werden. Referenz: {reference}",
                     "Benutzer anlegen");
             }
         }
@@ -250,6 +296,7 @@ public partial class AdminView : UserControl
 
         var role = _roles.FirstOrDefault(r => r.Id == _selectedRoleId.Value);
         if (role == null) return;
+        var canEdit = App.CanEdit(PageKeys.Admin);
 
         var perms = Database.Instance.GetRolePermissions(role.Id);
         var permDict = perms.ToDictionary(p => p.PageKey, p => p.AccessLevel);
@@ -276,16 +323,31 @@ public partial class AdminView : UserControl
                 Content = "🗑 Löschen", FontSize = 11, Cursor = System.Windows.Input.Cursors.Hand,
                 Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = new SolidColorBrush(Color.FromRgb(0xBF, 0x39, 0x39)),
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment = HorizontalAlignment.Right,
+                IsEnabled = canEdit
             };
             var capturedRole = role;
             delBtn.Click += (_, _) => {
                 if (!CheckAdminAccess()) return;
                 if (ModernMessageBox.ShowConfirm($"Rolle \"{capturedRole.Name}\" löschen?", "Rolle löschen"))
                 {
-                    Database.Instance.DeleteRole(capturedRole.Id);
-                    _selectedRoleId = null;
-                    Refresh();
+                    if (!CheckAdminAccess()) return;
+                    try
+                    {
+                        Database.Instance.DeleteRole(capturedRole.Id);
+                        AppLogger.Audit("admin.role.deleted", capturedRole.Name, success: true, new { capturedRole.Id });
+                        _selectedRoleId = null;
+                        Refresh();
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        ModernMessageBox.ShowError(ex.Message, "Rolle löschen");
+                    }
+                    catch (Exception ex)
+                    {
+                        var reference = AppLogger.LogException("admin.role_delete_failed", ex, new { capturedRole.Id });
+                        ModernMessageBox.ShowError($"Die Rolle konnte nicht gelöscht werden. Referenz: {reference}", "Rolle löschen");
+                    }
                 }
             };
             DockPanel.SetDock(delBtn, Dock.Right);
@@ -325,12 +387,35 @@ public partial class AdminView : UserControl
                     IsChecked = currentLevel == level,
                     GroupName = $"role_{role.Id}_{pageKey}",
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsEnabled = canEdit
                 };
                 var capturedLevel = level;
                 rb.Checked += (_, _) => {
                     if (!CheckAdminAccess()) { Refresh(); return; }
-                    Database.Instance.SetRolePermission(capturedRoleId, capturedKey, capturedLevel);
+                    try
+                    {
+                        Database.Instance.SetRolePermission(capturedRoleId, capturedKey, capturedLevel);
+                        AppLogger.Audit(
+                            "admin.role_permission.changed",
+                            capturedKey,
+                            success: true,
+                            new { roleId = capturedRoleId, access = capturedLevel });
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        ModernMessageBox.ShowError(ex.Message, "Berechtigung ändern");
+                        Refresh();
+                    }
+                    catch (Exception ex)
+                    {
+                        var reference = AppLogger.LogException(
+                            "admin.role_permission_change_failed",
+                            ex,
+                            new { roleId = capturedRoleId, page = capturedKey });
+                        ModernMessageBox.ShowError($"Die Berechtigung konnte nicht geändert werden. Referenz: {reference}", "Berechtigung ändern");
+                        Refresh();
+                    }
                 };
                 AddToGrid(grid, rb, row, col);
             }
@@ -366,15 +451,18 @@ public partial class AdminView : UserControl
         var dlg = new InputDialog("Neue Rolle", "Rollenname:");
         if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.InputText))
         {
+            if (!CheckAdminAccess()) return;
             try
             {
                 Database.Instance.AddRole(new Role { Name = dlg.InputText });
+                AppLogger.Audit("admin.role.created", dlg.InputText, success: true);
                 _selectedRoleId = null;
                 Refresh();
             }
             catch (Exception ex)
             {
-                ModernMessageBox.ShowError(ex.Message, "Fehler");
+                var reference = AppLogger.LogException("admin.role_add_failed", ex);
+                ModernMessageBox.ShowError($"Die Rolle konnte nicht angelegt werden. Referenz: {reference}", "Fehler");
             }
         }
     }
