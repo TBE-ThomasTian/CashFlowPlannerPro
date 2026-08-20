@@ -7,9 +7,8 @@ using CashFlowPlannerPro.Services;
 namespace CashFlowPlannerPro.Data;
 
 /// <summary>
-/// Stores database connection settings with AES-256 encryption,
-/// using a machine+user-specific key derived via Windows DPAPI.
-/// Only the same Windows user on the same machine can decrypt.
+/// Stores MariaDB connection settings with Windows DPAPI protection scoped to
+/// the current Windows user.
 /// </summary>
 public static class SecureConnectionStore
 {
@@ -185,10 +184,6 @@ public static class SecureConnectionStore
 /// </summary>
 public class SecureConnectionData
 {
-    public string Backend { get; set; } = "SQLite";
-    public string? LastDatabasePath { get; set; }
-
-    // MariaDB connection
     public string? Host { get; set; }
     public int Port { get; set; } = 3306;
     public string? DatabaseName { get; set; }

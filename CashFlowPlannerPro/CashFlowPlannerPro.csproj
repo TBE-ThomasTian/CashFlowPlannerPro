@@ -9,12 +9,11 @@
     <UseAppHost>true</UseAppHost>
     <ApplicationIcon>Resources\CashFlowIcon.ico</ApplicationIcon>
     <AssemblyTitle>CashFlow Planner Pro</AssemblyTitle>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="MySqlConnector" Version="2.6.1" />
     <PackageReference Include="PdfPig" Version="0.1.9" />
     <PackageReference Include="PDFtoImage" Version="5.2.0" />
@@ -32,12 +31,6 @@
     <Resource Include="Resources\CashFlowIcon.ico" />
     <Resource Include="Resources\CashFlowIcon.png" />
     <Resource Include="Resources\CashFlowLoginIcon.png" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="sql\migrations\*.sql">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
 </Project>

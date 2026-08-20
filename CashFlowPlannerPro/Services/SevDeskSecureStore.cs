@@ -117,7 +117,7 @@ public static class SevDeskSecureStore
     public static bool SaveForCurrentDatabase(string apiToken, out string? errorReference)
     {
         errorReference = null;
-        if (App.IsDemoMode || string.IsNullOrWhiteSpace(apiToken))
+        if (string.IsNullOrWhiteSpace(apiToken))
             return false;
 
         var data = new SevDeskSecureData
@@ -167,9 +167,6 @@ public static class SevDeskSecureStore
 
     public static SevDeskSecureData? LoadForCurrentDatabase()
     {
-        if (App.IsDemoMode)
-            return null;
-
         var currentDatabaseId = Database.Instance.GetDatabaseInstanceId();
         var data = Load(GetScopedStoreFile(currentDatabaseId));
         if (data == null || string.IsNullOrWhiteSpace(data.DatabaseInstanceId))

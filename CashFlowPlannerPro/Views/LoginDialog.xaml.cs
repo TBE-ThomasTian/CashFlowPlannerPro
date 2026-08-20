@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Data.Common;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,7 +10,6 @@ using System.Windows.Input;
 using CashFlowPlannerPro.Data;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
-using Microsoft.Win32;
 using MySqlConnector;
 
 namespace CashFlowPlannerPro.Views;
@@ -22,81 +20,61 @@ public partial class LoginDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CashFlowPlannerPro");
     private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
-    private static readonly string DemoDir = Path.Combine(SettingsDir, "Demo");
-    private static readonly string DemoDatabasePath = Path.Combine(DemoDir, "cashflow-demo.db");
 
     private List<string> _usernames = [];
-    private string _lastDatabasePath = string.Empty;
-    private DatabaseBackend _selectedBackend = DatabaseBackend.SQLite;
-    private readonly ConnectionConfig? _migrationAuthorizationConnection;
-    private readonly string _migrationAuthorizationUsername = string.Empty;
-    private readonly long _migrationAuthorizationUserId;
-    private readonly string _migrationAuthorizationSecurityStamp = string.Empty;
-    private readonly bool _migrationControlsEnabled;
     private bool _allowClose;
+    private bool _isBusy;
 
-    public string SelectedDatabasePath { get; private set; } = string.Empty;
     public string SelectedUsername { get; private set; } = string.Empty;
     public UserSessionState? AuthenticatedSession { get; private set; }
     public ConnectionConfig? ActiveConnectionConfig { get; private set; }
-    public bool IsDemoSession { get; private set; }
-    public bool RequiresFreshAuthenticationAfterMigration { get; private set; }
-    private bool _isBusy;
 
     public LoginDialog() : this(null, null, 0, null)
     {
     }
 
     internal LoginDialog(
-        ConnectionConfig? migrationAuthorizationConnection,
-        string? migrationAuthorizationUsername,
-        long migrationAuthorizationUserId,
-        string? migrationAuthorizationSecurityStamp)
+        ConnectionConfig? initialConnection,
+        string? initialUsername,
+        long initialUserId,
+        string? initialSecurityStamp)
     {
-        _migrationAuthorizationConnection = migrationAuthorizationConnection?.Clone();
-        _migrationAuthorizationUsername = migrationAuthorizationUsername?.Trim() ?? string.Empty;
-        _migrationAuthorizationUserId = migrationAuthorizationUserId;
-        _migrationAuthorizationSecurityStamp = migrationAuthorizationSecurityStamp?.Trim() ?? string.Empty;
-        _migrationControlsEnabled = _migrationAuthorizationConnection != null
-            && !string.IsNullOrWhiteSpace(_migrationAuthorizationUsername)
-            && _migrationAuthorizationUserId > 0
-            && !string.IsNullOrWhiteSpace(_migrationAuthorizationSecurityStamp)
-            && !App.IsDemoMode
-            && App.CanEdit(PageKeys.Admin);
+        // The identity arguments remain part of the internal API used by the
+        // fail-closed database switch. The new login still authenticates the
+        // selected user against the target MariaDB database from scratch.
+        _ = initialUserId;
+        _ = initialSecurityStamp;
 
         InitializeComponent();
         LocalizationManager.LanguageChanged += OnLanguageChanged;
         LoadSettings();
+
+        if (initialConnection != null)
+            ApplyConnectionSettings(initialConnection);
+        if (!string.IsNullOrWhiteSpace(initialUsername))
+            UsernameTextBox.Text = initialUsername.Trim();
+
         ApplyLocalization();
         UpdateConnectionExpanderState();
-        ApplyMigrationAccess();
+        if (initialConnection != null)
+            DatabaseExpander.IsExpanded = true;
 
-        OpenDbButton.ToolTip = TooltipService.Get("Btn_OpenDb");
-        NewDbButton.ToolTip = TooltipService.Get("Btn_NewDb");
         TestConnectionBtn.ToolTip = TooltipService.Get("Btn_TestConnection");
-        ImportLocalBtn.ToolTip = TooltipService.Get("Btn_ImportLocal");
-        ImportServerBtn.ToolTip = TooltipService.Get("Btn_ImportServer");
         LoginButton.ToolTip = TooltipService.Get("Btn_Login");
-        DemoButton.ToolTip = LocalizationManager.Get("LoginDemoButton");
         BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
-        UsernameTextBox.TextChanged += (_, _) => {
-            UsernamePlaceholder.Visibility = string.IsNullOrEmpty(UsernameTextBox.Text)
-                ? Visibility.Visible : Visibility.Collapsed;
+
+        UsernameTextBox.TextChanged += (_, _) => UpdateUsernamePlaceholder();
+        UsernameTextBox.GotFocus += (_, _) =>
+        {
+            if (_usernames.Count > 0)
+                UsernamePopup.IsOpen = true;
         };
-        UsernameTextBox.GotFocus += (_, _) => {
-            if (_usernames.Count > 0) UsernamePopup.IsOpen = true;
-        };
+        UpdateUsernamePlaceholder();
+
         Closing += LoginDialog_Closing;
         Closed += (_, _) => LocalizationManager.LanguageChanged -= OnLanguageChanged;
-    }
-
-    private void ApplyMigrationAccess()
-    {
-        var visibility = _migrationControlsEnabled ? Visibility.Visible : Visibility.Collapsed;
-        ImportLocalBtn.Visibility = visibility;
-        ImportServerBtn.Visibility = visibility;
     }
 
     private void LoginDialog_Closing(object? sender, CancelEventArgs e)
@@ -108,7 +86,6 @@ public partial class LoginDialog : Window
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         ApplyLocalization();
-        UpdateDatabasePathDisplay();
         if (_isBusy)
             BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
     }
@@ -141,12 +118,9 @@ public partial class LoginDialog : Window
                 ChkRememberSettings.IsChecked = true;
                 ApplySecureSettings(secure);
 
-                if (!string.IsNullOrEmpty(secure.AppUsername))
-                    UsernameTextBox.Text = secure.AppUsername;
+                if (!string.IsNullOrWhiteSpace(secure.AppUsername))
+                    UsernameTextBox.Text = secure.AppUsername.Trim();
             }
-
-            BackendToggle_Changed(this, new RoutedEventArgs());
-            UpdateDatabasePathDisplay();
         }
         catch (Exception ex)
         {
@@ -156,83 +130,49 @@ public partial class LoginDialog : Window
 
     private void ApplyBasicSettings(AppSettings settings)
     {
-        if (settings.Backend == "MariaDB")
-        {
-            _selectedBackend = DatabaseBackend.MariaDB;
-            RbMariaDb.IsChecked = true;
-            TbMariaHost.Text = settings.MariaDbHost ?? "localhost";
-            TbMariaPort.Text = (settings.MariaDbPort > 0 ? settings.MariaDbPort : 3306).ToString();
-            TbMariaDatabase.Text = settings.MariaDbDatabase ?? "cashflow";
-            TbMariaUser.Text = settings.MariaDbUsername ?? string.Empty;
-            return;
-        }
-
-        _selectedBackend = DatabaseBackend.SQLite;
-        RbSqlite.IsChecked = true;
-        if (!string.IsNullOrEmpty(settings.LastDatabasePath) && File.Exists(settings.LastDatabasePath))
-        {
-            _lastDatabasePath = settings.LastDatabasePath;
-            SelectedDatabasePath = _lastDatabasePath;
-        }
+        TbMariaHost.Text = settings.MariaDbHost ?? TbMariaHost.Text;
+        TbMariaPort.Text = (settings.MariaDbPort > 0 ? settings.MariaDbPort : 3306).ToString();
+        TbMariaDatabase.Text = settings.MariaDbDatabase ?? TbMariaDatabase.Text;
+        TbMariaUser.Text = settings.MariaDbUsername ?? string.Empty;
     }
 
     private void ApplySecureSettings(SecureConnectionData secure)
     {
-        if (secure.Backend == "MariaDB")
-        {
-            _selectedBackend = DatabaseBackend.MariaDB;
-            RbMariaDb.IsChecked = true;
-            TbMariaHost.Text = secure.Host ?? TbMariaHost.Text;
-            TbMariaPort.Text = (secure.Port > 0 ? secure.Port : 3306).ToString();
-            TbMariaDatabase.Text = secure.DatabaseName ?? TbMariaDatabase.Text;
-            TbMariaUser.Text = secure.DbUsername ?? TbMariaUser.Text;
-            PbMariaPassword.Password = secure.DbPassword ?? "";
-            return;
-        }
+        TbMariaHost.Text = secure.Host ?? TbMariaHost.Text;
+        TbMariaPort.Text = (secure.Port > 0 ? secure.Port : 3306).ToString();
+        TbMariaDatabase.Text = secure.DatabaseName ?? TbMariaDatabase.Text;
+        TbMariaUser.Text = secure.DbUsername ?? TbMariaUser.Text;
+        PbMariaPassword.Password = secure.DbPassword ?? string.Empty;
+    }
 
-        _selectedBackend = DatabaseBackend.SQLite;
-        RbSqlite.IsChecked = true;
-        if (!string.IsNullOrEmpty(secure.LastDatabasePath) && File.Exists(secure.LastDatabasePath))
-        {
-            _lastDatabasePath = secure.LastDatabasePath;
-            SelectedDatabasePath = _lastDatabasePath;
-        }
+    private void ApplyConnectionSettings(ConnectionConfig config)
+    {
+        TbMariaHost.Text = config.Host;
+        TbMariaPort.Text = (config.Port > 0 ? config.Port : 3306).ToString();
+        TbMariaDatabase.Text = config.DatabaseName;
+        TbMariaUser.Text = config.DbUsername;
+        PbMariaPassword.Password = config.DbPassword;
     }
 
     private void SaveSettings()
     {
-        if (IsDemoSession)
-            return;
-
         try
         {
             SaveBasicSettings();
 
             if (ChkRememberSettings.IsChecked == true)
             {
-                // Save credentials encrypted via DPAPI. Basic connection metadata
-                // is still stored in settings.json so the last backend is restored
-                // even if protected credentials cannot be decrypted.
                 int.TryParse(TbMariaPort.Text, out var port);
                 var secure = new SecureConnectionData
                 {
-                    Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite",
                     RememberSettings = true,
-                    AppUsername = UsernameTextBox.Text?.Trim()
+                    AppUsername = UsernameTextBox.Text?.Trim(),
+                    Host = TbMariaHost.Text.Trim(),
+                    Port = port > 0 ? port : 3306,
+                    DatabaseName = TbMariaDatabase.Text.Trim(),
+                    DbUsername = TbMariaUser.Text.Trim(),
+                    DbPassword = PbMariaPassword.Password
                 };
-
-                if (_selectedBackend == DatabaseBackend.SQLite)
-                {
-                    secure.LastDatabasePath = SelectedDatabasePath;
-                }
-                else
-                {
-                    secure.Host = TbMariaHost.Text;
-                    secure.Port = port > 0 ? port : 3306;
-                    secure.DatabaseName = TbMariaDatabase.Text;
-                    secure.DbUsername = TbMariaUser.Text;
-                    secure.DbPassword = PbMariaPassword.Password;
-                }
 
                 if (!SecureConnectionStore.Save(secure))
                 {
@@ -264,23 +204,14 @@ public partial class LoginDialog : Window
         int.TryParse(TbMariaPort.Text, out var port);
         var settings = new AppSettings
         {
-            Backend = _selectedBackend == DatabaseBackend.MariaDB ? "MariaDB" : "SQLite",
-            LastDatabasePath = SelectedDatabasePath,
-            MariaDbHost = TbMariaHost.Text,
+            MariaDbHost = TbMariaHost.Text.Trim(),
             MariaDbPort = port > 0 ? port : 3306,
-            MariaDbDatabase = TbMariaDatabase.Text,
-            MariaDbUsername = TbMariaUser.Text
+            MariaDbDatabase = TbMariaDatabase.Text.Trim(),
+            MariaDbUsername = TbMariaUser.Text.Trim()
         };
 
         var json = JsonSerializer.Serialize(settings);
         File.WriteAllText(SettingsFile, json);
-    }
-
-    private void SetDatabasePath(string path)
-    {
-        SelectedDatabasePath = path;
-        UpdateDatabasePathDisplay();
-        _ = LoadUsernamesAsync();
     }
 
     private void ApplyLocalization()
@@ -290,37 +221,10 @@ public partial class LoginDialog : Window
         SubtitleText.Text = LocalizationManager.Get("LoginSubtitle");
         DatabaseStepText.Text = LocalizationManager.Get("LoginStepDatabase");
         SignInStepText.Text = LocalizationManager.Get("LoginStepSignIn");
-        OpenDbButton.Content = LocalizationManager.Get("LoginOpen");
-        NewDbButton.Content = LocalizationManager.Get("LoginNew");
-        ImportServerBtn.Content = LocalizationManager.Get("MigrationImportFromServerButton");
-        ImportLocalBtn.Content = LocalizationManager.Get("MigrationImportLocalButton");
         TbMariaUser.ToolTip = LocalizationManager.Get("MariaDbDedicatedUserHint");
         LoginButton.Content = LocalizationManager.Get("LoginButton");
-        DemoButton.Content = LocalizationManager.Get("LoginDemoButton");
         UsernamePlaceholder.Text = LocalizationManager.Get("LoginUsernamePlaceholder");
         BusyText.Text = LocalizationManager.Get("LoadingPleaseWait");
-        if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
-            UpdateDatabasePathDisplay();
-    }
-
-    private void UpdateDatabasePathDisplay()
-    {
-        if (string.IsNullOrWhiteSpace(SelectedDatabasePath))
-        {
-            DbPathText.Text = LocalizationManager.Get("LoginNoDatabaseSelected");
-            DbPathText.ToolTip = null;
-            UpdateConnectionExpanderState();
-            return;
-        }
-
-        var isLast = !string.IsNullOrWhiteSpace(_lastDatabasePath)
-            && string.Equals(SelectedDatabasePath, _lastDatabasePath, StringComparison.OrdinalIgnoreCase);
-
-        DbPathText.Text = isLast
-            ? string.Format(LocalizationManager.Get("LoginLastDatabase"), SelectedDatabasePath)
-            : SelectedDatabasePath;
-        DbPathText.ToolTip = SelectedDatabasePath;
-        UpdateConnectionExpanderState();
     }
 
     private void UpdateConnectionExpanderState()
@@ -328,66 +232,63 @@ public partial class LoginDialog : Window
         if (DatabaseExpander == null)
             return;
 
-        DatabaseExpander.IsExpanded = false;
+        DatabaseExpander.IsExpanded = string.IsNullOrWhiteSpace(TbMariaHost.Text)
+            || string.IsNullOrWhiteSpace(TbMariaDatabase.Text)
+            || string.IsNullOrWhiteSpace(TbMariaUser.Text);
     }
 
-    private ConnectionConfig BuildConnectionConfig()
+    private void UpdateUsernamePlaceholder()
     {
-        if (_selectedBackend == DatabaseBackend.MariaDB)
+        UsernamePlaceholder.Visibility = string.IsNullOrEmpty(UsernameTextBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private bool TryBuildConnectionConfig(out ConnectionConfig config)
+    {
+        config = null!;
+        var host = TbMariaHost.Text.Trim();
+        if (string.IsNullOrWhiteSpace(host))
         {
-            int.TryParse(TbMariaPort.Text, out var port);
-            return new ConnectionConfig
-            {
-                Backend = DatabaseBackend.MariaDB,
-                Host = TbMariaHost.Text.Trim(),
-                Port = port > 0 ? port : 3306,
-                DatabaseName = TbMariaDatabase.Text.Trim(),
-                DbUsername = TbMariaUser.Text.Trim(),
-                DbPassword = PbMariaPassword.Password
-            };
+            ShowError("Bitte einen MariaDB-Server eingeben.");
+            return false;
         }
-        return new ConnectionConfig
+
+        if (!int.TryParse(TbMariaPort.Text, out var port) || port is < 1 or > 65535)
         {
-            Backend = DatabaseBackend.SQLite,
-            FilePath = SelectedDatabasePath
+            ShowError("Bitte einen gültigen MariaDB-Port zwischen 1 und 65535 eingeben.");
+            return false;
+        }
+
+        var databaseName = TbMariaDatabase.Text.Trim();
+        if (string.IsNullOrWhiteSpace(databaseName))
+        {
+            ShowError("Bitte den Namen der MariaDB-Datenbank eingeben.");
+            return false;
+        }
+
+        var databaseUsername = TbMariaUser.Text.Trim();
+        if (string.IsNullOrWhiteSpace(databaseUsername))
+        {
+            ShowError("Bitte einen MariaDB-Benutzer eingeben.");
+            return false;
+        }
+
+        config = new ConnectionConfig
+        {
+            Host = host,
+            Port = port,
+            DatabaseName = databaseName,
+            DbUsername = databaseUsername,
+            DbPassword = PbMariaPassword.Password
         };
-    }
-
-    private async Task LoadUsernamesAsync()
-    {
-        if (_isBusy)
-            return;
-
-        SetBusy(true);
-        try
-        {
-            var config = BuildConnectionConfig();
-            ActiveConnectionConfig = config;
-            _usernames = await Task.Run(() =>
-            {
-                Database.Instance.Open(config);
-                Database.Instance.EnsureSchema();
-                return Database.Instance.GetUsernames();
-            });
-            UsernameListBox.Items.Clear();
-            foreach (var u in _usernames)
-                UsernameListBox.Items.Add(u);
-        }
-        catch (Exception ex)
-        {
-            ShowError(string.Format(
-                LocalizationManager.Get("LoginDatabaseError"),
-                FormatDatabaseError(ex, "database.usernames_load_failed")));
-        }
-        finally
-        {
-            SetBusy(false);
-        }
+        return true;
     }
 
     private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left) DragMove();
+        if (e.ChangedButton == MouseButton.Left)
+            DragMove();
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
@@ -410,88 +311,25 @@ public partial class LoginDialog : Window
         Close();
     }
 
-    private void OpenDbButton_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog {
-            Title = LocalizationManager.Get("LoginOpenDbTitle"),
-            Filter = LocalizationManager.Get("LoginOpenDbFilter"),
-            DefaultExt = ".db"
-        };
-        if (dialog.ShowDialog() == true) { SetDatabasePath(dialog.FileName); ClearError(); }
-    }
-
-    private void NewDbButton_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new SaveFileDialog {
-            Title = LocalizationManager.Get("LoginNewDbTitle"),
-            Filter = LocalizationManager.Get("LoginNewDbFilter"),
-            DefaultExt = ".db", FileName = "cashflow.db",
-            OverwritePrompt = false
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            try
-            {
-                var candidate = new ConnectionConfig
-                {
-                    Backend = DatabaseBackend.SQLite,
-                    FilePath = dialog.FileName
-                };
-                if (IsSameDatabase(candidate, _migrationAuthorizationConnection))
-                {
-                    ShowError(LocalizationManager.Get("SwitchDatabaseCannotRecreateActive"));
-                    return;
-                }
-
-                CreateFreshDatabase(dialog.FileName, allowReplaceExisting: false);
-                SetDatabasePath(dialog.FileName);
-                ClearError();
-            }
-            catch (DatabaseAlreadyExistsException ex)
-            {
-                ShowError(string.Format(LocalizationManager.Get("LoginCreateError"), ex.Message));
-            }
-            catch (Exception ex)
-            {
-                var reference = AppLogger.LogException("database.create_failed", ex);
-                ShowError(string.Format(
-                    LocalizationManager.Get("LoginCreateError"),
-                    string.Format(LocalizationManager.Get("ErrorReferenceValue"), reference)));
-            }
-        }
-    }
-
-    private static void CreateFreshDatabase(string path, bool allowReplaceExisting)
-    {
-        if (!allowReplaceExisting && File.Exists(path))
-            throw new DatabaseAlreadyExistsException();
-        Database.Instance.Close();
-        DeleteIfExists(path);
-        DeleteIfExists(path + "-wal");
-        DeleteIfExists(path + "-shm");
-    }
-
-    private static void DeleteIfExists(string path)
-    {
-        if (File.Exists(path))
-            File.Delete(path);
-    }
-
     private async void LoginButton_Click(object sender, RoutedEventArgs e)
     {
-        IsDemoSession = false;
-        if (_selectedBackend == DatabaseBackend.SQLite && string.IsNullOrEmpty(SelectedDatabasePath))
-        { ShowError(LocalizationManager.Get("LoginSelectDatabaseError")); return; }
-        if (_selectedBackend == DatabaseBackend.MariaDB && string.IsNullOrWhiteSpace(TbMariaHost.Text))
-        { ShowError("Bitte einen Server-Host eingeben."); return; }
-        var username = UsernameTextBox.Text?.Trim() ?? "";
+        if (!TryBuildConnectionConfig(out var config))
+            return;
+
+        var username = UsernameTextBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(username))
-        { ShowError(LocalizationManager.Get("LoginUsernameRequired")); return; }
+        {
+            ShowError(LocalizationManager.Get("LoginUsernameRequired"));
+            return;
+        }
+
         var password = PasswordBox.Password;
         if (string.IsNullOrEmpty(password))
-        { ShowError(LocalizationManager.Get("LoginPasswordRequired")); return; }
+        {
+            ShowError(LocalizationManager.Get("LoginPasswordRequired"));
+            return;
+        }
 
-        var config = BuildConnectionConfig();
         var throttleKey = BuildLoginThrottleKey(config, username);
         var globalThrottleKey = BuildLoginThrottleKey(config, "*");
         var remainingDelay = new[]
@@ -506,7 +344,7 @@ public partial class LoginDialog : Window
                 "login.throttled",
                 username,
                 success: false,
-                new { retryAfterSeconds, backend = config.Backend.ToString() });
+                new { retryAfterSeconds, backend = "MariaDB" });
             ShowError(string.Format(
                 LocalizationManager.Get("LoginRetryAfter"),
                 retryAfterSeconds));
@@ -525,7 +363,10 @@ public partial class LoginDialog : Window
                 return new LoginCheckResult
                 {
                     Session = session,
-                    RequiresDefaultPasswordChange = session != null && Database.Instance.IsFirstRun && username == "admin" && password == "admin"
+                    RequiresDefaultPasswordChange = session != null
+                        && Database.Instance.IsFirstRun
+                        && username == "admin"
+                        && password == "admin"
                 };
             });
 
@@ -540,18 +381,18 @@ public partial class LoginDialog : Window
                     ModernMessageBox.Show(
                         LocalizationManager.Get("FirstRunPasswordPrompt"),
                         LocalizationManager.Get("FirstRunSecurityTitle"));
-                    var pwDlg = new PasswordSetupDialog(username)
+                    var passwordDialog = new PasswordSetupDialog(username)
                     {
                         Owner = this
                     };
-                    if (pwDlg.ShowDialog() == true)
+                    if (passwordDialog.ShowDialog() == true)
                     {
                         SetBusy(true);
                         loginResult.Session = await Task.Run(() => Database.Instance.ChangePassword(
                             loginResult.Session.UserId,
                             loginResult.Session.SecurityStamp,
                             password,
-                            pwDlg.Password));
+                            passwordDialog.Password));
                         AppLogger.Audit("password.first_run_changed", username, success: true);
                         ModernMessageBox.Show(
                             LocalizationManager.Get("PasswordChangedSuccess"),
@@ -575,7 +416,7 @@ public partial class LoginDialog : Window
                     "login.succeeded",
                     username,
                     success: true,
-                    new { backend = config.Backend.ToString() });
+                    new { backend = "MariaDB" });
                 _allowClose = true;
                 DialogResult = true;
             }
@@ -595,7 +436,7 @@ public partial class LoginDialog : Window
                     {
                         reason = "invalid_credentials",
                         retryAfterSeconds,
-                        backend = config.Backend.ToString()
+                        backend = "MariaDB"
                     });
                 ShowError(string.Format(
                     LocalizationManager.Get("LoginInvalidCredentialsWithDelay"),
@@ -607,12 +448,12 @@ public partial class LoginDialog : Window
             var reference = AppLogger.LogException(
                 "login.error",
                 ex,
-                new { backend = config.Backend.ToString() });
+                new { backend = "MariaDB" });
             AppLogger.Audit(
                 "login.failed",
                 username,
                 success: false,
-                new { reason = "operation_error", reference, backend = config.Backend.ToString() });
+                new { reason = "operation_error", reference, backend = "MariaDB" });
             ShowError(string.Format(
                 LocalizationManager.Get("LoginErrorWithReference"),
                 reference));
@@ -623,73 +464,13 @@ public partial class LoginDialog : Window
         }
     }
 
-    private async void DemoButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var config = new ConnectionConfig
-            {
-                Backend = DatabaseBackend.SQLite,
-                FilePath = DemoDatabasePath
-            };
-
-            SetBusy(true);
-            await Task.Run(() =>
-            {
-                Directory.CreateDirectory(DemoDir);
-                CreateFreshDatabase(DemoDatabasePath, allowReplaceExisting: true);
-                Database.Instance.Open(config);
-                Database.Instance.EnsureSchema();
-                Database.Instance.SeedDemoData();
-            });
-
-            ActiveConnectionConfig = config;
-            SelectedDatabasePath = DemoDatabasePath;
-            SelectedUsername = "demo";
-            var demoUserId = Database.Instance.GetUserId(SelectedUsername);
-            AuthenticatedSession = Database.Instance.GetUserSessionState(demoUserId)
-                ?? throw new InvalidOperationException("Die Demo-Sitzung konnte nicht erstellt werden.");
-            IsDemoSession = true;
-            _allowClose = true;
-            DialogResult = true;
-        }
-        catch (Exception ex)
-        {
-            var reference = AppLogger.LogException("demo.database_create_failed", ex);
-            ShowError(string.Format(
-                LocalizationManager.Get("LoginCreateError"),
-                string.Format(LocalizationManager.Get("ErrorReferenceValue"), reference)));
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    private void BackendToggle_Changed(object sender, RoutedEventArgs e)
-    {
-        if (PanelSqlite == null || PanelMariaDb == null) return; // not yet initialized
-        if (RbMariaDb.IsChecked == true)
-        {
-            _selectedBackend = DatabaseBackend.MariaDB;
-            PanelSqlite.Visibility = Visibility.Collapsed;
-            PanelMariaDb.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            _selectedBackend = DatabaseBackend.SQLite;
-            PanelSqlite.Visibility = Visibility.Visible;
-            PanelMariaDb.Visibility = Visibility.Collapsed;
-        }
-
-        UpdateConnectionExpanderState();
-    }
-
     private async void TestMariaDbConnection_Click(object sender, RoutedEventArgs e)
     {
+        if (!TryBuildConnectionConfig(out var config))
+            return;
+
         try
         {
-            var config = BuildConnectionConfig();
             SetBusy(true);
             _usernames = await Task.Run(() =>
             {
@@ -698,8 +479,10 @@ public partial class LoginDialog : Window
                 return Database.Instance.GetUsernames();
             });
             UsernameListBox.Items.Clear();
-            foreach (var u in _usernames)
-                UsernameListBox.Items.Add(u);
+            foreach (var username in _usernames)
+                UsernameListBox.Items.Add(username);
+
+            ClearError();
             TbMariaStatus.Text = "✅ Sichere TLS-Verbindung und Datenbankschema erfolgreich!";
             TbMariaStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0x2E, 0xCC, 0x71));
@@ -716,446 +499,24 @@ public partial class LoginDialog : Window
         }
     }
 
-    private async void ImportFromSqlite_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedBackend != DatabaseBackend.MariaDB)
-        {
-            ShowError("Bitte zuerst mit dem MariaDB-Server verbinden.");
-            return;
-        }
-
-        var dialog = new OpenFileDialog
-        {
-            Title = "Lokale SQLite-Datenbank auswählen",
-            Filter = "SQLite Datenbank (*.db)|*.db|Alle Dateien (*.*)|*.*",
-            DefaultExt = ".db"
-        };
-        if (dialog.ShowDialog() != true) return;
-
-        var targetConfig = BuildConnectionConfig();
-        if (!ModernMessageBox.ShowConfirm(
-            string.Format(
-                LocalizationManager.Get("MigrationReplaceServerWarning"),
-                Path.GetFileName(dialog.FileName),
-                targetConfig.Host,
-                targetConfig.DatabaseName),
-            LocalizationManager.Get("MigrationConfirmTitle")))
-            return;
-
-        // Reauthenticate only after every file/connection dialog and the final
-        // destructive confirmation, so a revoked session cannot remain authorized
-        // while the user spends time in those dialogs.
-        if (!await ReauthenticateMigrationAdminAsync())
-            return;
-
-        try
-        {
-            var sourceConfig = new ConnectionConfig
-            {
-                Backend = DatabaseBackend.SQLite,
-                FilePath = dialog.FileName
-            };
-
-            SetBusy(true);
-            var result = await Task.Run(() =>
-            {
-                Database.Instance.Open(targetConfig);
-                Database.Instance.EnsureSchema();
-                if (!ValidateMigrationSessionAuthorization(
-                        _migrationAuthorizationConnection!,
-                        _migrationAuthorizationUsername,
-                        _migrationAuthorizationUserId,
-                        _migrationAuthorizationSecurityStamp))
-                    throw new UnauthorizedAccessException(LocalizationManager.Get("MigrationAdminRequired"));
-                return DatabaseMigrator.Migrate(sourceConfig);
-            });
-            SetBusy(false);
-
-            if (result.Success)
-            {
-                RequiresFreshAuthenticationAfterMigration = IsSameDatabase(
-                    targetConfig,
-                    _migrationAuthorizationConnection);
-                AppLogger.Audit(
-                    "database.migration.completed",
-                    $"{sourceConfig.Backend}->{targetConfig.Backend}",
-                    success: true,
-                    new { rows = result.TotalRows });
-                ModernMessageBox.Show($"Import erfolgreich!\n{FormatMigrationSummary(result)}", "Migration abgeschlossen");
-            }
-            else
-            {
-                var reference = LogMigrationErrors("database.migration_from_sqlite_failed", result);
-                ModernMessageBox.ShowError(
-                    $"Import mit {result.Errors.Count} Fehler(n) beendet. Details wurden protokolliert. Referenz: {reference}",
-                    "Migration");
-            }
-
-            await LoadUsernamesAsync();
-        }
-        catch (Exception ex)
-        {
-            ShowError($"Import fehlgeschlagen: {FormatDatabaseError(ex, "database.migration_from_sqlite_failed")}");
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
     private static string BuildLoginThrottleKey(ConnectionConfig config, string username)
     {
-        string endpoint;
-        if (config.Backend == DatabaseBackend.MariaDB)
-        {
-            endpoint = $"{config.Host.Trim().ToUpperInvariant()}:{config.Port}/{config.DatabaseName.Trim().ToUpperInvariant()}";
-        }
-        else
-        {
-            var filePath = config.FilePath?.Trim() ?? string.Empty;
-            try { endpoint = Path.GetFullPath(filePath).ToUpperInvariant(); }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                endpoint = filePath.ToUpperInvariant();
-            }
-        }
-
-        var material = $"{config.Backend}\n{endpoint}\n{username.Trim().ToUpperInvariant()}";
+        var endpoint = $"{config.Host.Trim().ToUpperInvariant()}:{config.Port}/{config.DatabaseName.Trim().ToUpperInvariant()}";
+        var material = $"MariaDB\n{endpoint}\n{username.Trim().ToUpperInvariant()}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }
 
-    private async void ImportFromMariaDb_Click(object sender, RoutedEventArgs e)
+    private void ShowError(string message)
     {
-        if (_selectedBackend != DatabaseBackend.SQLite || string.IsNullOrEmpty(SelectedDatabasePath))
-        {
-            ShowError("Bitte zuerst eine lokale Datenbank öffnen oder erstellen.");
-            return;
-        }
-
-        var connDlg = new MariaDbConnectDialog();
-        if (connDlg.ShowDialog() != true) return;
-
-        if (!ModernMessageBox.ShowConfirm(
-            string.Format(
-                LocalizationManager.Get("MigrationReplaceLocalWarning"),
-                connDlg.Config.Host,
-                connDlg.Config.DatabaseName,
-                SelectedDatabasePath),
-            LocalizationManager.Get("MigrationConfirmTitle")))
-            return;
-
-        if (!await ReauthenticateMigrationAdminAsync())
-            return;
-
-        try
-        {
-            var targetConfig = BuildConnectionConfig();
-            SetBusy(true);
-            var result = await Task.Run(() =>
-            {
-                Database.Instance.Open(targetConfig);
-                Database.Instance.EnsureSchema();
-                if (!ValidateMigrationSessionAuthorization(
-                        _migrationAuthorizationConnection!,
-                        _migrationAuthorizationUsername,
-                        _migrationAuthorizationUserId,
-                        _migrationAuthorizationSecurityStamp))
-                    throw new UnauthorizedAccessException(LocalizationManager.Get("MigrationAdminRequired"));
-                return DatabaseMigrator.Migrate(connDlg.Config);
-            });
-            SetBusy(false);
-
-            if (result.Success)
-            {
-                RequiresFreshAuthenticationAfterMigration = IsSameDatabase(
-                    targetConfig,
-                    _migrationAuthorizationConnection);
-                AppLogger.Audit(
-                    "database.migration.completed",
-                    $"{connDlg.Config.Backend}->{targetConfig.Backend}",
-                    success: true,
-                    new { rows = result.TotalRows });
-                ModernMessageBox.Show($"Import erfolgreich!\n{FormatMigrationSummary(result)}", "Migration abgeschlossen");
-            }
-            else
-            {
-                var reference = LogMigrationErrors("database.migration_from_mariadb_failed", result);
-                ModernMessageBox.ShowError(
-                    $"Import mit {result.Errors.Count} Fehler(n) beendet. Details wurden protokolliert. Referenz: {reference}",
-                    "Migration");
-            }
-
-            await LoadUsernamesAsync();
-        }
-        catch (Exception ex)
-        {
-            ShowError($"Import fehlgeschlagen: {FormatDatabaseError(ex, "database.migration_from_mariadb_failed")}");
-        }
-        finally
-        {
-            SetBusy(false);
-        }
+        ErrorText.Text = message;
+        ErrorText.Visibility = Visibility.Visible;
     }
 
-    private async Task<bool> ReauthenticateMigrationAdminAsync()
+    private void ClearError()
     {
-        if (!_migrationControlsEnabled
-            || _migrationAuthorizationConnection == null
-            || string.IsNullOrWhiteSpace(_migrationAuthorizationUsername)
-            || App.IsDemoMode
-            || !App.CanEdit(PageKeys.Admin))
-        {
-            AppLogger.Audit(
-                "database.migration.reauthentication",
-                _migrationAuthorizationUsername,
-                success: false,
-                new { reason = "not_eligible" });
-            ShowError(LocalizationManager.Get("MigrationAdminRequired"));
-            return false;
-        }
-
-        var throttleKey = BuildLoginThrottleKey(
-            _migrationAuthorizationConnection,
-            _migrationAuthorizationUsername);
-        var remainingDelay = LoginAttemptThrottle.GetRemainingDelay(throttleKey);
-        if (remainingDelay > TimeSpan.Zero)
-        {
-            var retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(remainingDelay.TotalSeconds));
-            AppLogger.Audit(
-                "database.migration.reauthentication",
-                _migrationAuthorizationUsername,
-                success: false,
-                new
-                {
-                    reason = "throttled",
-                    retryAfterSeconds,
-                    backend = _migrationAuthorizationConnection.Backend.ToString()
-                });
-            ShowError(string.Format(
-                LocalizationManager.Get("MigrationReauthRetryAfter"),
-                retryAfterSeconds));
-            return false;
-        }
-
-        var passwordDialog = new InputDialog(
-            LocalizationManager.Get("MigrationReauthTitle"),
-            string.Format(
-                LocalizationManager.Get("MigrationReauthPrompt"),
-                _migrationAuthorizationUsername),
-            isPassword: true)
-        {
-            Owner = this
-        };
-
-        if (passwordDialog.ShowDialog() != true)
-            return false;
-
-        var password = passwordDialog.ResultText;
-        if (string.IsNullOrEmpty(password))
-        {
-            var delay = LoginAttemptThrottle.RegisterFailure(throttleKey);
-            var retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(delay.TotalSeconds));
-            AppLogger.Audit(
-                "database.migration.reauthentication",
-                _migrationAuthorizationUsername,
-                success: false,
-                new
-                {
-                    reason = "empty_password",
-                    retryAfterSeconds,
-                    backend = _migrationAuthorizationConnection.Backend.ToString()
-                });
-            ShowError(string.Format(
-                LocalizationManager.Get("MigrationReauthFailedWithDelay"),
-                retryAfterSeconds));
-            return false;
-        }
-
-        try
-        {
-            SetBusy(true);
-            var authorized = await Task.Run(() => ValidateMigrationAuthorization(
-                _migrationAuthorizationConnection,
-                _migrationAuthorizationUsername,
-                _migrationAuthorizationUserId,
-                _migrationAuthorizationSecurityStamp,
-                password));
-
-            if (!authorized)
-            {
-                var delay = LoginAttemptThrottle.RegisterFailure(throttleKey);
-                var retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(delay.TotalSeconds));
-                AppLogger.Audit(
-                    "database.migration.reauthentication",
-                    _migrationAuthorizationUsername,
-                    success: false,
-                    new
-                    {
-                        reason = "invalid_credentials_or_access",
-                        retryAfterSeconds,
-                        backend = _migrationAuthorizationConnection.Backend.ToString()
-                    });
-                ShowError(string.Format(
-                    LocalizationManager.Get("MigrationReauthFailedWithDelay"),
-                    retryAfterSeconds));
-            }
-            else
-            {
-                LoginAttemptThrottle.RegisterSuccess(throttleKey);
-                AppLogger.Audit(
-                    "database.migration.reauthentication",
-                    _migrationAuthorizationUsername,
-                    success: true,
-                    new { backend = _migrationAuthorizationConnection.Backend.ToString() });
-                ClearError();
-            }
-
-            return authorized;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Audit(
-                "database.migration.reauthentication",
-                _migrationAuthorizationUsername,
-                success: false,
-                new
-                {
-                    reason = "operation_error",
-                    backend = _migrationAuthorizationConnection.Backend.ToString()
-                });
-            ShowError(string.Format(
-                LocalizationManager.Get("MigrationReauthError"),
-                FormatDatabaseError(ex, "database.migration_reauthentication_failed")));
-            return false;
-        }
-        finally
-        {
-            SetBusy(false);
-        }
+        ErrorText.Text = string.Empty;
+        ErrorText.Visibility = Visibility.Collapsed;
     }
-
-    private static bool ValidateMigrationAuthorization(
-        ConnectionConfig connectionConfig,
-        string username,
-        long expectedUserId,
-        string expectedSecurityStamp,
-        string password)
-        => ValidateMigrationAuthorizationCore(
-            connectionConfig,
-            username,
-            expectedUserId,
-            expectedSecurityStamp,
-            password);
-
-    private static bool ValidateMigrationSessionAuthorization(
-        ConnectionConfig connectionConfig,
-        string username,
-        long expectedUserId,
-        string expectedSecurityStamp)
-        => ValidateMigrationAuthorizationCore(
-            connectionConfig,
-            username,
-            expectedUserId,
-            expectedSecurityStamp,
-            password: null);
-
-    private static bool ValidateMigrationAuthorizationCore(
-        ConnectionConfig connectionConfig,
-        string username,
-        long expectedUserId,
-        string expectedSecurityStamp,
-        string? password)
-    {
-        IDbDialect dialect = connectionConfig.Backend == DatabaseBackend.MariaDB
-            ? new MariaDbDialect()
-            : new SqliteDialect();
-
-        using DbConnection connection = dialect.CreateConnection(connectionConfig.ToConnectionString());
-        connection.Open();
-        using var tx = connection.BeginTransaction();
-        try
-        {
-            string storedUsername;
-            string storedHash;
-            string storedStamp;
-            bool isActive;
-            long? roleId;
-            using (var userCommand = connection.CreateCommand())
-            {
-                userCommand.Transaction = tx;
-                userCommand.CommandText = @"SELECT username,password_hash,is_active,security_stamp,role_id
-                    FROM users WHERE id=@id" +
-                    (dialect is MariaDbDialect ? " FOR UPDATE" : "");
-                userCommand.Parameters.AddWithValue("@id", expectedUserId);
-                using var reader = userCommand.ExecuteReader();
-                if (!reader.Read())
-                {
-                    tx.Rollback();
-                    return false;
-                }
-
-                storedUsername = reader.IsDBNull(0) ? "" : reader.GetString(0);
-                storedHash = reader.IsDBNull(1) ? "" : reader.GetString(1);
-                isActive = !reader.IsDBNull(2) && Convert.ToInt32(reader.GetValue(2)) != 0;
-                storedStamp = reader.IsDBNull(3) ? "" : reader.GetString(3);
-                roleId = reader.IsDBNull(4) ? null : reader.GetInt64(4);
-            }
-
-            if (!isActive || roleId == null ||
-                !string.Equals(storedUsername, username, StringComparison.Ordinal) ||
-                !string.Equals(storedStamp, expectedSecurityStamp, StringComparison.Ordinal) ||
-                (password != null &&
-                    (string.IsNullOrEmpty(storedHash) || !PasswordHasher.Verify(password, storedHash))))
-            {
-                tx.Rollback();
-                return false;
-            }
-
-            using var permissionCommand = connection.CreateCommand();
-            permissionCommand.Transaction = tx;
-            permissionCommand.CommandText = @"SELECT access_level
-                FROM role_permissions
-                WHERE role_id=@roleId AND page_key=@pageKey
-                LIMIT 1";
-            permissionCommand.Parameters.AddWithValue("@roleId", roleId.Value);
-            permissionCommand.Parameters.AddWithValue("@pageKey", PageKeys.Admin);
-            var authorized = string.Equals(
-                permissionCommand.ExecuteScalar()?.ToString(),
-                "full",
-                StringComparison.OrdinalIgnoreCase);
-            tx.Commit();
-            return authorized;
-        }
-        catch
-        {
-            try { tx.Rollback(); } catch { }
-            throw;
-        }
-    }
-
-    private static bool IsSameDatabase(ConnectionConfig first, ConnectionConfig? second)
-    {
-        if (second == null || first.Backend != second.Backend)
-            return false;
-
-        if (first.Backend == DatabaseBackend.SQLite)
-        {
-            if (string.IsNullOrWhiteSpace(first.FilePath) || string.IsNullOrWhiteSpace(second.FilePath))
-                return false;
-
-            return string.Equals(
-                Path.GetFullPath(first.FilePath),
-                Path.GetFullPath(second.FilePath),
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        return first.Port == second.Port
-            && string.Equals(first.Host.Trim(), second.Host.Trim(), StringComparison.OrdinalIgnoreCase)
-            && string.Equals(first.DatabaseName.Trim(), second.DatabaseName.Trim(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ShowError(string msg) { ErrorText.Text = msg; ErrorText.Visibility = Visibility.Visible; }
-    private void ClearError() { ErrorText.Text = ""; ErrorText.Visibility = Visibility.Collapsed; }
 
     private static string FormatDatabaseError(Exception exception, string eventName)
     {
@@ -1198,29 +559,6 @@ public partial class LoginDialog : Window
         return null;
     }
 
-    private static string FormatMigrationSummary(MigrationResult result)
-    {
-        var populatedTables = result.TableCounts.Count(entry => entry.Value > 0);
-        return $"{result.TotalRows} Datensätze aus {populatedTables} Tabellen migriert.";
-    }
-
-    private static string LogMigrationErrors(string eventName, MigrationResult result)
-    {
-        var details = result.Errors.Count == 0
-            ? "Migration reported an unsuccessful result without error details."
-            : string.Join(Environment.NewLine, result.Errors);
-
-        return AppLogger.LogException(
-            eventName,
-            new InvalidOperationException(details),
-            new
-            {
-                result.TotalRows,
-                TableCount = result.TableCounts.Count(entry => entry.Value > 0),
-                ErrorCount = result.Errors.Count
-            });
-    }
-
     private void SetBusy(bool isBusy)
     {
         _isBusy = isBusy;
@@ -1235,18 +573,8 @@ public partial class LoginDialog : Window
         public bool RequiresDefaultPasswordChange { get; init; }
     }
 
-    private sealed class DatabaseAlreadyExistsException : InvalidOperationException
+    private sealed class AppSettings
     {
-        public DatabaseAlreadyExistsException()
-            : base("Die gewählte Datei existiert bereits. Bitte wählen Sie für eine neue Datenbank einen neuen Dateinamen.")
-        {
-        }
-    }
-
-    private class AppSettings
-    {
-        public string LastDatabasePath { get; set; } = "";
-        public string Backend { get; set; } = "SQLite";
         public string? MariaDbHost { get; set; }
         public int MariaDbPort { get; set; } = 3306;
         public string? MariaDbDatabase { get; set; }

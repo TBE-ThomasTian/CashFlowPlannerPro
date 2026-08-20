@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Markup;
@@ -10,6 +11,19 @@ namespace CashFlowPlannerPro;
 public partial class App : Application
 {
     private const string SingleInstanceMutexName = @"Local\CashFlowPlannerPro.SingleInstance";
+    private static readonly string[] ObsoleteSqliteProgramFiles =
+    [
+        "e_sqlite3.dll",
+        "Microsoft.Data.Sqlite.dll",
+        "SQLitePCLRaw.batteries_v2.dll",
+        "SQLitePCLRaw.core.dll",
+        "SQLitePCLRaw.provider.e_sqlite3.dll",
+        Path.Combine("runtimes", "win-x64", "native", "e_sqlite3.dll"),
+        Path.Combine("sql", "migrations", "001_init.sql"),
+        Path.Combine("sql", "migrations", "002_add_pdf_attachments.sql"),
+        Path.Combine("sql", "migrations", "003_resources.sql"),
+        Path.Combine("sql", "migrations", "004_add_project_number.sql")
+    ];
     private Mutex? _singleInstanceMutex;
     private bool _ownsSingleInstanceMutex;
     private int _fatalShutdownStarted;
@@ -17,8 +31,6 @@ public partial class App : Application
     public static string CurrentUsername { get; set; } = string.Empty;
     public static long CurrentUserId { get; set; }
     public static string CurrentSecurityStamp { get; set; } = string.Empty;
-    public static string DatabasePath { get; set; } = string.Empty;
-    public static bool IsDemoMode { get; set; }
     public static Data.ConnectionConfig? CurrentConnectionConfig { get; set; }
     public static Dictionary<string, string> Permissions { get; set; } = [];
 
@@ -62,8 +74,6 @@ public partial class App : Application
         CurrentUsername = string.Empty;
         CurrentUserId = 0;
         CurrentSecurityStamp = string.Empty;
-        DatabasePath = string.Empty;
-        IsDemoMode = false;
         CurrentConnectionConfig = null;
         Permissions = [];
     }
@@ -120,6 +130,7 @@ public partial class App : Application
         }
 
         Exit += (_, _) => ReleaseSingleInstance();
+        RemoveObsoleteSqliteProgramFiles();
         UiScaleService.Initialize();
         LocalizationManager.LoadSavedLanguage();
         ApplyWpfCultureLanguage();
@@ -176,9 +187,8 @@ public partial class App : Application
             }
 
             ApplySessionState(session);
-            DatabasePath = loginDialog.SelectedDatabasePath;
-            IsDemoMode = loginDialog.IsDemoSession;
-            CurrentConnectionConfig = loginDialog.ActiveConnectionConfig?.Clone();
+            CurrentConnectionConfig = loginDialog.ActiveConnectionConfig?.Clone()
+                ?? throw new InvalidOperationException("Die aktive MariaDB-Verbindung fehlt.");
             var mainWindow = new Views.MainWindow();
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             MainWindow = mainWindow;
@@ -195,6 +205,38 @@ public partial class App : Application
         FrameworkElement.LanguageProperty.OverrideMetadata(
             typeof(FrameworkElement),
             new FrameworkPropertyMetadata(XmlLanguage.GetLanguage(CultureInfo.CurrentCulture.IetfLanguageTag)));
+    }
+
+    private static void RemoveObsoleteSqliteProgramFiles()
+    {
+        var appRoot = Path.GetFullPath(AppContext.BaseDirectory);
+        var appRootPrefix = Path.TrimEndingDirectorySeparator(appRoot) + Path.DirectorySeparatorChar;
+
+        foreach (var relativePath in ObsoleteSqliteProgramFiles)
+        {
+            try
+            {
+                var targetPath = Path.GetFullPath(Path.Combine(appRoot, relativePath));
+                if (!targetPath.StartsWith(appRootPrefix, StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(targetPath))
+                {
+                    continue;
+                }
+
+                var attributes = File.GetAttributes(targetPath);
+                if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+                    continue;
+
+                File.Delete(targetPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AppLogger.LogException(
+                    "application.obsolete_sqlite_program_file_cleanup_failed",
+                    ex,
+                    new { file = relativePath });
+            }
+        }
     }
 
     private bool TryAcquireSingleInstance()

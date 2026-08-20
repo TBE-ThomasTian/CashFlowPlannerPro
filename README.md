@@ -9,8 +9,8 @@ CashFlow Planner Pro ist eine moderne Windows-Desktop-App fuer Cashflow-Prognose
 - Cashflow-Dashboard mit Forecast, KPI-Karten, PDF-Report und Vorschau
 - Verwaltung von Rechnungen, Angeboten, Fixkosten, Steuern und Zielen
 - Projekt- und Ressourcenplanung inklusive Hardware- und Mitarbeiterbelegung
-- Aufgabenmanagement, Rollen & Berechtigungen sowie Demo-Modus
-- Backup & Restore, Add-ons und sevDesk-Import mit Vorschau
+- Aufgabenmanagement sowie fein abgestufte Rollen und Berechtigungen
+- Bankansicht, Add-ons und sevDesk-Import mit Vorschau
 
 ### Screenshots
 
@@ -37,7 +37,7 @@ CashFlow Planner Pro ist eine moderne Windows-Desktop-App fuer Cashflow-Prognose
 
 - .NET 10
 - WPF Desktop App
-- SQLite und MariaDB
+- MariaDB
 - ScottPlot, PDF-Export und Integrations-Add-ons
 
 ### Start
@@ -63,8 +63,8 @@ CashFlow Planner Pro is a modern Windows desktop application for cash flow forec
 - Cash flow dashboard with forecast, KPI cards, PDF reporting, and preview
 - Management of invoices, offers, fixed costs, taxes, and financial targets
 - Project and resource planning including hardware and team allocation
-- Task management, roles & permissions, and a built-in demo mode
-- Backup & restore, add-ons, and sevDesk import with preview
+- Task management with fine-grained roles and permissions
+- Banking, add-ons, and sevDesk import with preview
 
 ### Screenshots
 
@@ -91,7 +91,7 @@ CashFlow Planner Pro is a modern Windows desktop application for cash flow forec
 
 - .NET 10
 - WPF desktop application
-- SQLite and MariaDB
+- MariaDB
 - ScottPlot, PDF reporting, and integration add-ons
 
 ### Getting Started

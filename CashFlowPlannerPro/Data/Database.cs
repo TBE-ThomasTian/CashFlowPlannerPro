@@ -11,7 +11,7 @@ namespace CashFlowPlannerPro.Data;
 public sealed class Database : IDisposable {
     private const string DatabaseInstanceIdSettingKey = "database_instance_id";
     private const string SchemaVersionSettingKey = "schema_version";
-    private const string CurrentSchemaVersion = "2026.08.19.2";
+    private const string CurrentSchemaVersion = "2026.08.20.2";
     private static readonly string[] MariaDbCreatedAtTables = [
         "users", "transactions", "bank_accounts", "bank_transactions", "offers", "invoices",
         "resources", "projects", "resource_allocations", "hardware_resources",
@@ -22,10 +22,14 @@ public sealed class Database : IDisposable {
         "dashboard", "transactions", "bank", "fixkosten", "taxes", "invoices", "offers",
         "resources", "targets", "todos", "timetracking", "kunden", "integrations", "admin"
     };
+    internal static IReadOnlyList<string> DefaultCategoryNames { get; } = Array.AsReadOnly([
+        "Lohn", "Kapitalsteuer", "Sozialversicherung", "Lohnsteuer", "Umsatzsteuer",
+        "Versicherung", "Miete", "Strom", "Telefon", "Internet", "Fahrkosten", "Steuerberatung"
+    ]);
     static readonly Lazy<Database> _instance = new(() => new Database());
     public static Database Instance => _instance.Value;
     DbConnection? _conn;
-    IDbDialect _dialect = new SqliteDialect();
+    IDbDialect _dialect = new MariaDbDialect();
     ConnectionConfig? _activeConfig;
     Database() { }
 
@@ -33,30 +37,19 @@ public sealed class Database : IDisposable {
 
     public void Open(ConnectionConfig config) {
         Close();
-        _dialect = config.Backend switch {
-            DatabaseBackend.MariaDB => new MariaDbDialect(),
-            _ => new SqliteDialect()
-        };
+        _dialect = new MariaDbDialect();
+        if (string.IsNullOrWhiteSpace(config.Host))
+            throw new ArgumentException("Bitte einen MariaDB-Host eingeben.", nameof(config));
+        if (config.Port is < 1 or > 65535)
+            throw new ArgumentOutOfRangeException(nameof(config), "Der MariaDB-Port muss zwischen 1 und 65535 liegen.");
+        if (string.IsNullOrWhiteSpace(config.DatabaseName))
+            throw new ArgumentException("Bitte einen MariaDB-Datenbanknamen eingeben.", nameof(config));
+        if (string.IsNullOrWhiteSpace(config.DbUsername))
+            throw new ArgumentException("Bitte einen MariaDB-Benutzernamen eingeben.", nameof(config));
+        if (string.IsNullOrEmpty(config.DbPassword))
+            throw new ArgumentException("Bitte ein MariaDB-Passwort eingeben. MariaDB TLS benötigt ein nicht leeres Passwort.", nameof(config));
 
-        if (config.Backend == DatabaseBackend.MariaDB)
-        {
-            if (string.IsNullOrWhiteSpace(config.Host))
-                throw new ArgumentException("Bitte einen MariaDB-Host eingeben.", nameof(config));
-            if (config.Port is < 1 or > 65535)
-                throw new ArgumentOutOfRangeException(nameof(config), "Der MariaDB-Port muss zwischen 1 und 65535 liegen.");
-            if (string.IsNullOrWhiteSpace(config.DatabaseName))
-                throw new ArgumentException("Bitte einen MariaDB-Datenbanknamen eingeben.", nameof(config));
-            if (string.IsNullOrWhiteSpace(config.DbUsername))
-                throw new ArgumentException("Bitte einen MariaDB-Benutzernamen eingeben.", nameof(config));
-            if (string.IsNullOrEmpty(config.DbPassword))
-                throw new ArgumentException("Bitte ein MariaDB-Passwort eingeben. MariaDB Zero-Config-TLS benötigt ein nicht leeres Passwort.", nameof(config));
-
-            OpenConnection(config.ToConnectionString());
-        }
-        else
-        {
-            OpenConnection(config.ToConnectionString());
-        }
+        OpenConnection(config.ToConnectionString());
 
         _activeConfig = config.Clone();
     }
@@ -76,26 +69,12 @@ public sealed class Database : IDisposable {
 
     private void OpenSecondary(ConnectionConfig config) {
         Close();
-        _dialect = config.Backend switch {
-            DatabaseBackend.MariaDB => new MariaDbDialect(),
-            _ => new SqliteDialect()
-        };
+        _dialect = new MariaDbDialect();
 
         var connection = _dialect.CreateConnection(config.ToConnectionString());
         try {
             connection.Open();
-            if (config.Backend == DatabaseBackend.SQLite) {
-                // The primary connection already established WAL mode. A
-                // secondary reader/writer only needs FK enforcement and a
-                // bounded wait; changing journal_mode here could require an
-                // unnecessary exclusive lock.
-                using var configure = connection.CreateCommand();
-                configure.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;";
-                configure.ExecuteNonQuery();
-            }
-            else {
-                _dialect.ConfigureConnection(connection);
-            }
+            _dialect.ConfigureConnection(connection);
 
             _conn = connection;
             _activeConfig = config.Clone();
@@ -126,11 +105,6 @@ public sealed class Database : IDisposable {
             return operation(worker);
         }, cancellationToken);
     }
-
-    public void Open(string path) => Open(new ConnectionConfig {
-        Backend = DatabaseBackend.SQLite,
-        FilePath = path
-    });
 
     public void Close() {
         if (_conn != null) { _conn.Close(); _conn.Dispose(); _conn = null; }
@@ -199,9 +173,9 @@ public sealed class Database : IDisposable {
 
     private void EnsureUserSecurityColumns() {
         TryMigrate("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1");
-        // SQLite only allows a new NOT NULL column when it has a constant
-        // migration default. Every existing empty value is replaced below;
-        // all application inserts provide a cryptographically random stamp.
+        // The temporary default makes the migration safe for existing rows.
+        // Every empty legacy value is replaced below; all application inserts
+        // provide a cryptographically random stamp.
         TryMigrate("ALTER TABLE users ADD COLUMN security_stamp VARCHAR(64) NOT NULL DEFAULT ''");
 
         using (var tx = BeginWriteTransaction()) {
@@ -882,8 +856,7 @@ public sealed class Database : IDisposable {
             kcmd.ExecuteNonQuery();
         }
 
-        var cats = new[] { "Lohn","Kapitalsteuer","Sozialversicherung","Lohnsteuer","Umsatzsteuer","Versicherung","Miete","Strom","Steuerberatung" };
-        foreach (var c in cats) {
+        foreach (var c in DefaultCategoryNames) {
             using var cmd = Conn.CreateCommand();
             cmd.CommandText = _dialect.InsertOrIgnore("INSERT OR IGNORE INTO categories(name) VALUES(@n)");
             cmd.Parameters.AddWithValue("@n", c);
@@ -1008,7 +981,7 @@ public sealed class Database : IDisposable {
             cmd.CommandText = "SELECT date,amount,COALESCE(`interval`,''),notes FROM transactions";
             using var r = cmd.ExecuteReader();
             while (r.Read()) {
-                var d = ParseDate(r.GetString(0));
+                var d = ParseDate(r.GetInvariantText(0, DbTextKind.Date));
                 if (d == null) continue;
                 double a = r.GetDouble(1);
                 string it = r.IsDBNull(2) ? "" : r.GetString(2).ToLower().Trim();
@@ -1051,7 +1024,7 @@ public sealed class Database : IDisposable {
                 string status = r.IsDBNull(0) ? "" : r.GetString(0);
                 if (status == "Offen" || status == "Überfällig" || string.IsNullOrEmpty(status)) {
                     if (includeUnpaidInvoices) {
-                        var due = ParseDate(r.IsDBNull(1) ? null : r.GetString(1));
+                        var due = ParseDate(r.GetInvariantText(1, DbTextKind.Date));
                         double totalAmt = r.IsDBNull(2) ? 0 : r.GetDouble(2);
                         double paidAmt = r.IsDBNull(4) ? 0 : r.GetDouble(4);
                         double remaining = totalAmt - paidAmt;
@@ -1077,7 +1050,7 @@ public sealed class Database : IDisposable {
             cmd.CommandText = $"SELECT date_expected,amount,probability,payment_delay,status FROM offers {where}";
             using var r = cmd.ExecuteReader();
             while (r.Read()) {
-                var de = ParseDate(r.IsDBNull(0) ? null : r.GetString(0));
+                var de = ParseDate(r.GetInvariantText(0, DbTextKind.Date));
                 double amt = r.IsDBNull(1) ? 0 : r.GetDouble(1);
                 double p = r.IsDBNull(2) ? 0 : r.GetDouble(2);
                 int delay = r.IsDBNull(3) ? 30 : r.GetInt32(3);
@@ -1199,15 +1172,15 @@ public sealed class Database : IDisposable {
         while (r.Read()) {
             list.Add(new Transaction {
                 Id = r.GetInt64(0),
-                Date = r.IsDBNull(1) ? "" : r.GetString(1),
+                Date = r.GetInvariantText(1, DbTextKind.Date) ?? "",
                 Description = r.IsDBNull(2) ? "" : r.GetString(2),
                 Amount = r.GetDouble(3),
                 CategoryId = r.IsDBNull(4) ? null : r.GetInt64(4),
                 PersonId = r.IsDBNull(5) ? null : r.GetInt64(5),
                 Interval = r.IsDBNull(6) ? "" : r.GetString(6),
                 Notes = r.IsDBNull(7) ? "" : r.GetString(7),
-                CreatedAt = r.IsDBNull(8) ? "" : r.GetString(8),
-                UpdatedAt = r.IsDBNull(9) ? "" : r.GetString(9)
+                CreatedAt = r.GetInvariantText(8) ?? "",
+                UpdatedAt = r.GetInvariantText(9) ?? ""
             });
         }
         return list;
@@ -1266,9 +1239,9 @@ public sealed class Database : IDisposable {
                 Balance = reader.IsDBNull(6)
                     ? null
                     : Convert.ToDouble(reader.GetValue(6), CultureInfo.InvariantCulture),
-                LastSync = reader.IsDBNull(7) ? "" : reader.GetString(7),
-                CreatedAt = reader.IsDBNull(8) ? null : reader.GetString(8),
-                UpdatedAt = reader.IsDBNull(9) ? null : reader.GetString(9)
+                LastSync = reader.GetInvariantText(7) ?? "",
+                CreatedAt = reader.GetInvariantText(8),
+                UpdatedAt = reader.GetInvariantText(9)
             });
         }
         return list;
@@ -1318,8 +1291,8 @@ public sealed class Database : IDisposable {
                 BankAccountId = reader.GetInt64(1),
                 SourceProvider = reader.IsDBNull(2) ? "" : reader.GetString(2),
                 SourceExternalId = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                EntryDate = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                ValueDate = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                EntryDate = reader.GetInvariantText(4, DbTextKind.Date) ?? "",
+                ValueDate = reader.GetInvariantText(5, DbTextKind.Date) ?? "",
                 Amount = reader.IsDBNull(6)
                     ? 0
                     : Convert.ToDouble(reader.GetValue(6), CultureInfo.InvariantCulture),
@@ -1329,8 +1302,8 @@ public sealed class Database : IDisposable {
                 Status = reader.IsDBNull(10) ? "booked" : reader.GetString(10),
                 FixedCostTransactionId = reader.IsDBNull(11) ? null : reader.GetInt64(11),
                 AccountName = reader.IsDBNull(12) ? "" : reader.GetString(12),
-                CreatedAt = reader.IsDBNull(13) ? null : reader.GetString(13),
-                UpdatedAt = reader.IsDBNull(14) ? null : reader.GetString(14),
+                CreatedAt = reader.GetInvariantText(13),
+                UpdatedAt = reader.GetInvariantText(14),
                 IsSelected = true
             });
         }
@@ -1372,7 +1345,7 @@ public sealed class Database : IDisposable {
             BankFixedCostSource source;
             using (var select = Conn.CreateCommand()) {
                 select.Transaction = tx;
-                select.CommandText = @"SELECT bt.id,bt.entry_date,bt.amount,bt.currency,bt.purpose,bt.payee,
+                select.CommandText = @"SELECT bt.id,bt.entry_date,bt.value_date,bt.amount,bt.currency,bt.purpose,bt.payee,
                         bt.fixed_cost_transaction_id
                     FROM bank_transactions bt
                     INNER JOIN bank_accounts ba ON ba.id=bt.bank_account_id
@@ -1389,14 +1362,15 @@ public sealed class Database : IDisposable {
 
                 source = new BankFixedCostSource(
                     reader.GetInt64(0),
-                    reader.IsDBNull(1) ? "" : reader.GetString(1),
-                    reader.IsDBNull(2)
+                    reader.GetInvariantText(1, DbTextKind.Date) ?? "",
+                    reader.GetInvariantText(2, DbTextKind.Date) ?? "",
+                    reader.IsDBNull(3)
                         ? 0
-                        : Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture),
-                    reader.IsDBNull(3) ? "" : reader.GetString(3),
+                        : Convert.ToDouble(reader.GetValue(3), CultureInfo.InvariantCulture),
                     reader.IsDBNull(4) ? "" : reader.GetString(4),
                     reader.IsDBNull(5) ? "" : reader.GetString(5),
-                    reader.IsDBNull(6) ? null : reader.GetInt64(6));
+                    reader.IsDBNull(6) ? "" : reader.GetString(6),
+                    reader.IsDBNull(7) ? null : reader.GetInt64(7));
             }
 
             if (source.FixedCostTransactionId.HasValue) {
@@ -1424,7 +1398,7 @@ public sealed class Database : IDisposable {
                 throw new ArgumentException("Die Fixkosten-Beschreibung darf höchstens 10.000 Zeichen enthalten.", nameof(description));
 
             var created = new Transaction {
-                Date = NormalizeBankDate(source.EntryDate, required: true, "Buchungsdatum der Bankbewegung"),
+                Date = SelectBankFixedCostDate(source.ValueDate, source.EntryDate),
                 Description = transactionDescription,
                 // Expenses are negative throughout the Transaction/forecast model.
                 Amount = source.Amount,
@@ -1484,7 +1458,7 @@ public sealed class Database : IDisposable {
             return null;
         return new Transaction {
             Id = reader.GetInt64(0),
-            Date = reader.IsDBNull(1) ? "" : reader.GetString(1),
+            Date = reader.GetInvariantText(1, DbTextKind.Date) ?? "",
             Description = reader.IsDBNull(2) ? "" : reader.GetString(2),
             Amount = reader.IsDBNull(3)
                 ? 0
@@ -1493,8 +1467,8 @@ public sealed class Database : IDisposable {
             PersonId = reader.IsDBNull(5) ? null : reader.GetInt64(5),
             Interval = reader.IsDBNull(6) ? "" : reader.GetString(6),
             Notes = reader.IsDBNull(7) ? "" : reader.GetString(7),
-            CreatedAt = reader.IsDBNull(8) ? null : reader.GetValue(8)?.ToString(),
-            UpdatedAt = reader.IsDBNull(9) ? null : reader.GetValue(9)?.ToString()
+            CreatedAt = reader.GetInvariantText(8),
+            UpdatedAt = reader.GetInvariantText(9)
         };
     }
 
@@ -1737,8 +1711,8 @@ public sealed class Database : IDisposable {
 
         return new NormalizedBankTransaction(
             reader.GetString(0),
-            reader.GetString(1),
-            reader.IsDBNull(2) ? "" : reader.GetString(2),
+            reader.GetInvariantText(1, DbTextKind.Date) ?? "",
+            reader.GetInvariantText(2, DbTextKind.Date) ?? "",
             Convert.ToDouble(reader.GetValue(3), CultureInfo.InvariantCulture),
             reader.GetString(4),
             reader.IsDBNull(5) ? "" : reader.GetString(5),
@@ -1872,6 +1846,12 @@ public sealed class Database : IDisposable {
         throw new ArgumentException($"{fieldName} '{normalized}' ist ungültig.");
     }
 
+    internal static string SelectBankFixedCostDate(string? valueDate, string? entryDate) =>
+        NormalizeBankDate(
+            string.IsNullOrWhiteSpace(valueDate) ? entryDate : valueDate,
+            required: true,
+            "Wertstellungs- oder Buchungsdatum der Bankbewegung");
+
     static string NormalizeBankTimestamp(string? value) {
         if (string.IsNullOrWhiteSpace(value))
             return "";
@@ -1926,6 +1906,7 @@ public sealed class Database : IDisposable {
     sealed record BankFixedCostSource(
         long Id,
         string EntryDate,
+        string ValueDate,
         double Amount,
         string Currency,
         string Purpose,
@@ -1944,19 +1925,19 @@ public sealed class Database : IDisposable {
                 list.Add(new Invoice {
                     Id = r.GetInt64(0),
                     InvoiceNumber = r.IsDBNull(1) ? "" : r.GetString(1),
-                    IssueDate = r.IsDBNull(2) ? "" : r.GetString(2),
-                    DueDate = r.IsDBNull(3) ? "" : r.GetString(3),
+                    IssueDate = r.GetInvariantText(2, DbTextKind.Date) ?? "",
+                    DueDate = r.GetInvariantText(3, DbTextKind.Date) ?? "",
                     Customer = r.IsDBNull(4) ? "" : r.GetString(4),
                     Amount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
                     NetAmount = r.IsDBNull(6) ? 0 : r.GetDouble(6),
                     VatAmount = r.IsDBNull(7) ? 0 : r.GetDouble(7),
                     VatRate = r.IsDBNull(8) ? 19 : r.GetDouble(8),
                     Description = r.IsDBNull(9) ? "" : r.GetString(9),
-                    PaidDate = r.IsDBNull(10) ? "" : r.GetString(10),
+                    PaidDate = r.GetInvariantText(10, DbTextKind.Date) ?? "",
                     PaidAmount = r.IsDBNull(11) ? 0 : r.GetDouble(11),
                     Status = r.IsDBNull(12) ? "" : r.GetString(12),
                     PdfPath = r.IsDBNull(13) ? "" : r.GetString(13),
-                    CreatedAt = r.IsDBNull(14) ? "" : r.GetString(14),
+                    CreatedAt = r.GetInvariantText(14) ?? "",
                     CustomerId = r.IsDBNull(15) ? null : r.GetInt64(15)
                 });
             }
@@ -2040,8 +2021,8 @@ public sealed class Database : IDisposable {
                 var offer = new Offer {
                     Id = r.GetInt64(0),
                     OfferNumber = r.IsDBNull(1) ? "" : r.GetString(1),
-                    OfferDate = r.IsDBNull(2) ? "" : r.GetString(2),
-                    DateExpected = r.IsDBNull(3) ? "" : r.GetString(3),
+                    OfferDate = r.GetInvariantText(2, DbTextKind.Date) ?? "",
+                    DateExpected = r.GetInvariantText(3, DbTextKind.Date) ?? "",
                     Customer = r.IsDBNull(4) ? "" : r.GetString(4),
                     AmountBeforeDiscount = r.IsDBNull(5) ? 0 : r.GetDouble(5),
                     DiscountPercent = r.IsDBNull(6) ? 0 : r.GetDouble(6),
@@ -2051,7 +2032,7 @@ public sealed class Database : IDisposable {
                     Status = r.IsDBNull(10) ? "" : r.GetString(10),
                     PaymentDelay = r.IsDBNull(11) ? 30 : r.GetInt32(11),
                     PdfPath = r.IsDBNull(12) ? "" : r.GetString(12),
-                    CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13),
+                    CreatedAt = r.GetInvariantText(13) ?? "",
                     ProjectId = r.IsDBNull(14) ? null : r.GetInt64(14),
                     ProjectNumber = r.IsDBNull(15) ? "" : r.GetString(15),
                     CustomerId = r.IsDBNull(16) ? null : r.GetInt64(16)
@@ -2106,25 +2087,11 @@ public sealed class Database : IDisposable {
 
         return Task.Run(() => {
             cancellationToken.ThrowIfCancellationRequested();
-            IDbDialect dialect = config.Backend switch {
-                DatabaseBackend.MariaDB => new MariaDbDialect(),
-                _ => new SqliteDialect()
-            };
+            IDbDialect dialect = new MariaDbDialect();
 
             using var connection = dialect.CreateConnection(config.ToConnectionString());
             connection.Open();
-            if (config.Backend == DatabaseBackend.SQLite) {
-                // The primary connection already enabled WAL. Repeating
-                // PRAGMA journal_mode while another operation is active can
-                // require an unnecessary exclusive lock for this read-only
-                // connection, so only configure its wait policy here.
-                using var configure = connection.CreateCommand();
-                configure.CommandText = "PRAGMA busy_timeout=5000;";
-                configure.ExecuteNonQuery();
-            }
-            else {
-                dialect.ConfigureConnection(connection);
-            }
+            dialect.ConfigureConnection(connection);
             cancellationToken.ThrowIfCancellationRequested();
 
             var offers = GetOffers(connection);
@@ -2274,7 +2241,7 @@ public sealed class Database : IDisposable {
             SourceEntityType = reader.IsDBNull(offset + 6) ? null : reader.GetString(offset + 6),
             SourceExternalId = reader.IsDBNull(offset + 7) ? null : reader.GetString(offset + 7),
             SourceSnapshotJson = reader.IsDBNull(offset + 8) ? null : reader.GetString(offset + 8),
-            LastImportedAt = reader.IsDBNull(offset + 9) ? null : reader.GetString(offset + 9)
+            LastImportedAt = reader.GetInvariantText(offset + 9)
         };
     }
 
@@ -2624,8 +2591,8 @@ public sealed class Database : IDisposable {
                     throw new InvalidOperationException($"Angebot #{offerId} wurde nicht gefunden.");
 
                 offerNumber = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
-                offerDate = reader.IsDBNull(1) ? "" : reader.GetString(1).Trim();
-                dateExpected = reader.IsDBNull(2) ? "" : reader.GetString(2).Trim();
+                offerDate = (reader.GetInvariantText(1, DbTextKind.Date) ?? "").Trim();
+                dateExpected = (reader.GetInvariantText(2, DbTextKind.Date) ?? "").Trim();
                 customer = reader.IsDBNull(3) ? "" : reader.GetString(3).Trim();
                 amountBeforeDiscount = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
                 discountPercent = reader.IsDBNull(5) ? 0 : reader.GetDouble(5);
@@ -2745,7 +2712,7 @@ public sealed class Database : IDisposable {
                 HourlyRate = r.IsDBNull(5) ? 0 : r.GetDouble(5),
                 WorkStartHour = r.IsDBNull(6) ? 8 : r.GetInt32(6),
                 WorkEndHour = r.IsDBNull(7) ? 17 : r.GetInt32(7),
-                CreatedAt = r.IsDBNull(8) ? "" : r.GetString(8),
+                CreatedAt = r.GetInvariantText(8) ?? "",
                 AvatarData = r.IsDBNull(9) ? null : r.GetString(9)
             });
         }
@@ -2794,13 +2761,13 @@ public sealed class Database : IDisposable {
                 Name = r.GetString(2),
                 Client = r.IsDBNull(3) ? "" : r.GetString(3),
                 Color = r.IsDBNull(4) ? "#3498db" : r.GetString(4),
-                StartDate = r.IsDBNull(5) ? "" : r.GetString(5),
-                EndDate = r.IsDBNull(6) ? "" : r.GetString(6),
+                StartDate = r.GetInvariantText(5, DbTextKind.Date) ?? "",
+                EndDate = r.GetInvariantText(6, DbTextKind.Date) ?? "",
                 OriginalBudget = r.IsDBNull(7) ? 0 : r.GetDouble(7),
                 DiscountPercent = r.IsDBNull(8) ? 0 : r.GetDouble(8),
                 Budget = r.IsDBNull(9) ? 0 : r.GetDouble(9),
                 Status = r.IsDBNull(10) ? "active" : r.GetString(10),
-                CreatedAt = r.IsDBNull(11) ? "" : r.GetString(11)
+                CreatedAt = r.GetInvariantText(11) ?? ""
             });
         }
         return list;
@@ -2862,9 +2829,9 @@ public sealed class Database : IDisposable {
         while (r.Read()) {
             list.Add(new ResourceAllocation {
                 Id = r.GetInt64(0), ResourceId = r.GetInt64(1), ProjectId = r.GetInt64(2),
-                Date = r.GetString(3), Hours = r.IsDBNull(4) ? 8.0 : r.GetDouble(4),
+                Date = r.GetInvariantText(3, DbTextKind.Date) ?? "", Hours = r.IsDBNull(4) ? 8.0 : r.GetDouble(4),
                 Notes = r.IsDBNull(5) ? "" : r.GetString(5),
-                CreatedAt = r.IsDBNull(6) ? "" : r.GetString(6)
+                CreatedAt = r.GetInvariantText(6) ?? ""
             });
         }
         return list;
@@ -3033,7 +3000,7 @@ public sealed class Database : IDisposable {
                 CostPerHour = r.IsDBNull(3) ? 0 : r.GetDouble(3),
                 Color = r.IsDBNull(4) ? "#17a2b8" : r.GetString(4),
                 Notes = r.IsDBNull(5) ? "" : r.GetString(5),
-                CreatedAt = r.IsDBNull(6) ? "" : r.GetString(6)
+                CreatedAt = r.GetInvariantText(6) ?? ""
             });
         }
         return list;
@@ -3082,7 +3049,7 @@ public sealed class Database : IDisposable {
         while (r.Read()) {
             list.Add(new HardwareAllocation {
                 Id = r.GetInt64(0), ResourceId = r.GetInt64(1), HardwareId = r.GetInt64(2),
-                ProjectId = r.GetInt64(3), Date = r.GetString(4),
+                ProjectId = r.GetInt64(3), Date = r.GetInvariantText(4, DbTextKind.Date) ?? "",
                 Hours = r.IsDBNull(5) ? 8.0 : r.GetDouble(5),
                 Notes = r.IsDBNull(6) ? "" : r.GetString(6),
                 HardwareName = r.GetString(7), HardwareColor = r.GetString(8),
@@ -3254,7 +3221,7 @@ public sealed class Database : IDisposable {
         var expected = anchor;
         (DateTime Date, double Hours)? boundary = null;
         while (reader.Read()) {
-            if (!DateTime.TryParseExact(reader.GetString(0), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+            if (!DateTime.TryParseExact(reader.GetInvariantText(0, DbTextKind.Date), "yyyy-MM-dd", CultureInfo.InvariantCulture,
                     DateTimeStyles.None, out var date) || date != expected)
                 break;
 
@@ -3279,14 +3246,14 @@ public sealed class Database : IDisposable {
             list.Add(new ProjectMilestone {
                 Id = r.GetInt64(0), ProjectId = r.GetInt64(1), Name = r.GetString(2),
                 Status = r.IsDBNull(3) ? "Offen" : r.GetString(3),
-                Deadline = r.IsDBNull(4) ? null : r.GetString(4),
+                Deadline = r.GetInvariantText(4, DbTextKind.Date),
                 Responsible = r.IsDBNull(5) ? null : r.GetString(5),
                 HoursBudget = r.IsDBNull(6) ? 0 : r.GetDouble(6),
                 Priority = r.IsDBNull(7) ? 2 : r.GetInt32(7),
                 Dependencies = r.IsDBNull(8) ? null : r.GetString(8),
                 Notes = r.IsDBNull(9) ? null : r.GetString(9),
                 SortOrder = r.IsDBNull(10) ? 0 : r.GetInt32(10),
-                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+                CreatedAt = r.GetInvariantText(11)
             });
         }
         return list;
@@ -3341,14 +3308,14 @@ public sealed class Database : IDisposable {
             list.Add((new ProjectMilestone {
                 Id = r.GetInt64(0), ProjectId = r.GetInt64(1), Name = r.GetString(2),
                 Status = r.IsDBNull(3) ? "Offen" : r.GetString(3),
-                Deadline = r.IsDBNull(4) ? null : r.GetString(4),
+                Deadline = r.GetInvariantText(4, DbTextKind.Date),
                 Responsible = r.IsDBNull(5) ? null : r.GetString(5),
                 HoursBudget = r.IsDBNull(6) ? 0 : r.GetDouble(6),
                 Priority = r.IsDBNull(7) ? 2 : r.GetInt32(7),
                 Dependencies = r.IsDBNull(8) ? null : r.GetString(8),
                 Notes = r.IsDBNull(9) ? null : r.GetString(9),
                 SortOrder = r.IsDBNull(10) ? 0 : r.GetInt32(10),
-                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+                CreatedAt = r.GetInvariantText(11)
             }, r.GetString(12), r.IsDBNull(13) ? "#3498db" : r.GetString(13)));
         }
         return list;
@@ -3366,10 +3333,10 @@ public sealed class Database : IDisposable {
             Description = r.IsDBNull(3) ? null : r.GetString(3),
             Status = r.IsDBNull(4) ? "Offen" : r.GetString(4),
             Priority = r.IsDBNull(5) ? 2 : r.GetInt32(5),
-            DueDate = r.IsDBNull(6) ? null : r.GetString(6),
+            DueDate = r.GetInvariantText(6, DbTextKind.Date),
             ProjectId = r.IsDBNull(7) ? null : r.GetInt64(7),
             MilestoneId = r.IsDBNull(8) ? null : r.GetInt64(8),
-            CreatedAt = r.IsDBNull(9) ? null : r.GetString(9)
+            CreatedAt = r.GetInvariantText(9)
         });
         return list;
     }
@@ -3384,10 +3351,10 @@ public sealed class Database : IDisposable {
             Description = r.IsDBNull(3) ? null : r.GetString(3),
             Status = r.IsDBNull(4) ? "Offen" : r.GetString(4),
             Priority = r.IsDBNull(5) ? 2 : r.GetInt32(5),
-            DueDate = r.IsDBNull(6) ? null : r.GetString(6),
+            DueDate = r.GetInvariantText(6, DbTextKind.Date),
             ProjectId = r.IsDBNull(7) ? null : r.GetInt64(7),
             MilestoneId = r.IsDBNull(8) ? null : r.GetInt64(8),
-            CreatedAt = r.IsDBNull(9) ? null : r.GetString(9)
+            CreatedAt = r.GetInvariantText(9)
         });
         return list;
     }
@@ -3442,12 +3409,12 @@ public sealed class Database : IDisposable {
             ProjectName = r.GetString(3),
             ActivityType = r.GetString(4),
             Description = r.IsDBNull(5) ? "" : r.GetString(5),
-            EntryDate = r.GetString(6),
-            StartTime = r.IsDBNull(7) ? null : r.GetString(7),
-            EndTime = r.IsDBNull(8) ? null : r.GetString(8),
+            EntryDate = r.GetInvariantText(6, DbTextKind.Date) ?? "",
+            StartTime = r.GetInvariantText(7),
+            EndTime = r.GetInvariantText(8),
             DurationHours = r.IsDBNull(9) ? 0 : r.GetDouble(9),
             IsRunning = !r.IsDBNull(10) && r.GetInt64(10) == 1,
-            CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+            CreatedAt = r.GetInvariantText(11)
         };
     }
 
@@ -3472,12 +3439,12 @@ public sealed class Database : IDisposable {
                 ProjectName = r.GetString(3),
                 ActivityType = r.GetString(4),
                 Description = r.IsDBNull(5) ? "" : r.GetString(5),
-                EntryDate = r.GetString(6),
-                StartTime = r.IsDBNull(7) ? null : r.GetString(7),
-                EndTime = r.IsDBNull(8) ? null : r.GetString(8),
+                EntryDate = r.GetInvariantText(6, DbTextKind.Date) ?? "",
+                StartTime = r.GetInvariantText(7),
+                EndTime = r.GetInvariantText(8),
                 DurationHours = r.IsDBNull(9) ? 0 : r.GetDouble(9),
                 IsRunning = !r.IsDBNull(10) && r.GetInt64(10) == 1,
-                CreatedAt = r.IsDBNull(11) ? null : r.GetString(11)
+                CreatedAt = r.GetInvariantText(11)
             });
         }
         return list;
@@ -3559,7 +3526,7 @@ public sealed class Database : IDisposable {
                 select.Parameters.AddWithValue("@uid", userId);
                 using var reader = select.ExecuteReader();
                 while (reader.Read())
-                    running.Add((reader.GetInt64(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
+                    running.Add((reader.GetInt64(0), reader.GetInvariantText(1)));
             }
 
             foreach (var entry in running) {
@@ -3612,7 +3579,7 @@ public sealed class Database : IDisposable {
                     tx.Commit();
                     return;
                 }
-                startTime = value.ToString();
+                startTime = DbExtensions.FormatInvariantText(value);
             }
 
             using var cmd = Conn.CreateCommand();
@@ -4127,7 +4094,7 @@ public sealed class Database : IDisposable {
                 HourlyRate = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
                 WorkStartHour = reader.IsDBNull(5) ? 8 : reader.GetInt32(5),
                 WorkEndHour = reader.IsDBNull(6) ? 17 : reader.GetInt32(6),
-                CreatedAt = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                CreatedAt = reader.GetInvariantText(7) ?? "",
                 AvatarData = reader.IsDBNull(8) ? null : reader.GetString(8)
             });
         }
@@ -4780,7 +4747,7 @@ public sealed class Database : IDisposable {
                 TaxId = r.IsDBNull(10) ? "" : r.GetString(10),
                 Status = r.IsDBNull(11) ? "Aktiv" : r.GetString(11),
                 Notes = r.IsDBNull(12) ? "" : r.GetString(12),
-                CreatedAt = r.IsDBNull(13) ? "" : r.GetString(13)
+                CreatedAt = r.GetInvariantText(13) ?? ""
             });
         }
         return list;
@@ -5598,11 +5565,7 @@ public sealed class Database : IDisposable {
     }
 
     // Helpers
-    DbTransaction BeginWriteTransaction() {
-        if (Conn is Microsoft.Data.Sqlite.SqliteConnection sqlite)
-            return sqlite.BeginTransaction(deferred: false);
-        return Conn.BeginTransaction();
-    }
+    DbTransaction BeginWriteTransaction() => Conn.BeginTransaction();
 
     long LastInsertId(DbTransaction tx) {
         using var cmd = Conn.CreateCommand();

@@ -1,4 +1,4 @@
-# CashFlow Planner Pro 2.2.0
+# CashFlow Planner Pro 2.3.0
 
 ## Banking und Fixkosten
 
@@ -7,7 +7,8 @@
 - Kontobewegungen werden wiederholbar und ohne Duplikate in eigenen Banktabellen gespeichert; manuelle Ein- und Ausgaben bleiben davon getrennt.
 - Gespeicherte Bankkonten und Kontobewegungen werden nach einem Neustart sofort aus der Datenbank angezeigt – auch ohne erneuten API-Abruf.
 - Aus einer negativen EUR-Kontobuchung kann direkt eine verknüpfte Fixkostenbuchung erstellt werden.
-- Bank- und sevDesk-Zugangsdaten sind verschlüsselt an die jeweilige Datenbank gebunden und im Demo-Modus gesperrt.
+- Neu erzeugte Bank-Fixkosten erscheinen beim Wechsel in die Fixkostenansicht sofort; die Standardkategorien enthalten nun auch **Telefon**, **Internet** und **Fahrkosten**.
+- Bank- und sevDesk-Zugangsdaten sind lokal verschlüsselt und an die jeweilige MariaDB-Datenbank gebunden.
 
 ## Planung, Angebote und Bedienung
 
@@ -22,8 +23,9 @@
 
 - Laufende Sitzungen werden nach Passwort-, Rollen-, Rechte- oder Kontostatusänderungen sicher widerrufen.
 - Passwortregeln, Anmelde-Drosselung, Schutz des integrierten Administrators und atomare Passwortwechsel wurden vereinheitlicht.
-- Backup, Wiederherstellung und Datenbankmigration arbeiten transaktional, prüfen Identität und Berechtigung unmittelbar vor kritischen Schritten und beenden eine ersetzte Sitzung ausfallsicher.
+- Datenbankwechsel und Schema-Upgrades prüfen Identität und Berechtigung unmittelbar vor kritischen Schritten und beenden ungültige Sitzungen ausfallsicher.
 - Technische Fehler werden mit Referenz protokolliert; Zugangsdaten, API-Tokens und sensible Bankinformationen werden aus Protokollen und Fehlermeldungen entfernt.
+- Native MariaDB-Datums- und Zeitstempelspalten werden typfest gelesen; dadurch stürzt die Rechnungsansicht bei `DATETIME`-Werten nicht mehr ab.
 - Der automatische Updater prüft HTTPS-Quelle, Paketmanifest, SHA-256-Hashes, Authenticode-Signatur und eine getrennte CMS-Signatur, bevor Dateien ersetzt werden.
 - Das Release-Verfahren validiert Versionen, Paketinhalt und Schwachstellen und veröffentlicht nur vollständig signierte Installer- und ZIP-Artefakte.
 
@@ -31,6 +33,7 @@
 
 - Windows 10 Version 2004 (Build 19041) oder neuer, 64 Bit.
 - Setup und ZIP sind selbstenthaltend; eine separate .NET-Installation ist nicht erforderlich.
-- Bestehende SQLite- und MariaDB-Datenbanken werden beim Öffnen automatisch und ohne Löschen vorhandener Fachdatensätze erweitert. Ein aktuelles Backup bleibt empfohlen.
+- Die Anwendung verwendet ausschließlich MariaDB. Lokale SQLite-Dateien werden weder geöffnet noch verändert; benötigte Altdaten müssen vor dem Upgrade mit einer älteren Version nach MariaDB übertragen werden.
+- MariaDB-Backups und Wiederherstellungen werden durch den Serveranbieter bzw. die Datenbankadministration durchgeführt.
 - Bankdaten entsprechen dem letzten Stand, den sevDesk von der Bank synchronisiert hat; es handelt sich nicht zwingend um einen Echtzeitabruf direkt bei der Bank.
 - Der sevDesk-Import unterstützt derzeit ausschließlich EUR-Belege und EUR-Bankbuchungen.

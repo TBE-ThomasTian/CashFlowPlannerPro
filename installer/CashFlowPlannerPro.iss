@@ -2,7 +2,7 @@
 ; Erstellt am 25.03.2026
 
 #define MyAppName "CashFlow Planner Pro"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "2.3.0"
 #define MyAppPublisher "Thomas Tian"
 #define MyAppURL "https://cashflowplannerpro.de"
 #define MyAppExeName "CashFlowPlannerPro.exe"
@@ -52,6 +52,20 @@ Name: "startmenuicon"; Description: "Startmenü-Eintrag erstellen"; GroupDescrip
 [Files]
 ; Alle Dateien aus dem Publish-Ordner
 Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Obsolete SQLite-Laufzeitdateien aus frueheren Versionen entfernen.
+; Ausschliesslich bekannte Programmdateien loeschen, niemals Datenbankdateien.
+Type: files; Name: "{app}\e_sqlite3.dll"
+Type: files; Name: "{app}\Microsoft.Data.Sqlite.dll"
+Type: files; Name: "{app}\SQLitePCLRaw.batteries_v2.dll"
+Type: files; Name: "{app}\SQLitePCLRaw.core.dll"
+Type: files; Name: "{app}\SQLitePCLRaw.provider.e_sqlite3.dll"
+Type: files; Name: "{app}\runtimes\win-x64\native\e_sqlite3.dll"
+Type: files; Name: "{app}\sql\migrations\001_init.sql"
+Type: files; Name: "{app}\sql\migrations\002_add_pdf_attachments.sql"
+Type: files; Name: "{app}\sql\migrations\003_resources.sql"
+Type: files; Name: "{app}\sql\migrations\004_add_project_number.sql"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startmenuicon

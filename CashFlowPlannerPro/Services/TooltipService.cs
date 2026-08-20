@@ -105,11 +105,7 @@ public static class TooltipService
         ["Btn_AddMilestone"] = ("Neuen Meilenstein erstellen", "Create new milestone"),
 
         // === Login ===
-        ["Btn_OpenDb"] = ("Bestehende Datenbank öffnen", "Open existing database"),
-        ["Btn_NewDb"] = ("Neue Datenbank erstellen", "Create new database"),
         ["Btn_TestConnection"] = ("Verbindung zum Server testen", "Test server connection"),
-        ["Btn_ImportLocal"] = ("Lokale SQLite-Datenbank importieren", "Import local SQLite database"),
-        ["Btn_ImportServer"] = ("Daten vom Server importieren", "Import data from server"),
         ["Btn_Login"] = ("Anmelden", "Log in"),
 
         // === User Settings ===

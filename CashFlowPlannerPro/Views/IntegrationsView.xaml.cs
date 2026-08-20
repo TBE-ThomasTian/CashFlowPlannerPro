@@ -61,17 +61,13 @@ public partial class IntegrationsView : UserControl
 
     private void ApplyPermissionState()
     {
-        bool canEdit = App.CanEdit(PageKeys.Integrations) && !App.IsDemoMode;
+        bool canEdit = App.CanEdit(PageKeys.Integrations);
         TokenBox.IsEnabled = canEdit;
         SaveTokenButton.IsEnabled = canEdit;
         TestConnectionButton.IsEnabled = canEdit;
         LoadPreviewButton.IsEnabled = canEdit;
         PermissionHintText.Visibility = canEdit ? Visibility.Collapsed : Visibility.Visible;
-        PermissionHintText.Text = LocalizationManager.Get(
-            App.IsDemoMode ? "IntegrationsDemoDisabled" : "IntegrationsReadOnlyHint");
-
-        if (App.IsDemoMode)
-            SetStatus(LocalizationManager.Get("IntegrationsDemoDisabled"), Brushes.DarkOrange);
+        PermissionHintText.Text = LocalizationManager.Get("IntegrationsReadOnlyHint");
     }
 
     private void SaveTokenButton_Click(object sender, RoutedEventArgs e)
@@ -241,14 +237,6 @@ public partial class IntegrationsView : UserControl
 
     private static bool EnsureIntegrationAllowed(string action)
     {
-        if (App.IsDemoMode)
-        {
-            ModernMessageBox.ShowError(
-                LocalizationManager.Get("IntegrationsDemoDisabled"),
-                LocalizationManager.Get("AppErrorTitle"));
-            return false;
-        }
-
         if (PermissionGuard.DemandEdit(PageKeys.Integrations, action))
             return true;
 

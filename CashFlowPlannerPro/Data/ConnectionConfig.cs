@@ -2,28 +2,15 @@ using MySqlConnector;
 
 namespace CashFlowPlannerPro.Data;
 
-public enum DatabaseBackend { SQLite, MariaDB }
-
 public class ConnectionConfig
 {
-    public DatabaseBackend Backend { get; set; } = DatabaseBackend.SQLite;
-
-    // SQLite
-    public string FilePath { get; set; } = "";
-
-    // MariaDB
     public string Host { get; set; } = "localhost";
     public int Port { get; set; } = 3306;
     public string DatabaseName { get; set; } = "cashflow";
     public string DbUsername { get; set; } = "";
     public string DbPassword { get; set; } = "";
 
-    public string ToConnectionString() => Backend switch
-    {
-        DatabaseBackend.SQLite => $"Data Source={FilePath}",
-        DatabaseBackend.MariaDB => BuildMariaDbConnectionString(),
-        _ => throw new ArgumentOutOfRangeException()
-    };
+    public string ToConnectionString() => BuildMariaDbConnectionString();
 
     private string BuildMariaDbConnectionString()
     {
@@ -44,8 +31,6 @@ public class ConnectionConfig
 
     public ConnectionConfig Clone() => new()
     {
-        Backend = Backend,
-        FilePath = FilePath,
         Host = Host,
         Port = Port,
         DatabaseName = DatabaseName,

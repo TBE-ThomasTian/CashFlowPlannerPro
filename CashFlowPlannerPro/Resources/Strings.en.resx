@@ -34,8 +34,6 @@
   <data name="SettingsButton" xml:space="preserve"><value>⚙  Settings</value></data>
   <data name="ProfileButton" xml:space="preserve"><value>👤  My Profile</value></data>
   <data name="SwitchDatabaseButton" xml:space="preserve"><value>🗄  Switch Database</value></data>
-  <data name="BackupButton" xml:space="preserve"><value>💾  Create Backup</value></data>
-  <data name="RestoreButton" xml:space="preserve"><value>♻  Restore Backup</value></data>
   <data name="CheckUpdatesButton" xml:space="preserve"><value>⬇  Check for Updates</value></data>
   <data name="AboutButton" xml:space="preserve"><value>ℹ  About</value></data>
   <data name="UpdateTitle" xml:space="preserve"><value>Update</value></data>
@@ -58,81 +56,28 @@ Open the download page now?</value></data>
   <data name="UpdateExecutableNotFound" xml:space="preserve"><value>The running application could not be determined.</value></data>
   <data name="UpdateUpdaterMissing" xml:space="preserve"><value>The updater could not be found:
 {0}</value></data>
-  <data name="BackupTitle" xml:space="preserve"><value>Backup</value></data>
-  <data name="BackupDialogTitle" xml:space="preserve"><value>Save backup as</value></data>
-  <data name="BackupDialogFilter" xml:space="preserve"><value>Database files (*.db)|*.db|All files (*.*)|*.*</value></data>
-  <data name="BackupSuccess" xml:space="preserve"><value>Backup was created:
-{0}</value></data>
-  <data name="BackupFailed" xml:space="preserve"><value>Backup failed: {0}</value></data>
-  <data name="BackupSQLiteOnly" xml:space="preserve"><value>Backup and restore are currently only available for local SQLite databases.</value></data>
-  <data name="RestoreTitle" xml:space="preserve"><value>Restore</value></data>
-  <data name="RestoreDialogTitle" xml:space="preserve"><value>Select backup file</value></data>
-  <data name="RestoreConfirm" xml:space="preserve"><value>The current database will be replaced by the backup "{0}". A safety copy will be created first. Continue?</value></data>
-  <data name="RestoreSuccessRestart" xml:space="preserve"><value>The backup was restored. The app will restart now.</value></data>
-  <data name="RestoreFailed" xml:space="preserve"><value>Restore failed: {0}</value></data>
-  <data name="RestoreSameFile" xml:space="preserve"><value>The active database cannot be restored from itself.</value></data>
-  <data name="RestoreTargetMissing" xml:space="preserve"><value>The active SQLite database could not be found.</value></data>
-  <data name="RestoreRecoveryCopyMissing" xml:space="preserve"><value>The safety copy required for automatic recovery could not be found.</value></data>
-  <data name="RestoreRecoveryFailed" xml:space="preserve"><value>Restore failed: {0}
-Automatic recovery of the previous database also failed: {1}
-The safety copy is located at: {2}</value></data>
-  <data name="RestoreIntegrityFailed" xml:space="preserve"><value>The SQLite integrity check failed: {0}</value></data>
-  <data name="RestoreInvalidBackup" xml:space="preserve"><value>The selected file is not a valid, readable SQLite backup: {0}</value></data>
   <data name="SwitchDatabaseTitle" xml:space="preserve"><value>Switch database</value></data>
   <data name="SwitchDatabaseFailed" xml:space="preserve"><value>The new database could not be activated. The previous session was restored: {0}</value></data>
   <data name="SwitchDatabaseRestoreFailed" xml:space="preserve"><value>The previous database connection could not be restored safely. The application will close to protect the data: {0}</value></data>
   <data name="SwitchDatabaseNoActiveSession" xml:space="preserve"><value>There is no active database session.</value></data>
   <data name="SwitchDatabaseTargetMissing" xml:space="preserve"><value>The sign-in dialog did not return a valid target connection.</value></data>
-  <data name="SwitchDatabaseCannotRecreateActive" xml:space="preserve"><value>The database currently in use cannot be overwritten as a new database from the switch dialog.</value></data>
-  <data name="MigrationImportFromServerButton" xml:space="preserve"><value>📥 Import from server</value></data>
-  <data name="MigrationImportLocalButton" xml:space="preserve"><value>📥 Import local DB</value></data>
   <data name="MariaDbDedicatedUserHint" xml:space="preserve"><value>Use a dedicated MariaDB account restricted to this database—never root.</value></data>
   <data name="ConnectionSettingsSaveWarningTitle" xml:space="preserve"><value>Connection details were not saved</value></data>
   <data name="ConnectionSettingsSaveFailed" xml:space="preserve"><value>The encrypted connection details could not be saved. Sign-in will continue, but the details must be entered again on the next start.</value></data>
   <data name="ConnectionSettingsSaveFailedWithReference" xml:space="preserve"><value>The connection settings could not be saved. Sign-in will continue, but the details must be entered again on the next start. Error reference: {0}</value></data>
-  <data name="MigrationConfirmTitle" xml:space="preserve"><value>Confirm destructive data migration</value></data>
-  <data name="MigrationAdminRequired" xml:space="preserve"><value>Data migration is available only from an existing session with full administration access.</value></data>
-  <data name="MigrationReauthTitle" xml:space="preserve"><value>Admin approval required</value></data>
-  <data name="MigrationReauthPrompt" xml:space="preserve"><value>Enter the current password for “{0}” to approve this operation.</value></data>
-  <data name="MigrationReauthFailed" xml:space="preserve"><value>Approval failed. The password or full administration access is not valid.</value></data>
-  <data name="MigrationReauthFailedWithDelay" xml:space="preserve"><value>Approval failed. The password or full administration access is not valid. Try again in {0} second(s).</value></data>
-  <data name="MigrationReauthRetryAfter" xml:space="preserve"><value>Admin approval is temporarily limited. Please try again in {0} second(s).</value></data>
-  <data name="MigrationReauthError" xml:space="preserve"><value>Admin approval could not be verified: {0}</value></data>
-  <data name="MigrationFreshLoginRequired" xml:space="preserve"><value>The active database was replaced by the migration. For security, the previous session will not be reused. The application will close; afterwards, sign in with a user from the imported database.</value></data>
-  <data name="MigrationReplaceServerWarning" xml:space="preserve"><value>WARNING: The local file “{0}” will replace ALL data on server {1}/{2}.
-
-Users, roles, permissions, and all company data will be overwritten. This operation cannot be undone. Create and verify a backup first.
-
-Start the migration?</value></data>
-  <data name="MigrationReplaceLocalWarning" xml:space="preserve"><value>WARNING: Server database {0}/{1} will replace ALL data in the local file:
-{2}
-
-Users, roles, permissions, and all company data will be overwritten. This operation cannot be undone. Create and verify a backup first.
-
-Start the migration?</value></data>
   <data name="AboutText" xml:space="preserve"><value>CashFlow Planner Pro
-Version 2.0
+Version {0}
 
 Financial planning made easy.</value></data>
   <data name="AboutTitle" xml:space="preserve"><value>About CashFlow Planner Pro</value></data>
   <data name="LoginWindowTitle" xml:space="preserve"><value>CashFlow Planner Pro - Sign In</value></data>
   <data name="LoginSubtitle" xml:space="preserve"><value>Sign in to your account</value></data>
-  <data name="LoginStepDatabase" xml:space="preserve"><value>1. Choose database</value></data>
-  <data name="LoginNoDatabaseSelected" xml:space="preserve"><value>No database selected</value></data>
-  <data name="LoginLastDatabase" xml:space="preserve"><value>Last database: {0}</value></data>
-  <data name="LoginOpen" xml:space="preserve"><value>Open</value></data>
-  <data name="LoginNew" xml:space="preserve"><value>New</value></data>
+  <data name="LoginStepDatabase" xml:space="preserve"><value>1. MariaDB connection</value></data>
   <data name="LoginStepSignIn" xml:space="preserve"><value>2. Sign in</value></data>
   <data name="LoginUsernamePlaceholder" xml:space="preserve"><value>Username</value></data>
   <data name="LoginButton" xml:space="preserve"><value>Sign In</value></data>
-  <data name="LoginDemoButton" xml:space="preserve"><value>Start Demo</value></data>
   <data name="LoadingPleaseWait" xml:space="preserve"><value>Please wait...</value></data>
   <data name="LoadingData" xml:space="preserve"><value>Loading data...</value></data>
-  <data name="LoginOpenDbTitle" xml:space="preserve"><value>Open database</value></data>
-  <data name="LoginOpenDbFilter" xml:space="preserve"><value>SQLite Database (*.db)|*.db|All files (*.*)|*.*</value></data>
-  <data name="LoginNewDbTitle" xml:space="preserve"><value>Create new database</value></data>
-  <data name="LoginNewDbFilter" xml:space="preserve"><value>SQLite Database (*.db)|*.db</value></data>
-  <data name="LoginSelectDatabaseError" xml:space="preserve"><value>Please select a database first.</value></data>
   <data name="LoginUsernameRequired" xml:space="preserve"><value>Please enter a username.</value></data>
   <data name="LoginPasswordRequired" xml:space="preserve"><value>Please enter a password.</value></data>
   <data name="LoginInvalidCredentials" xml:space="preserve"><value>Invalid username or password.</value></data>
@@ -140,7 +85,6 @@ Financial planning made easy.</value></data>
   <data name="LoginRetryAfter" xml:space="preserve"><value>Sign-in is temporarily limited. Please try again in {0} second(s).</value></data>
   <data name="LoginErrorWithReference" xml:space="preserve"><value>Sign-in could not be completed. Error reference: {0}</value></data>
   <data name="LoginDatabaseError" xml:space="preserve"><value>Database error: {0}</value></data>
-  <data name="LoginCreateError" xml:space="preserve"><value>Error creating database: {0}</value></data>
   <data name="LoginError" xml:space="preserve"><value>Sign-in error: {0}</value></data>
   <data name="FirstRunSecurityTitle" xml:space="preserve"><value>Security</value></data>
   <data name="FirstRunPasswordPrompt" xml:space="preserve"><value>First start! You must change the default password now.</value></data>
@@ -293,7 +237,6 @@ Financial planning made easy.</value></data>
   <data name="IntegrationsTokenSaved" xml:space="preserve"><value>The API token was saved locally in encrypted form and linked to this database.</value></data>
   <data name="IntegrationsTokenSaveFailed" xml:space="preserve"><value>The API token could not be stored securely.</value></data>
   <data name="IntegrationsTokenSaveFailedWithReference" xml:space="preserve"><value>The API token could not be stored securely. Error reference: {0}</value></data>
-  <data name="IntegrationsDemoDisabled" xml:space="preserve"><value>External sevDesk data is disabled in demo mode.</value></data>
   <data name="IntegrationsLegacyTokenNeedsBinding" xml:space="preserve"><value>An encrypted token from an older version was found. Click “Save API token” once to explicitly link it to this company database.</value></data>
   <data name="IntegrationsLegacyTokenBindConfirm" xml:space="preserve"><value>An encrypted token from an older version was found. Link it securely to this company database?</value></data>
   <data name="IntegrationsConnectionSuccess" xml:space="preserve"><value>Connection to sevDesk was tested successfully.</value></data>
@@ -381,7 +324,6 @@ Offers selected: {4} · added/updated: {5}</value></data>
   <data name="BankStatusIdle" xml:space="preserve"><value>No transactions loaded yet.</value></data>
   <data name="BankTokenMissing" xml:space="preserve"><value>Please save a sevDesk API token for this database under Add-ons first.</value></data>
   <data name="BankLegacyTokenConfirm" xml:space="preserve"><value>An encrypted sevDesk API token from an older version was found. Do you explicitly want to link it to this company database now?</value></data>
-  <data name="BankDemoDisabled" xml:space="preserve"><value>Bank data is disabled in demo mode so that real company data cannot be displayed.</value></data>
   <data name="BankAccountsLoaded" xml:space="preserve"><value>{0} payment account(s) loaded from sevDesk.</value></data>
   <data name="BankNoAccounts" xml:space="preserve"><value>sevDesk returned no payment accounts. Set up the online account in sevDesk first.</value></data>
   <data name="BankBalanceLoaded" xml:space="preserve"><value>The sevDesk balance was updated.</value></data>
@@ -407,7 +349,6 @@ Offers selected: {4} · added/updated: {5}</value></data>
   <data name="BankStateMissingDate" xml:space="preserve"><value>Cannot import: booking date is missing</value></data>
   <data name="BankUnnamedAccount" xml:space="preserve"><value>Payment account</value></data>
   <data name="ExitButton" xml:space="preserve"><value>🚪  Exit</value></data>
-  <data name="DemoMode" xml:space="preserve"><value>Demo</value></data>
   <data name="TooltipDashboard" xml:space="preserve"><value>Financial overview and cashflow forecast</value></data>
   <data name="TooltipTransactions" xml:space="preserve"><value>Manage income and expenses</value></data>
   <data name="TooltipFixkosten" xml:space="preserve"><value>Manage recurring fixed costs</value></data>

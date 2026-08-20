@@ -90,14 +90,14 @@ jobs:
         shell: pwsh
         run: dotnet test CashFlowPlannerPro.sln -c Release --no-restore --no-build
 
-      - name: Run security and data-integrity smoke tests
+      - name: Run offline security smoke tests
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $app = "CashFlowPlannerPro/bin/Release/net10.0-windows10.0.19041.0/CashFlowPlannerPro.exe"
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Smoke-test apphost is missing: $app" }
           $process = Start-Process -FilePath $app -ArgumentList "--security-smoke" -Wait -PassThru -NoNewWindow
-          if ($process.ExitCode -ne 0) { throw "Security smoke tests failed with exit code $($process.ExitCode)." }
+          if ($process.ExitCode -ne 0) { throw "Offline security smoke tests failed with exit code $($process.ExitCode)." }
 
       - name: Restore win-x64 publish targets
         if: github.ref_type == 'tag'
@@ -145,6 +145,30 @@ jobs:
           )
           foreach ($file in $requiredFiles) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Published file is missing: $file" }
+          }
+
+      - name: Reject SQLite runtime artifacts
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $publishRoot = "publish/win-x64"
+          $sqliteFiles = @(
+            Get-ChildItem -LiteralPath $publishRoot -File -Recurse |
+              Where-Object Name -Match '(?i)sqlite'
+          )
+          if ($sqliteFiles.Count -ne 0) {
+            $paths = $sqliteFiles | Select-Object -ExpandProperty FullName
+            throw "SQLite runtime artifacts remain in the package tree: $($paths -join ', ')"
+          }
+
+          $depsPath = Join-Path $publishRoot "CashFlowPlannerPro.deps.json"
+          if (-not (Test-Path -LiteralPath $depsPath -PathType Leaf)) {
+            throw "Published dependency manifest is missing: $depsPath"
+          }
+          $deps = Get-Content -LiteralPath $depsPath -Raw
+          if ($deps -match '(?i)Microsoft\.Data\.Sqlite|SQLitePCLRaw|e_sqlite3') {
+            throw "The published dependency manifest still references SQLite."
           }
 
       - name: Require signing credentials for tagged releases

@@ -1,10 +1,7 @@
-using System.IO;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using CashFlowPlannerPro.Models;
 using CashFlowPlannerPro.Services;
-using Microsoft.Win32;
 
 namespace CashFlowPlannerPro.Views;
 
@@ -37,11 +34,8 @@ public partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
-        var dbName = GetDatabaseDisplayName();
         UserText.Text = App.CurrentUsername;
-        DbText.Text = App.IsDemoMode
-            ? $"{dbName} · {LocalizationManager.Get("DemoMode")}"
-            : dbName;
+        DbText.Text = GetDatabaseDisplayName();
     }
 
     private void OnLanguageChanged(object? sender, EventArgs e)
@@ -53,15 +47,9 @@ public partial class MainWindow : Window
     private static string GetDatabaseDisplayName()
     {
         var config = App.CurrentConnectionConfig;
-        if (config?.Backend == Data.DatabaseBackend.MariaDB)
-            return $"Server: {config.Host}/{config.DatabaseName}";
-
-        var path = config?.FilePath;
-        if (string.IsNullOrWhiteSpace(path))
-            path = App.DatabasePath;
-
-        var fileName = Path.GetFileName(path);
-        return string.IsNullOrWhiteSpace(fileName) ? "Lokale Datenbank" : $"Lokal: {fileName}";
+        return config == null
+            ? "MariaDB"
+            : $"Server: {config.Host}/{config.DatabaseName}";
     }
 
     private void ApplyLocalization()
@@ -90,8 +78,6 @@ public partial class MainWindow : Window
         SettingsButton.Content = LocalizationManager.Get("SettingsButton");
         ProfileButton.Content = LocalizationManager.Get("ProfileButton");
         SwitchDatabaseButton.Content = LocalizationManager.Get("SwitchDatabaseButton");
-        BackupButton.Content = LocalizationManager.Get("BackupButton");
-        RestoreButton.Content = LocalizationManager.Get("RestoreButton");
         CheckUpdatesButton.Content = LocalizationManager.Get("CheckUpdatesButton");
         AboutButton.Content = LocalizationManager.Get("AboutButton");
         ExitButton.Content = LocalizationManager.Get("ExitButton");
@@ -116,8 +102,6 @@ public partial class MainWindow : Window
         SettingsButton.ToolTip = TooltipService.Get("Nav_Settings");
         ProfileButton.ToolTip = TooltipService.Get("Nav_Profile");
         SwitchDatabaseButton.ToolTip = TooltipService.Get("Nav_SwitchDb");
-        BackupButton.ToolTip = LocalizationManager.Get("BackupButton");
-        RestoreButton.ToolTip = LocalizationManager.Get("RestoreButton");
         CheckUpdatesButton.ToolTip = LocalizationManager.Get("CheckUpdatesButton");
         AboutButton.ToolTip = TooltipService.Get("Nav_About");
         ExitButton.ToolTip = TooltipService.Get("Nav_Exit");
@@ -148,12 +132,6 @@ public partial class MainWindow : Window
             ContentTabs.SelectedIndex = firstVisible;
             SetActiveNav(firstVisible);
         }
-
-        var canAdministerDatabase = App.CanEdit(PageKeys.Admin) && !App.IsDemoMode;
-        BackupButton.IsEnabled = canAdministerDatabase;
-        RestoreButton.IsEnabled = canAdministerDatabase;
-        BackupButton.Opacity = canAdministerDatabase ? 1.0 : 0.45;
-        RestoreButton.Opacity = canAdministerDatabase ? 1.0 : 0.45;
     }
 
     private async void NavButton_Click(object sender, RoutedEventArgs e)
@@ -174,12 +152,6 @@ public partial class MainWindow : Window
                 await RefreshSelectedPageAsync(idx);
             }
         }
-
-        var canAdministerDatabase = App.CanEdit(PageKeys.Admin) && !App.IsDemoMode;
-        BackupButton.IsEnabled = canAdministerDatabase;
-        RestoreButton.IsEnabled = canAdministerDatabase;
-        BackupButton.Opacity = canAdministerDatabase ? 1.0 : 0.45;
-        RestoreButton.Opacity = canAdministerDatabase ? 1.0 : 0.45;
     }
 
     private void EnsurePageCreated(int index)
@@ -212,6 +184,9 @@ public partial class MainWindow : Window
     {
         if (index == 2 && ContentTabs.Items[index] is TabItem { Content: BankView bankView })
             await bankView.ActivateAsync();
+
+        if (index == 3 && ContentTabs.Items[index] is TabItem { Content: FixkostenView fixedCostsView })
+            fixedCostsView.Reload();
 
         if (index == 7 && ContentTabs.Items[index] is TabItem { Content: ResourcesView resourcesView })
             resourcesView.Reload();
@@ -267,16 +242,6 @@ public partial class MainWindow : Window
         if (switchCompleted)
             return;
 
-        if (loginDialog.RequiresFreshAuthenticationAfterMigration)
-        {
-            ClearSession();
-            ModernMessageBox.Show(
-                LocalizationManager.Get("MigrationFreshLoginRequired"),
-                LocalizationManager.Get("MigrationConfirmTitle"));
-            Application.Current.Shutdown();
-            return;
-        }
-
         try
         {
             RestoreSession(previousSession);
@@ -317,27 +282,14 @@ public partial class MainWindow : Window
 
     private static SessionSnapshot CaptureSession()
     {
-        var config = App.CurrentConnectionConfig?.Clone();
-        if (config == null && !string.IsNullOrWhiteSpace(App.DatabasePath))
-        {
-            config = new Data.ConnectionConfig
-            {
-                Backend = Data.DatabaseBackend.SQLite,
-                FilePath = App.DatabasePath
-            };
-        }
-
-        if (config == null)
-            throw new InvalidOperationException(LocalizationManager.Get("SwitchDatabaseNoActiveSession"));
+        var config = App.CurrentConnectionConfig?.Clone()
+            ?? throw new InvalidOperationException(LocalizationManager.Get("SwitchDatabaseNoActiveSession"));
 
         return new SessionSnapshot(
             config,
             App.CurrentUsername,
             App.CurrentUserId,
-            App.DatabasePath,
-            App.IsDemoMode,
-            App.CurrentSecurityStamp,
-            new Dictionary<string, string>(App.Permissions, StringComparer.Ordinal));
+            App.CurrentSecurityStamp);
     }
 
     private static void ApplyAuthenticatedSession(LoginDialog loginDialog)
@@ -349,13 +301,9 @@ public partial class MainWindow : Window
         if (session is not { IsActive: true } ||
             !string.Equals(session.Username, username, StringComparison.Ordinal))
             throw new UnauthorizedAccessException(LocalizationManager.Get("SessionInvalidated"));
-        var databasePath = loginDialog.SelectedDatabasePath;
-        var isDemoMode = loginDialog.IsDemoSession;
 
         App.CurrentConnectionConfig = config;
         App.ApplySessionState(session);
-        App.DatabasePath = databasePath;
-        App.IsDemoMode = isDemoMode;
     }
 
     private static void RestoreSession(SessionSnapshot snapshot)
@@ -377,18 +325,13 @@ public partial class MainWindow : Window
 
         App.CurrentConnectionConfig = snapshot.ConnectionConfig.Clone();
         App.ApplySessionState(restoredSession);
-        App.DatabasePath = snapshot.DatabasePath;
-        App.IsDemoMode = snapshot.IsDemoMode;
     }
 
     private sealed record SessionSnapshot(
         Data.ConnectionConfig ConnectionConfig,
         string Username,
         long UserId,
-        string DatabasePath,
-        bool IsDemoMode,
-        string SecurityStamp,
-        Dictionary<string, string> Permissions);
+        string SecurityStamp);
 
     private void UserSettings_Click(object sender, RoutedEventArgs e)
     {
@@ -403,130 +346,11 @@ public partial class MainWindow : Window
 
     private void About_Click(object sender, RoutedEventArgs e)
     {
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        var versionText = version == null ? "2.3.0" : version.ToString(3);
         ModernMessageBox.Show(
-            LocalizationManager.Get("AboutText"),
+            string.Format(LocalizationManager.Get("AboutText"), versionText),
             LocalizationManager.Get("AboutTitle"));
-    }
-
-    private void Backup_Click(object sender, RoutedEventArgs e)
-    {
-        if (App.IsDemoMode || !PermissionGuard.DemandEdit(PageKeys.Admin, "database.backup.create"))
-        {
-            ModernMessageBox.ShowError(
-                "Backups dürfen nur Benutzer mit vollständigem Verwaltungszugriff erstellen.",
-                LocalizationManager.Get("AppErrorTitle"));
-            return;
-        }
-
-        if (!BackupService.SupportsFileBackup())
-        {
-            ModernMessageBox.Show(
-                LocalizationManager.Get("BackupSQLiteOnly"),
-                LocalizationManager.Get("BackupTitle"));
-            return;
-        }
-
-        var sourcePath = App.CurrentConnectionConfig!.FilePath;
-        var dialog = new SaveFileDialog
-        {
-            Title = LocalizationManager.Get("BackupDialogTitle"),
-            Filter = LocalizationManager.Get("BackupDialogFilter"),
-            DefaultExt = ".db",
-            FileName = $"{Path.GetFileNameWithoutExtension(sourcePath)}-backup-{DateTime.Now:yyyyMMdd-HHmmss}.db"
-        };
-
-        if (dialog.ShowDialog() != true)
-            return;
-
-        try
-        {
-            if (!PermissionGuard.DemandEdit(PageKeys.Admin, "database.backup.create.confirmed"))
-                return;
-            BackupService.CreateBackup(dialog.FileName);
-            AppLogger.Audit("database.backup.created", Path.GetFileName(dialog.FileName), success: true);
-            ModernMessageBox.Show(
-                string.Format(LocalizationManager.Get("BackupSuccess"), dialog.FileName),
-                LocalizationManager.Get("BackupTitle"));
-            UpdateStatusBar();
-        }
-        catch (Exception ex)
-        {
-            var reference = AppLogger.LogException("database.backup_failed", ex);
-            if (!PermissionGuard.EnsureSessionValid("database.backup.failure"))
-                return;
-            ModernMessageBox.ShowError(
-                string.Format(
-                    LocalizationManager.Get("BackupFailed"),
-                    string.Format(LocalizationManager.Get("ErrorReferenceValue"), reference)),
-                LocalizationManager.Get("BackupTitle"));
-        }
-    }
-
-    private void Restore_Click(object sender, RoutedEventArgs e)
-    {
-        if (App.IsDemoMode || !PermissionGuard.DemandEdit(PageKeys.Admin, "database.restore"))
-        {
-            ModernMessageBox.ShowError(
-                "Backups dürfen nur Benutzer mit vollständigem Verwaltungszugriff wiederherstellen.",
-                LocalizationManager.Get("AppErrorTitle"));
-            return;
-        }
-
-        if (!BackupService.SupportsFileBackup())
-        {
-            ModernMessageBox.Show(
-                LocalizationManager.Get("BackupSQLiteOnly"),
-                LocalizationManager.Get("RestoreTitle"));
-            return;
-        }
-
-        var dialog = new OpenFileDialog
-        {
-            Title = LocalizationManager.Get("RestoreDialogTitle"),
-            Filter = LocalizationManager.Get("BackupDialogFilter"),
-            DefaultExt = ".db"
-        };
-
-        if (dialog.ShowDialog() != true)
-            return;
-
-        if (!ModernMessageBox.ShowConfirm(
-            string.Format(LocalizationManager.Get("RestoreConfirm"), Path.GetFileName(dialog.FileName)),
-            LocalizationManager.Get("RestoreTitle")))
-            return;
-
-        try
-        {
-            if (!PermissionGuard.DemandEdit(PageKeys.Admin, "database.restore.confirmed"))
-                return;
-            var auditActorUsername = App.CurrentUsername;
-            var auditActorUserId = App.CurrentUserId;
-            BackupService.RestoreBackup(dialog.FileName);
-            AppLogger.AuditAs(
-                "database.restore.completed",
-                Path.GetFileName(dialog.FileName),
-                success: true,
-                auditActorUsername,
-                auditActorUserId);
-        }
-        catch (Exception ex)
-        {
-            var reference = AppLogger.LogException("database.restore_failed", ex);
-            if (!PermissionGuard.EnsureSessionValid("database.restore.failure"))
-                return;
-            ModernMessageBox.ShowError(
-                string.Format(LocalizationManager.Get("RestoreFailed"), $"Referenz: {reference}"),
-                LocalizationManager.Get("RestoreTitle"));
-            return;
-        }
-
-        // The restored file has a potentially different user/role universe.
-        // Never keep the current authenticated UI alive against that database.
-        ClearSession();
-        ModernMessageBox.Show(
-            LocalizationManager.Get("RestoreSuccessRestart"),
-            LocalizationManager.Get("RestoreTitle"));
-        RestartApplicationFailClosed();
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
@@ -538,34 +362,5 @@ public partial class MainWindow : Window
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
         Application.Current.Shutdown();
-    }
-
-    private static void RestartApplicationFailClosed()
-    {
-        try
-        {
-            var exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrWhiteSpace(exePath))
-                throw new InvalidOperationException("Der Anwendungspfad wurde nicht gefunden.");
-
-            if (Process.Start(new ProcessStartInfo
-            {
-                FileName = exePath,
-                UseShellExecute = true
-            }) == null)
-                throw new InvalidOperationException("Die Anwendung konnte nicht neu gestartet werden.");
-        }
-        catch (Exception ex)
-        {
-            var reference = AppLogger.LogException("application.restart_after_restore_failed", ex);
-            ModernMessageBox.ShowError(
-                $"Die Datenbank wurde wiederhergestellt, aber die Anwendung konnte nicht automatisch neu gestartet werden. " +
-                $"Bitte starten Sie sie manuell. Fehlerreferenz: {reference}",
-                LocalizationManager.Get("AppErrorTitle"));
-        }
-        finally
-        {
-            Application.Current.Shutdown();
-        }
     }
 }

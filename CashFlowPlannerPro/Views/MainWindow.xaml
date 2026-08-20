@@ -35,10 +35,6 @@
                             Click="UserSettings_Click"/>
                     <Button x:Name="SwitchDatabaseButton" Content="🗄  Datenbank wechseln" Style="{StaticResource SidebarButton}"
                             Click="SwitchDatabase_Click"/>
-                    <Button x:Name="BackupButton" Content="💾  Backup erstellen" Style="{StaticResource SidebarButton}"
-                            Click="Backup_Click"/>
-                    <Button x:Name="RestoreButton" Content="♻  Backup wiederherstellen" Style="{StaticResource SidebarButton}"
-                            Click="Restore_Click"/>
                     <Button x:Name="CheckUpdatesButton" Content="⬇  Nach Updates suchen" Style="{StaticResource SidebarButton}"
                             Click="CheckUpdates_Click"/>
                     <Button x:Name="AboutButton" Content="ℹ  Über" Style="{StaticResource SidebarButton}"

@@ -28,6 +28,8 @@ public partial class FixkostenView : UserControl
         FixkostenGrid.IsReadOnly = !canEdit;
     }
 
+    public void Reload() => _vm.Load();
+
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         if (!PermissionGuard.DemandEdit(PageKeys.Fixkosten, "fixed_cost.add")) return;

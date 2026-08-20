@@ -54,13 +54,6 @@ public partial class BankView : UserControl
 
     public async Task ActivateAsync()
     {
-        if (App.IsDemoMode)
-        {
-            SetStatus(LocalizationManager.Get("BankDemoDisabled"), Brushes.DarkOrange);
-            ApplyPermissionState();
-            return;
-        }
-
         if (!PermissionGuard.EnsureSessionValid("bank.activate") || !App.CanView(PageKeys.Bank))
             return;
 
@@ -108,8 +101,8 @@ public partial class BankView : UserControl
 
     private void ApplyPermissionState()
     {
-        var canView = App.CanView(PageKeys.Bank) && !App.IsDemoMode;
-        var canEdit = App.CanEdit(PageKeys.Bank) && !App.IsDemoMode;
+        var canView = App.CanView(PageKeys.Bank);
+        var canEdit = App.CanEdit(PageKeys.Bank);
         AccountCombo.IsEnabled = canView && !_isBusy;
         RefreshAccountsButton.IsEnabled = canView && !_isBusy;
         LoadTransactionsButton.IsEnabled = canView && !_isBusy;
@@ -120,11 +113,10 @@ public partial class BankView : UserControl
             && TransactionsGrid.SelectedItem is BankTransactionPreviewRow
             {
                 ExistsLocally: true,
+                IsFixedCostLinked: false,
                 Source: { Amount: < 0 }
             };
 
-        if (App.IsDemoMode)
-            SetStatus(LocalizationManager.Get("BankDemoDisabled"), Brushes.DarkOrange);
     }
 
     private async void RefreshAccountsButton_Click(object sender, RoutedEventArgs e)
@@ -157,14 +149,6 @@ public partial class BankView : UserControl
 
     private async void ImportButton_Click(object sender, RoutedEventArgs e)
     {
-        if (App.IsDemoMode)
-        {
-            ModernMessageBox.ShowError(
-                LocalizationManager.Get("BankDemoDisabled"),
-                LocalizationManager.Get("AppErrorTitle"));
-            return;
-        }
-
         if (!PermissionGuard.DemandEdit(PageKeys.Bank, "bank.transactions.import"))
         {
             ModernMessageBox.ShowError(
@@ -338,7 +322,16 @@ public partial class BankView : UserControl
                 dialog.Interval,
                 dialog.FixedCostDescription,
                 categoryId);
+            row.IsFixedCostLinked = true;
             row.ImportState = LocalizationManager.Get("BankStateFixedCost");
+            if (account.LocalAccountId is long localAccountId
+                && _localTransactionsByAccountId.TryGetValue(localAccountId, out var localTransactions))
+            {
+                var localTransaction = localTransactions.FirstOrDefault(item =>
+                    string.Equals(item.SourceExternalId, row.Source.ExternalId, StringComparison.Ordinal));
+                if (localTransaction != null)
+                    localTransaction.FixedCostTransactionId = transaction.Id;
+            }
             ModernMessageBox.ShowSuccess(
                 string.Format(
                     LocalizationManager.Get("BankFixedCostCreated"),
@@ -466,6 +459,7 @@ public partial class BankView : UserControl
                 {
                     CanImport = false,
                     ExistsLocally = true,
+                    IsFixedCostLinked = transaction.FixedCostTransactionId.HasValue,
                     IsSelected = false,
                     ImportState = transaction.FixedCostTransactionId.HasValue
                         ? LocalizationManager.Get("BankStateFixedCost")
@@ -693,17 +687,27 @@ public partial class BankView : UserControl
             {
                 var sourceId = source.ExternalId.Trim();
                 var exists = !string.IsNullOrWhiteSpace(sourceId) && existingSourceIds.Contains(sourceId);
+                BankTransaction? localTransaction = null;
+                if (account.LocalAccountId is long localAccountId
+                    && _localTransactionsByAccountId.TryGetValue(localAccountId, out var localTransactions))
+                {
+                    localTransaction = localTransactions.FirstOrDefault(item =>
+                        string.Equals(item.SourceExternalId, sourceId, StringComparison.Ordinal));
+                }
                 var validationState = GetValidationState(source, account.Source, duplicateIds);
                 var canImport = validationState == null && App.CanEdit(PageKeys.Bank);
 
                 AddTransaction(new BankTransactionPreviewRow(source)
                 {
                     ExistsLocally = exists,
+                    IsFixedCostLinked = localTransaction?.FixedCostTransactionId.HasValue == true,
                     CanImport = canImport,
                     IsSelected = canImport && !exists,
                     ImportState = validationState
-                        ?? (exists
-                            ? LocalizationManager.Get("BankStateExisting")
+                        ?? (localTransaction?.FixedCostTransactionId.HasValue == true
+                            ? LocalizationManager.Get("BankStateFixedCost")
+                            : exists
+                                ? LocalizationManager.Get("BankStateExisting")
                             : LocalizationManager.Get("BankStateNew"))
                 });
             }
@@ -731,12 +735,6 @@ public partial class BankView : UserControl
 
     private string? GetApiToken()
     {
-        if (App.IsDemoMode)
-        {
-            SetStatus(LocalizationManager.Get("BankDemoDisabled"), Brushes.DarkOrange);
-            return null;
-        }
-
         if (!PermissionGuard.EnsureSessionValid("bank.token.read") || !App.CanView(PageKeys.Bank))
             return null;
 
@@ -909,6 +907,7 @@ public sealed class BankTransactionPreviewRow : INotifyPropertyChanged
 {
     private bool _isSelected;
     private bool _existsLocally;
+    private bool _isFixedCostLinked;
     private string _importState = "";
 
     public BankTransactionPreviewRow(SevDeskCheckAccountTransaction source)
@@ -937,6 +936,17 @@ public sealed class BankTransactionPreviewRow : INotifyPropertyChanged
         {
             if (_existsLocally == value) return;
             _existsLocally = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsFixedCostLinked
+    {
+        get => _isFixedCostLinked;
+        set
+        {
+            if (_isFixedCostLinked == value) return;
+            _isFixedCostLinked = value;
             OnPropertyChanged();
         }
     }
